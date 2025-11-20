@@ -57,3 +57,33 @@ mvn dependency:copy-dependencies -DoutputDirectory=target/dependency
 ```bash
 java -jar call-tree-analyzer-1.0.0.jar -s ../../ext/spring-framework-petclinic/src/main -cp ../../ext/spring-framework-petclinic/target/dependency -o dist/output.tsv
 ```
+
+## ツリー可視化
+
+```bash
+# エントリーポイントを見つける
+python call_tree_visualizer.py call-tree.tsv --list
+
+# キーワードでメソッドを検索
+python call_tree_visualizer.py call-tree.tsv --search "main"
+
+# 呼び出しツリーを表示
+python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])"
+
+# 逆引きツリー（誰がこのメソッドを呼んでいるか）
+python call_tree_visualizer.py call-tree.tsv --reverse "com.example.Service#process()"
+
+#ファイルにエクスポート
+# テキスト形式
+python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.txt text
+
+# Markdown形式
+python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.md markdown
+
+# HTML形式（ブラウザで開ける）
+python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.html html
+
+# 深度を指定
+python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5
+
+```
