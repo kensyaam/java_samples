@@ -64,6 +64,13 @@ java -jar call-tree-analyzer-1.0.0.jar -s ../../ext/spring-framework-petclinic/s
 # エントリーポイントを見つける
 python call_tree_visualizer.py call-tree.tsv --list
 
+# 厳密モード
+python call_tree_visualizer.py call-tree.tsv --list --strict
+# 呼び出し数で絞り込み
+python call_tree_visualizer.py call-tree.tsv --list --min-calls 5
+# 両方の条件を組み合わせ
+python call_tree_visualizer.py call-tree.tsv --list --strict --min-calls 3
+
 # キーワードでメソッドを検索
 python call_tree_visualizer.py call-tree.tsv --search "main"
 

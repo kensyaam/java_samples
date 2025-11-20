@@ -33,7 +33,12 @@ class CallTreeVisualizer:
                     self.method_info[caller] = {
                         "class": row["呼び出し元クラス"],
                         "parent": row["呼び出し元の親クラス"],
-                        "sql": row["SQL文"],
+                        "sql": row.get("SQL文", ""),
+                        "visibility": row.get("可視性", ""),
+                        "is_static": row.get("Static", "") == "Yes",
+                        "is_entry_point": row.get("エントリーポイント候補", "")
+                        == "Yes",
+                        "annotations": row.get("アノテーション", ""),
                     }
 
                 if callee and callee not in self.method_info:
@@ -41,6 +46,10 @@ class CallTreeVisualizer:
                         "class": row["呼び出し先クラス"],
                         "parent": "",
                         "sql": "",
+                        "visibility": "",
+                        "is_static": False,
+                        "is_entry_point": False,
+                        "annotations": "",
                     }
 
                 # 呼び出し関係を保存
@@ -293,9 +302,9 @@ class CallTreeVisualizer:
 
     def list_entry_points(self, min_calls: int = 3):
         """エントリーポイント候補をリストアップ（他から呼ばれていないメソッド）"""
-        print(f"\n{'=' * 80}")
+        print(f"\n{'='*80}")
         print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
-        print(f"{'=' * 80}\n")
+        print(f"{'='*80}\n")
 
         all_callees = set()
         for callees in self.forward_calls.values():
