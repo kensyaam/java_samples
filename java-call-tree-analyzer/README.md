@@ -104,3 +104,29 @@ python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(Str
 python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5
 
 ```
+
+```bash
+$ python call_tree_visualizer.py
+使い方:
+  python call_tree_visualizer.py <TSVファイル> [オプション]
+
+オプション:
+  --list [--strict]   エントリーポイント候補を表示
+                      --strict: アノテーション等で厳密に判定
+  --search <keyword>  キーワードでメソッドを検索
+  --forward <method>  指定メソッドからの呼び出しツリーを表示
+  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
+  --export <method> <o> [format]  ツリーをファイルにエクスポート
+                      format: text, markdown, html (default: text)
+  --depth <n>         ツリーの最大深度 (default: 10)
+  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
+  --no-follow-impl    実装クラス候補を追跡しない
+
+例:
+  python call_tree_visualizer.py call-tree.tsv --list --strict
+  python call_tree_visualizer.py call-tree.tsv --list --min-calls 5
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
+  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
+
+```

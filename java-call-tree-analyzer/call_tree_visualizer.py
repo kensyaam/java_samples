@@ -72,15 +72,31 @@ class CallTreeVisualizer:
         max_depth: int = 10,
         show_class: bool = True,
         show_sql: bool = True,
+        follow_implementations: bool = True,
     ):
-        """呼び出し元からのツリーを表示"""
+        """呼び出し元からのツリーを表示
+
+        Args:
+            root_method: 起点メソッド
+            max_depth: 最大深度
+            show_class: クラス情報を表示するか
+            show_sql: SQL情報を表示するか
+            follow_implementations: 実装クラス候補がある場合、それも追跡するか
+        """
         print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
         print(f"{'=' * 80}\n")
 
         visited = set()
         self._print_tree_recursive(
-            root_method, 0, max_depth, visited, show_class, show_sql, is_forward=True
+            root_method,
+            0,
+            max_depth,
+            visited,
+            show_class,
+            show_sql,
+            is_forward=True,
+            follow_implementations=follow_implementations,
         )
 
     def print_reverse_tree(
@@ -105,6 +121,7 @@ class CallTreeVisualizer:
         show_class: bool,
         show_sql: bool,
         is_forward: bool,
+        follow_implementations: bool = True,
     ):
         """ツリーを再帰的に表示"""
         if depth > max_depth:
@@ -135,6 +152,7 @@ class CallTreeVisualizer:
                     indent = "    " * (depth + 1)
                     print(f"{indent}↓ [{', '.join(annotations)}]")
 
+                # 呼び出し先を再帰的に表示
                 self._print_tree_recursive(
                     callee,
                     depth + 1,
@@ -143,7 +161,36 @@ class CallTreeVisualizer:
                     show_class,
                     show_sql,
                     is_forward,
+                    follow_implementations,
                 )
+
+                # 実装クラス候補がある場合、それらも追跡
+                if follow_implementations and callee_info["implementations"]:
+                    implementations = [
+                        impl.strip()
+                        for impl in callee_info["implementations"].split(",")
+                        if impl.strip()
+                    ]
+
+                    for impl_class in implementations:
+                        # 実装クラスの対応するメソッドを探す
+                        impl_method = self._find_implementation_method(
+                            callee, impl_class
+                        )
+                        if impl_method:
+                            indent = "    " * (depth + 1)
+                            print(f"{indent}↓ [実装クラスへの展開: {impl_class}]")
+
+                            self._print_tree_recursive(
+                                impl_method,
+                                depth + 1,
+                                max_depth,
+                                visited.copy(),
+                                show_class,
+                                show_sql,
+                                is_forward,
+                                follow_implementations,
+                            )
         else:
             callers = self.reverse_calls.get(method, [])
             for caller in callers:
@@ -155,6 +202,7 @@ class CallTreeVisualizer:
                     show_class,
                     False,
                     is_forward,
+                    follow_implementations,
                 )
 
     def _print_node(
@@ -190,31 +238,80 @@ class CallTreeVisualizer:
                 if sql.strip():
                     print(f"{indent}    SQL: {sql.strip()[:80]}...")
 
+    def _find_implementation_method(self, abstract_method: str, impl_class: str) -> str:
+        """抽象メソッドに対応する実装クラスのメソッドを探す
+
+        Args:
+            abstract_method: 抽象メソッドのシグネチャ
+            impl_class: 実装クラス名
+
+        Returns:
+            実装メソッドのシグネチャ（見つからない場合はNone）
+        """
+        # メソッドシグネチャからメソッド名と引数を抽出
+        # 例: "com.example.Interface#method(String, int)" -> "method(String, int)"
+        if "#" not in abstract_method:
+            return None
+
+        method_part = abstract_method.split("#", 1)[1]
+
+        # 実装クラスの同じシグネチャのメソッドを探す
+        for method_sig, info in self.method_info.items():
+            if info.get("class") == impl_class:
+                # クラス名を除いたメソッド部分が一致するか確認
+                if "#" in method_sig:
+                    sig_method_part = method_sig.split("#", 1)[1]
+                    if sig_method_part == method_part:
+                        return method_sig
+
+        return None
+
     def export_tree_to_file(
         self,
         root_method: str,
         output_file: str,
         max_depth: int = 10,
         format: str = "text",
+        follow_implementations: bool = True,
     ):
         """ツリーをファイルにエクスポート"""
         if format == "text":
-            self._export_text_tree(root_method, output_file, max_depth)
+            self._export_text_tree(
+                root_method, output_file, max_depth, follow_implementations
+            )
         elif format == "markdown":
-            self._export_markdown_tree(root_method, output_file, max_depth)
+            self._export_markdown_tree(
+                root_method, output_file, max_depth, follow_implementations
+            )
         elif format == "html":
-            self._export_html_tree(root_method, output_file, max_depth)
+            self._export_html_tree(
+                root_method, output_file, max_depth, follow_implementations
+            )
 
-    def _export_text_tree(self, root_method: str, output_file: str, max_depth: int):
+    def _export_text_tree(
+        self,
+        root_method: str,
+        output_file: str,
+        max_depth: int,
+        follow_implementations: bool,
+    ):
         """テキスト形式でエクスポート"""
         with open(output_file, "w", encoding="utf-8") as f:
             original_stdout = sys.stdout
             sys.stdout = f
-            self.print_forward_tree(root_method, max_depth)
+            self.print_forward_tree(
+                root_method, max_depth, follow_implementations=follow_implementations
+            )
             sys.stdout = original_stdout
         print(f"ツリーを {output_file} にエクスポートしました")
 
-    def _export_markdown_tree(self, root_method: str, output_file: str, max_depth: int):
+    def _export_markdown_tree(
+        self,
+        root_method: str,
+        output_file: str,
+        max_depth: int,
+        follow_implementations: bool,
+    ):
         """Markdown形式でエクスポート"""
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(f"# 呼び出しツリー\n\n")
@@ -224,14 +321,24 @@ class CallTreeVisualizer:
             original_stdout = sys.stdout
             sys.stdout = f
             self.print_forward_tree(
-                root_method, max_depth, show_class=False, show_sql=False
+                root_method,
+                max_depth,
+                show_class=False,
+                show_sql=False,
+                follow_implementations=follow_implementations,
             )
             sys.stdout = original_stdout
 
             f.write("```\n")
         print(f"ツリーを {output_file} にエクスポートしました")
 
-    def _export_html_tree(self, root_method: str, output_file: str, max_depth: int):
+    def _export_html_tree(
+        self,
+        root_method: str,
+        output_file: str,
+        max_depth: int,
+        follow_implementations: bool,
+    ):
         """HTML形式でエクスポート（インタラクティブなツリー）"""
         html = f"""<!DOCTYPE html>
 <html>
@@ -248,6 +355,7 @@ class CallTreeVisualizer:
         .sql {{ color: #008800; font-size: 0.9em; margin-left: 20px; }}
         .circular {{ color: #cc0000; }}
         .parent-method {{ color: #ff6600; }}
+        .implementation {{ color: #9966cc; font-style: italic; }}
     </style>
 </head>
 <body>
@@ -257,7 +365,9 @@ class CallTreeVisualizer:
 """
 
         visited = set()
-        html += self._generate_html_tree(root_method, 0, max_depth, visited)
+        html += self._generate_html_tree(
+            root_method, 0, max_depth, visited, follow_implementations
+        )
 
         html += """
     </ul>
@@ -270,7 +380,12 @@ class CallTreeVisualizer:
         print(f"ツリーを {output_file} にエクスポートしました")
 
     def _generate_html_tree(
-        self, method: str, depth: int, max_depth: int, visited: Set[str]
+        self,
+        method: str,
+        depth: int,
+        max_depth: int,
+        visited: Set[str],
+        follow_implementations: bool,
     ) -> str:
         """HTML形式のツリーを生成"""
         if depth > max_depth:
@@ -295,8 +410,36 @@ class CallTreeVisualizer:
             html += '<ul class="tree">'
             for callee_info in callees:
                 html += self._generate_html_tree(
-                    callee_info["method"], depth + 1, max_depth, visited.copy()
+                    callee_info["method"],
+                    depth + 1,
+                    max_depth,
+                    visited.copy(),
+                    follow_implementations,
                 )
+
+                # 実装クラス候補がある場合
+                if follow_implementations and callee_info["implementations"]:
+                    implementations = [
+                        impl.strip()
+                        for impl in callee_info["implementations"].split(",")
+                        if impl.strip()
+                    ]
+
+                    for impl_class in implementations:
+                        impl_method = self._find_implementation_method(
+                            callee_info["method"], impl_class
+                        )
+                        if impl_method:
+                            html += f'<li><span class="implementation">→ 実装: {impl_class}</span>'
+                            html += self._generate_html_tree(
+                                impl_method,
+                                depth + 2,
+                                max_depth,
+                                visited.copy(),
+                                follow_implementations,
+                            )
+                            html += "</li>"
+
             html += "</ul>"
 
         html += "</li>"
@@ -572,11 +715,15 @@ def main():
         print("                      format: text, markdown, html (default: text)")
         print("  --depth <n>         ツリーの最大深度 (default: 10)")
         print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
+        print("  --no-follow-impl    実装クラス候補を追跡しない")
         print("\n例:")
         print("  python call_tree_visualizer.py call-tree.tsv --list --strict")
         print("  python call_tree_visualizer.py call-tree.tsv --list --min-calls 5")
         print(
             "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
+        )
+        print(
+            "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl"
         )
         print(
             "  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html"
@@ -589,6 +736,7 @@ def main():
     max_depth = 10
     min_calls = 1
     strict = "--strict" in sys.argv
+    follow_implementations = "--no-follow-impl" not in sys.argv
 
     # 深度オプションの処理
     if "--depth" in sys.argv:
@@ -616,7 +764,9 @@ def main():
         idx = sys.argv.index("--forward")
         if idx + 1 < len(sys.argv):
             method = sys.argv[idx + 1]
-            visualizer.print_forward_tree(method, max_depth)
+            visualizer.print_forward_tree(
+                method, max_depth, follow_implementations=follow_implementations
+            )
 
     elif "--reverse" in sys.argv:
         idx = sys.argv.index("--reverse")
@@ -630,7 +780,9 @@ def main():
             method = sys.argv[idx + 1]
             output_file = sys.argv[idx + 2]
             format = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else "text"
-            visualizer.export_tree_to_file(method, output_file, max_depth, format)
+            visualizer.export_tree_to_file(
+                method, output_file, max_depth, format, follow_implementations
+            )
 
     else:
         print("オプションを指定してください。--help で使い方を確認できます")
