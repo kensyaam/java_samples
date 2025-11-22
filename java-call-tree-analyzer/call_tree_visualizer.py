@@ -38,7 +38,9 @@ class CallTreeVisualizer:
                         "is_static": row.get("Static", "") == "Yes",
                         "is_entry_point": row.get("エントリーポイント候補", "")
                         == "Yes",
+                        "entry_type": row.get("エントリータイプ", ""),
                         "annotations": row.get("アノテーション", ""),
+                        "class_annotations": row.get("クラスアノテーション", ""),
                     }
 
                 if callee and callee not in self.method_info:
@@ -72,9 +74,9 @@ class CallTreeVisualizer:
         show_sql: bool = True,
     ):
         """呼び出し元からのツリーを表示"""
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         visited = set()
         self._print_tree_recursive(
@@ -85,9 +87,9 @@ class CallTreeVisualizer:
         self, target_method: str, max_depth: int = 10, show_class: bool = True
     ):
         """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示"""
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         visited = set()
         self._print_tree_recursive(
@@ -300,36 +302,245 @@ class CallTreeVisualizer:
         html += "</li>"
         return html
 
-    def list_entry_points(self, min_calls: int = 3):
-        """エントリーポイント候補をリストアップ（他から呼ばれていないメソッド）"""
-        print(f"\n{'='*80}")
-        print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
-        print(f"{'='*80}\n")
+    def list_entry_points(self, min_calls: int = 1, strict: bool = True):
+        """エントリーポイント候補をリストアップ
 
+        Args:
+            min_calls: 最小呼び出し数
+            strict: True の場合、アノテーションやmainメソッドなど厳密に判定
+        """
+        print(f"\n{'=' * 80}")
+        if strict:
+            print(f"エントリーポイント候補（厳密モード）")
+        else:
+            print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
+        print(f"{'=' * 80}\n")
+
+        # すべての呼び出し先を収集
         all_callees = set()
         for callees in self.forward_calls.values():
             for callee_info in callees:
                 all_callees.add(callee_info["method"])
 
         entry_points = []
-        for caller, callees in self.forward_calls.items():
-            if caller not in all_callees and len(callees) >= min_calls:
-                info = self.method_info.get(caller, {})
-                entry_points.append((caller, len(callees), info.get("class", "")))
 
-        # 呼び出し数でソート
-        entry_points.sort(key=lambda x: x[1], reverse=True)
+        for method, info in self.method_info.items():
+            # 他から呼ばれていないメソッドのみ
+            if method in all_callees:
+                continue
 
-        for i, (method, call_count, class_name) in enumerate(entry_points[:20], 1):
+            call_count = len(self.forward_calls.get(method, []))
+
+            # 厳密モードの場合
+            if strict:
+                if info.get("is_entry_point"):
+                    entry_type = self._determine_entry_type(info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                        )
+                    )
+            else:
+                # 非厳密モードの場合は呼び出し数で判定
+                if call_count >= min_calls:
+                    entry_type = self._determine_entry_type(info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                        )
+                    )
+
+        # エントリータイプと呼び出し数でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
+
+        # 結果を表示
+        if not entry_points:
+            print("エントリーポイント候補が見つかりませんでした")
+            return
+
+        for i, (
+            method,
+            call_count,
+            class_name,
+            entry_type,
+            annotations,
+            visibility,
+        ) in enumerate(entry_points, 1):
             print(f"{i}. {method}")
             print(f"   クラス: {class_name}")
+            print(f"   種別: {entry_type}")
+            print(f"   可視性: {visibility}")
+            if annotations:
+                print(f"   メソッドアノテーション: {annotations}")
+
+            # クラスアノテーションも表示
+            info = self.method_info.get(method, {})
+            class_annotations = info.get("class_annotations", "")
+            if class_annotations:
+                print(f"   クラスアノテーション: {class_annotations}")
+
             print(f"   呼び出し数: {call_count}")
             print()
+
+    def _determine_entry_type(self, info: dict) -> str:
+        """エントリーポイントの種別を判定"""
+        # まず、解析時に判定されたエントリータイプを使用
+        entry_type = info.get("entry_type", "")
+        if entry_type:
+            type_map = {
+                "Main": "Main Method",
+                "Test": "Test Method",
+                "HTTP": "HTTP Endpoint",
+                "SOAP": "SOAP Endpoint",
+                "Scheduled": "Scheduled Job",
+                "Event": "Event Listener",
+                "Lifecycle": "Lifecycle Method",
+                "Servlet": "Servlet",
+                "SpringBoot": "Spring Boot Runner",
+                "Thread": "Runnable/Callable",
+                "Bean": "Bean Factory",
+            }
+            return type_map.get(entry_type, entry_type)
+
+        # フォールバック：アノテーションから判定
+        annotations = info.get("annotations", "")
+        class_annotations = info.get("class_annotations", "")
+
+        # main メソッド
+        if info.get("is_static") and "main" in info.get("class", "").lower():
+            return "Main Method"
+
+        # テストメソッド
+        if any(
+            test in annotations
+            for test in [
+                "Test",
+                "TestTemplate",
+                "ParameterizedTest",
+                "RepeatedTest",
+                "TestFactory",
+            ]
+        ):
+            return "Test Method"
+
+        # Spring Controller
+        if any(
+            ctrl in annotations
+            for ctrl in [
+                "RequestMapping",
+                "GetMapping",
+                "PostMapping",
+                "PutMapping",
+                "DeleteMapping",
+                "PatchMapping",
+            ]
+        ):
+            return "HTTP Endpoint (Spring)"
+
+        # クラスレベルのController
+        if any(ctrl in class_annotations for ctrl in ["Controller", "RestController"]):
+            return "HTTP Endpoint (Spring)"
+
+        # JAX-RS REST API
+        if any(
+            jax in annotations
+            for jax in ["Path", "GET", "POST", "PUT", "DELETE", "PATCH"]
+        ):
+            return "HTTP Endpoint (JAX-RS)"
+
+        # SOAP Webサービス
+        if "WebMethod" in annotations:
+            return "SOAP Endpoint (JAX-WS)"
+
+        if any(ws in class_annotations for ws in ["WebService", "WebServiceProvider"]):
+            return "SOAP Endpoint (JAX-WS)"
+
+        # Scheduled Job
+        if any(sched in annotations for sched in ["Scheduled", "Schedules", "Async"]):
+            return "Scheduled Job"
+
+        # Event Listener
+        if any(
+            evt in annotations
+            for evt in [
+                "EventListener",
+                "TransactionalEventListener",
+                "JmsListener",
+                "RabbitListener",
+                "KafkaListener",
+                "StreamListener",
+                "MessageMapping",
+                "SubscribeMapping",
+            ]
+        ):
+            return "Event Listener"
+
+        # Lifecycle
+        if any(
+            lc in annotations
+            for lc in [
+                "PostConstruct",
+                "PreDestroy",
+                "BeforeAll",
+                "AfterAll",
+                "BeforeEach",
+                "AfterEach",
+                "Before",
+                "After",
+                "BeforeClass",
+                "AfterClass",
+            ]
+        ):
+            return "Lifecycle Method"
+
+        # Bean Factory Method
+        if "Bean" in annotations:
+            return "Bean Factory"
+
+        # Servlet
+        if "WebServlet" in annotations or "WebServlet" in class_annotations:
+            return "Servlet"
+
+        # その他のpublicメソッド
+        if info.get("visibility") == "public":
+            return "Public Method"
+
+        return "Unknown"
+
+    def _entry_priority(self, entry_type: str) -> int:
+        """エントリータイプの優先順位（小さいほど優先度が高い）"""
+        priority_map = {
+            "Main Method": 1,
+            "HTTP Endpoint (Spring)": 2,
+            "HTTP Endpoint (JAX-RS)": 3,
+            "SOAP Endpoint (JAX-WS)": 4,
+            "Servlet": 5,
+            "Spring Boot Runner": 6,
+            "Scheduled Job": 7,
+            "Event Listener": 8,
+            "Runnable/Callable": 9,
+            "Lifecycle Method": 10,
+            "Test Method": 11,
+            "Bean Factory": 12,
+            "Public Method": 13,
+            "Unknown": 14,
+        }
+        return priority_map.get(entry_type, 14)
 
     def search_methods(self, keyword: str):
         """キーワードでメソッドを検索"""
         print(f"\n検索結果: '{keyword}'")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         matches = []
         for method in self.method_info.keys():
@@ -352,15 +563,18 @@ def main():
         print("使い方:")
         print("  python call_tree_visualizer.py <TSVファイル> [オプション]")
         print("\nオプション:")
-        print("  --list              エントリーポイント候補を表示")
+        print("  --list [--strict]   エントリーポイント候補を表示")
+        print("                      --strict: アノテーション等で厳密に判定")
         print("  --search <keyword>  キーワードでメソッドを検索")
         print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
         print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
-        print("  --export <method> <output> [format]  ツリーをファイルにエクスポート")
+        print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
         print("                      format: text, markdown, html (default: text)")
         print("  --depth <n>         ツリーの最大深度 (default: 10)")
+        print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
         print("\n例:")
-        print("  python call_tree_visualizer.py call-tree.tsv --list")
+        print("  python call_tree_visualizer.py call-tree.tsv --list --strict")
+        print("  python call_tree_visualizer.py call-tree.tsv --list --min-calls 5")
         print(
             "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
         )
@@ -373,6 +587,8 @@ def main():
     visualizer = CallTreeVisualizer(tsv_file)
 
     max_depth = 10
+    min_calls = 1
+    strict = "--strict" in sys.argv
 
     # 深度オプションの処理
     if "--depth" in sys.argv:
@@ -380,9 +596,15 @@ def main():
         if idx + 1 < len(sys.argv):
             max_depth = int(sys.argv[idx + 1])
 
+    # 最小呼び出し数オプションの処理
+    if "--min-calls" in sys.argv:
+        idx = sys.argv.index("--min-calls")
+        if idx + 1 < len(sys.argv):
+            min_calls = int(sys.argv[idx + 1])
+
     # コマンド処理
     if "--list" in sys.argv:
-        visualizer.list_entry_points()
+        visualizer.list_entry_points(min_calls, strict)
 
     elif "--search" in sys.argv:
         idx = sys.argv.index("--search")

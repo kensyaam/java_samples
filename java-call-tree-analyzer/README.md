@@ -24,7 +24,17 @@
 
 # 実行可能JAR作成、実行
 ./gradlew shadowJar
-java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -o output.tsv
+java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -o output.tsv
+```
+
+```bash
+$ java -jar call-tree-analyzer-1.0.0.jar -h                                                     
+usage: CallTreeAnalyzer
+ -cp,--classpath <arg>   依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）
+ -f,--format <arg>       出力フォーマット（tsv/json/graphml、デフォルト: tsv）
+ -h,--help               ヘルプを表示
+ -o,--output <arg>       出力ファイルパス（デフォルト: call-tree.tsv）
+ -s,--source <arg>       解析対象のソースディレクトリ（複数指定可、カンマ区切り）
 ```
 
 ## 出力形式について
