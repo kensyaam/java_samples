@@ -790,64 +790,23 @@ public class CallTreeAnalyzer {
      */
     private void exportTsv(String outputPath) throws IOException {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
-            // ヘッダー
-            writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t" +
-                        "呼び出し先メソッド\t呼び出し先クラス\t呼び出し先は親クラスのメソッド\t" +
-                        "呼び出し先の実装クラス候補\tSQL文\t方向\t" +
-                        "可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\n");
+            writeTsvHeader(writer);
             
             // 呼び出し元からのツリー
             for (Map.Entry<String, Set<String>> entry : callGraph.entrySet()) {
                 String caller = entry.getKey();
-                String callerClass = methodToClassMap.getOrDefault(caller, "");
-                String callerParents = getParentClasses(callerClass);
-                MethodMetadata callerMeta = methodMetadata.get(caller);
-                
                 for (String callee : entry.getValue()) {
-                    String calleeClass = methodToClassMap.getOrDefault(callee, "");
-                    boolean isParentMethod = isParentClassMethod(caller, callee);
-                    String implementations = getImplementations(callee);
-                    String sql = sqlStatements.containsKey(caller) ? 
-                                String.join("; ", sqlStatements.get(caller)) : "";
-                    
-                    String visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
-                                       (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
-                    String isStatic = callerMeta != null && callerMeta.isStatic ? "Yes" : "No";
-                    String isEntry = callerMeta != null && callerMeta.isEntryPointCandidate() ? "Yes" : "No";
-                    String entryType = callerMeta != null ? callerMeta.getEntryPointType() : "";
-                    String annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
-                    String classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
-                    
-                    writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                        escape(caller), escape(callerClass), escape(callerParents),
-                        escape(callee), escape(calleeClass), isParentMethod ? "Yes" : "No",
-                        escape(implementations), escape(sql), "Forward",
-                        visibility, isStatic, isEntry, entryType, escape(annotations), escape(classAnnotations)));
+                    CallRelation relation = createForwardCallRelation(caller, callee);
+                    writeTsvRow(writer, relation);
                 }
             }
             
             // 呼び出し先からのツリー（逆方向）
             for (Map.Entry<String, Set<String>> entry : reverseCallGraph.entrySet()) {
                 String callee = entry.getKey();
-                String calleeClass = methodToClassMap.getOrDefault(callee, "");
-                
                 for (String caller : entry.getValue()) {
-                    String callerClass = methodToClassMap.getOrDefault(caller, "");
-                    String callerParents = getParentClasses(callerClass);
-                    MethodMetadata callerMeta = methodMetadata.get(caller);
-                    
-                    String visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
-                                       (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
-                    String isStatic = callerMeta != null && callerMeta.isStatic ? "Yes" : "No";
-                    String isEntry = callerMeta != null && callerMeta.isEntryPointCandidate() ? "Yes" : "No";
-                    String entryType = callerMeta != null ? callerMeta.getEntryPointType() : "";
-                    String annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
-                    String classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
-                    
-                    writer.write(String.format("%s\t%s\t%s\t%s\t%s\t\t\t\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                        escape(callee), escape(calleeClass), "",
-                        escape(caller), escape(callerClass), "Reverse",
-                        visibility, isStatic, isEntry, entryType, escape(annotations), escape(classAnnotations)));
+                    CallRelation relation = createReverseCallRelation(callee, caller);
+                    writeTsvRow(writer, relation);
                 }
             }
         }
@@ -857,7 +816,6 @@ public class CallTreeAnalyzer {
      * JSON形式でエクスポート
      */
     private void exportJson(String outputPath) throws IOException {
-        // 簡易的なJSON出力（Gsonを使うとより良い）
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
             writer.write("{\n");
             writer.write("  \"methods\": [\n");
@@ -867,15 +825,8 @@ public class CallTreeAnalyzer {
                 if (!first) writer.write(",\n");
                 first = false;
                 
-                String className = methodToClassMap.getOrDefault(method, "");
-                Set<String> calls = callGraph.getOrDefault(method, Collections.emptySet());
-                Set<String> calledBy = reverseCallGraph.getOrDefault(method, Collections.emptySet());
-                
-                writer.write(String.format("    {\"method\": \"%s\", \"class\": \"%s\", " +
-                    "\"calls\": [%s], \"calledBy\": [%s]}",
-                    escape(method), escape(className),
-                    calls.stream().map(s -> "\"" + escape(s) + "\"").collect(Collectors.joining(", ")),
-                    calledBy.stream().map(s -> "\"" + escape(s) + "\"").collect(Collectors.joining(", "))));
+                String jsonEntry = createJsonMethodEntry(method);
+                writer.write(jsonEntry);
             }
             
             writer.write("\n  ]\n");
@@ -937,6 +888,157 @@ public class CallTreeAnalyzer {
         String className = methodToClassMap.getOrDefault(methodSignature, "");
         Set<String> impls = interfaceImplementations.getOrDefault(className, Collections.emptySet());
         return String.join(", ", impls);
+    }
+    
+    /**
+     * 呼び出し関係のデータを保持するクラス
+     */
+    static class CallRelation {
+        String callerMethod;         // 呼び出し元メソッド
+        String callerClass;          // 呼び出し元クラス
+        String callerParentClasses;  // 呼び出し元の親クラス
+        String calleeMethod;         // 呼び出し先メソッド
+        String calleeClass;          // 呼び出し先クラス
+        boolean isParentMethod;      // 呼び出し先は親クラスのメソッド
+        String implementations;      // 呼び出し先の実装クラス候補
+        String sqlStatements;        // SQL文
+        String direction;            // 方向（Forward/Reverse）
+        String visibility;           // 可視性
+        boolean isStatic;            // Static
+        boolean isEntryPoint;        // エントリーポイント候補
+        String entryPointType;       // エントリータイプ
+        String annotations;          // アノテーション
+        String classAnnotations;     // クラスアノテーション
+    }
+    
+    /**
+     * TSVヘッダーを出力
+     */
+    private void writeTsvHeader(BufferedWriter writer) throws IOException {
+        writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
+        writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先は親クラスのメソッド\t");
+        writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
+        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\n");
+    }
+    
+    /**
+     * TSV行を出力
+     */
+    private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
+        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+            escape(relation.callerMethod),
+            escape(relation.callerClass),
+            escape(relation.callerParentClasses),
+            escape(relation.calleeMethod),
+            escape(relation.calleeClass),
+            relation.isParentMethod ? "Yes" : "No",
+            escape(relation.implementations),
+            escape(relation.sqlStatements),
+            relation.direction,
+            relation.visibility,
+            relation.isStatic ? "Yes" : "No",
+            relation.isEntryPoint ? "Yes" : "No",
+            relation.entryPointType,
+            escape(relation.annotations),
+            escape(relation.classAnnotations)
+        ));
+    }
+    
+    /**
+     * 前方向の呼び出し関係を作成（呼び出し元 -> 呼び出し先）
+     */
+    private CallRelation createForwardCallRelation(String caller, String callee) {
+        CallRelation relation = new CallRelation();
+        
+        relation.callerMethod = caller;
+        relation.callerClass = methodToClassMap.getOrDefault(caller, "");
+        relation.callerParentClasses = getParentClasses(relation.callerClass);
+        
+        relation.calleeMethod = callee;
+        relation.calleeClass = methodToClassMap.getOrDefault(callee, "");
+        relation.isParentMethod = isParentClassMethod(caller, callee);
+        relation.implementations = getImplementations(callee);
+        relation.sqlStatements = sqlStatements.containsKey(caller) ? 
+                                String.join("; ", sqlStatements.get(caller)) : "";
+        
+        relation.direction = "Forward";
+        
+        // 呼び出し元メソッドのメタデータ
+        MethodMetadata callerMeta = methodMetadata.get(caller);
+        relation.visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
+                            (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
+        relation.isStatic = callerMeta != null && callerMeta.isStatic;
+        relation.isEntryPoint = callerMeta != null && callerMeta.isEntryPointCandidate();
+        relation.entryPointType = callerMeta != null ? callerMeta.getEntryPointType() : "";
+        relation.annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
+        relation.classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
+        
+        return relation;
+    }
+    
+    /**
+     * 逆方向の呼び出し関係を作成（呼び出し先から呼び出し元への逆引き）
+     */
+    private CallRelation createReverseCallRelation(String callee, String caller) {
+        CallRelation relation = new CallRelation();
+        
+        relation.callerMethod = callee;
+        relation.callerClass = methodToClassMap.getOrDefault(callee, "");
+        relation.callerParentClasses = "";
+        
+        relation.calleeMethod = caller;
+        relation.calleeClass = methodToClassMap.getOrDefault(caller, "");
+        relation.isParentMethod = false;
+        relation.implementations = "";
+        relation.sqlStatements = "";
+        
+        relation.direction = "Reverse";
+        
+        // 呼び出し元メソッドのメタデータ
+        MethodMetadata callerMeta = methodMetadata.get(caller);
+        relation.visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
+                            (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
+        relation.isStatic = callerMeta != null && callerMeta.isStatic;
+        relation.isEntryPoint = callerMeta != null && callerMeta.isEntryPointCandidate();
+        relation.entryPointType = callerMeta != null ? callerMeta.getEntryPointType() : "";
+        relation.annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
+        relation.classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
+        
+        return relation;
+    }
+    
+    /**
+     * JSON形式のメソッドエントリを作成
+     */
+    private String createJsonMethodEntry(String method) {
+        String className = methodToClassMap.getOrDefault(method, "");
+        Set<String> calls = callGraph.getOrDefault(method, Collections.emptySet());
+        Set<String> calledBy = reverseCallGraph.getOrDefault(method, Collections.emptySet());
+        
+        String callsJson = calls.stream()
+            .map(s -> "\"" + escapeJson(s) + "\"")
+            .collect(Collectors.joining(", "));
+        
+        String calledByJson = calledBy.stream()
+            .map(s -> "\"" + escapeJson(s) + "\"")
+            .collect(Collectors.joining(", "));
+        
+        return String.format("    {\"method\": \"%s\", \"class\": \"%s\", " +
+                           "\"calls\": [%s], \"calledBy\": [%s]}",
+                           escapeJson(method), escapeJson(className),
+                           callsJson, calledByJson);
+    }
+    
+    /**
+     * JSON用のエスケープ
+     */
+    private String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\") // バックスラッシュ
+                 .replace("\"", "\\\"")   // ダブルクォート
+                 .replace("\n", "\\n")   // 改行
+                 .replace("\r", "\\r")   // キャリッジリターン
+                 .replace("\t", "\\t");  // タブ
     }
     
     /**

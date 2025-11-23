@@ -31,6 +31,7 @@ java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/t
 $ java -jar call-tree-analyzer-1.0.0.jar -h                                                     
 usage: CallTreeAnalyzer
  -cp,--classpath <arg>   依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）
+ -d,--debug              デバッグモードを有効化
  -f,--format <arg>       出力フォーマット（tsv/json/graphml、デフォルト: tsv）
  -h,--help               ヘルプを表示
  -o,--output <arg>       出力ファイルパス（デフォルト: call-tree.tsv）
