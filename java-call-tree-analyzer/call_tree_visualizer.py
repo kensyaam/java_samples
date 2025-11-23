@@ -100,16 +100,27 @@ class CallTreeVisualizer:
         )
 
     def print_reverse_tree(
-        self, target_method: str, max_depth: int = 10, show_class: bool = True
+        self,
+        target_method: str,
+        max_depth: int = 10,
+        show_class: bool = True,
+        follow_overrides: bool = True,
     ):
-        """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示"""
+        """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示
+
+        Args:
+            target_method: 対象メソッド
+            max_depth: 最大深度
+            show_class: クラス情報を表示するか
+            follow_overrides: オーバーライド元/インターフェースメソッドも追跡するか
+        """
         print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
         print(f"{'=' * 80}\n")
 
         visited = set()
-        self._print_tree_recursive(
-            target_method, 0, max_depth, visited, show_class, False, is_forward=False
+        self._print_reverse_tree_recursive(
+            target_method, 0, max_depth, visited, show_class, follow_overrides
         )
 
     def _print_tree_recursive(
@@ -205,6 +216,56 @@ class CallTreeVisualizer:
                     follow_implementations,
                 )
 
+    def _print_reverse_tree_recursive(
+        self,
+        method: str,
+        depth: int,
+        max_depth: int,
+        visited: Set[str],
+        show_class: bool,
+        follow_overrides: bool,
+    ):
+        """逆引きツリーを再帰的に表示"""
+        if depth > max_depth:
+            return
+
+        # 循環参照チェック
+        if method in visited:
+            self._print_node(method, depth, show_class, False, is_circular=True)
+            return
+
+        visited.add(method)
+        self._print_node(method, depth, show_class, False)
+
+        callers = self.reverse_calls.get(method, [])
+
+        # 呼び出し元がない場合、オーバーライド元/インターフェースメソッドを探す
+        if not callers and follow_overrides:
+            parent_methods = self._find_parent_methods(method)
+            if parent_methods:
+                indent = "    " * (depth + 1)
+                print(f"{indent}↑ [オーバーライド元/インターフェースメソッドを展開]")
+                for parent_method in parent_methods:
+                    self._print_reverse_tree_recursive(
+                        parent_method,
+                        depth + 1,
+                        max_depth,
+                        visited.copy(),
+                        show_class,
+                        follow_overrides,
+                    )
+        else:
+            # 通常の呼び出し元を表示
+            for caller in callers:
+                self._print_reverse_tree_recursive(
+                    caller,
+                    depth + 1,
+                    max_depth,
+                    visited.copy(),
+                    show_class,
+                    follow_overrides,
+                )
+
     def _print_node(
         self,
         method: str,
@@ -231,12 +292,58 @@ class CallTreeVisualizer:
             if info.get("parent"):
                 print(f"{indent}    親クラス: {info['parent']}")
 
-        # SQL情報を表示
+        # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
             sql_lines = info["sql"].split(";")
-            for sql in sql_lines[:3]:  # 最初の3つまで表示
-                if sql.strip():
-                    print(f"{indent}    SQL: {sql.strip()[:80]}...")
+            for sql in sql_lines:
+                sql_text = sql.strip()
+                if sql_text:
+                    # 長いSQL文は改行して表示
+                    # if len(sql_text) > 100:
+                    if False:
+                        # 100文字ごとに改行
+                        sql_chunks = [
+                            sql_text[i : i + 100] for i in range(0, len(sql_text), 100)
+                        ]
+                        print(f"{indent}    SQL:")
+                        for chunk in sql_chunks:
+                            print(f"{indent}      {chunk}")
+                    else:
+                        print(f"{indent}    SQL: {sql_text}")
+
+    def _find_parent_methods(self, method: str) -> List[str]:
+        """メソッドのオーバーライド元/インターフェースメソッドを探す
+
+        Args:
+            method: 対象メソッドのシグネチャ
+
+        Returns:
+            親メソッドのシグネチャのリスト
+        """
+        if "#" not in method:
+            return []
+
+        info = self.method_info.get(method, {})
+        method_part = method.split("#", 1)[1]  # メソッド名+引数部分
+        parent_classes_str = info.get("parent", "")
+
+        if not parent_classes_str:
+            return []
+
+        # 親クラスをカンマで分割
+        parent_classes = [p.strip() for p in parent_classes_str.split(",") if p.strip()]
+
+        parent_methods = []
+        for parent_class in parent_classes:
+            # 親クラスの同じシグネチャのメソッドを探す
+            for method_sig, method_info in self.method_info.items():
+                if method_info.get("class") == parent_class:
+                    if "#" in method_sig:
+                        sig_method_part = method_sig.split("#", 1)[1]
+                        if sig_method_part == method_part:
+                            parent_methods.append(method_sig)
+
+        return parent_methods
 
     def _find_implementation_method(self, abstract_method: str, impl_class: str) -> str:
         """抽象メソッドに対応する実装クラスのメソッドを探す
@@ -450,11 +557,11 @@ class CallTreeVisualizer:
 
         Args:
             min_calls: 最小呼び出し数
-            strict: True の場合、アノテーションやmainメソッドなど厳密に判定
+            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
         """
         print(f"\n{'=' * 80}")
         if strict:
-            print(f"エントリーポイント候補（厳密モード）")
+            print(f"エントリーポイント候補（厳密モード - デフォルト）")
         else:
             print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
         print(f"{'=' * 80}\n")
@@ -706,8 +813,8 @@ def main():
         print("使い方:")
         print("  python call_tree_visualizer.py <TSVファイル> [オプション]")
         print("\nオプション:")
-        print("  --list [--strict]   エントリーポイント候補を表示")
-        print("                      --strict: アノテーション等で厳密に判定")
+        print("  --list [--no-strict]  エントリーポイント候補を表示")
+        print("                        デフォルトは厳密モード、--no-strictで緩和")
         print("  --search <keyword>  キーワードでメソッドを検索")
         print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
         print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
@@ -716,11 +823,17 @@ def main():
         print("  --depth <n>         ツリーの最大深度 (default: 10)")
         print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
         print("  --no-follow-impl    実装クラス候補を追跡しない")
+        print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
         print("\n例:")
-        print("  python call_tree_visualizer.py call-tree.tsv --list --strict")
-        print("  python call_tree_visualizer.py call-tree.tsv --list --min-calls 5")
+        print("  python call_tree_visualizer.py call-tree.tsv --list")
+        print(
+            "  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5"
+        )
         print(
             "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
+        )
+        print(
+            "  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'"
         )
         print(
             "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl"
@@ -735,8 +848,9 @@ def main():
 
     max_depth = 10
     min_calls = 1
-    strict = "--strict" in sys.argv
+    strict = "--no-strict" not in sys.argv  # デフォルトは厳密モード
     follow_implementations = "--no-follow-impl" not in sys.argv
+    follow_overrides = "--no-follow-override" not in sys.argv
 
     # 深度オプションの処理
     if "--depth" in sys.argv:
@@ -772,7 +886,9 @@ def main():
         idx = sys.argv.index("--reverse")
         if idx + 1 < len(sys.argv):
             method = sys.argv[idx + 1]
-            visualizer.print_reverse_tree(method, max_depth)
+            visualizer.print_reverse_tree(
+                method, max_depth, follow_overrides=follow_overrides
+            )
 
     elif "--export" in sys.argv:
         idx = sys.argv.index("--export")

@@ -72,15 +72,12 @@ java -jar call-tree-analyzer-1.0.0.jar -s ../../ext/spring-framework-petclinic/s
 ## ツリー可視化
 
 ```bash
-# エントリーポイントを見つける
+# エントリーポイントを見つける - 厳密モード（デフォルト）
 python call_tree_visualizer.py call-tree.tsv --list
 
-# 厳密モード
-python call_tree_visualizer.py call-tree.tsv --list --strict
+# エントリーポイントを見つける - 厳密モード（デフォルト）
 # 呼び出し数で絞り込み
-python call_tree_visualizer.py call-tree.tsv --list --min-calls 5
-# 両方の条件を組み合わせ
-python call_tree_visualizer.py call-tree.tsv --list --strict --min-calls 3
+python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
 
 # キーワードでメソッドを検索
 python call_tree_visualizer.py call-tree.tsv --search "main"
@@ -88,8 +85,10 @@ python call_tree_visualizer.py call-tree.tsv --search "main"
 # 呼び出しツリーを表示
 python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])"
 
-# 逆引きツリー（誰がこのメソッドを呼んでいるか）
-python call_tree_visualizer.py call-tree.tsv --reverse "com.example.Service#process()"
+# 逆引きツリー（誰がこのメソッドを呼んでいるか） - オーバーライド元も追跡（デフォルト）
+python call_tree_visualizer.py call-tree.tsv --reverse "com.example.UserDaoImpl#save(User)"
+# 逆引きツリー（誰がこのメソッドを呼んでいるか） - オーバーライド元を追跡しない
+python call_tree_visualizer.py call-tree.tsv --reverse "com.example.UserDaoImpl#save(User)" --no-follow-override
 
 #ファイルにエクスポート
 # テキスト形式
@@ -112,8 +111,8 @@ $ python call_tree_visualizer.py
   python call_tree_visualizer.py <TSVファイル> [オプション]
 
 オプション:
-  --list [--strict]   エントリーポイント候補を表示
-                      --strict: アノテーション等で厳密に判定
+  --list [--no-strict]  エントリーポイント候補を表示
+                        デフォルトは厳密モード、--no-strictで緩和
   --search <keyword>  キーワードでメソッドを検索
   --forward <method>  指定メソッドからの呼び出しツリーを表示
   --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
@@ -122,11 +121,13 @@ $ python call_tree_visualizer.py
   --depth <n>         ツリーの最大深度 (default: 10)
   --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
   --no-follow-impl    実装クラス候補を追跡しない
+  --no-follow-override  逆引き時にオーバーライド元を追跡しない
 
 例:
-  python call_tree_visualizer.py call-tree.tsv --list --strict
-  python call_tree_visualizer.py call-tree.tsv --list --min-calls 5
+  python call_tree_visualizer.py call-tree.tsv --list
+  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
   python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'
+  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'
   python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
   python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
 
