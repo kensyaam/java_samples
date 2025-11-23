@@ -6,3 +6,10 @@ build
 
 dist/
 *.jar
+*.txt
+*.html
+*.csv
+*.tsv
+*.json
+*.graphml
+
