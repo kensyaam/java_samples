@@ -228,14 +228,15 @@ public class CallTreeAnalyzer {
             method.getAnnotations().forEach(ann -> {
                 String simpleName = ann.getAnnotationType().getSimpleName();
                 String qualifiedName = ann.getAnnotationType().getQualifiedName();
-                annotations.add(simpleName);
+                String annotationStr = ann.toString();
+                annotations.add(annotationStr);
                 
                 // デバッグ: WebMethod等の重要なアノテーションをログ出力
                 if (debugMode && (simpleName.equals("WebMethod") || 
                     simpleName.equals("WebService") ||
                     simpleName.equals("RequestMapping") ||
                     simpleName.contains("Mapping"))) {
-                    System.out.println("  Found annotation: " + qualifiedName + 
+                    System.out.println("  Found annotation: " + annotationStr + 
                                      " on method: " + method.getSignature());
                 }
             });

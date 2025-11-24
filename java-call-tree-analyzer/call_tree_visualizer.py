@@ -6,6 +6,7 @@ TSVファイルから呼び出しツリーを生成します
 """
 
 import csv
+import re
 import sys
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
@@ -664,8 +665,50 @@ class CallTreeVisualizer:
             if class_annotations:
                 print(f"   クラスアノテーション: {class_annotations}")
 
+            # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
+            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
+                endpoint_path = self._extract_endpoint_path(info)
+                if endpoint_path:
+                    print(f"   エンドポイント: {endpoint_path}")
+
             print(f"   呼び出し数: {call_count}")
             print()
+
+    def _extract_endpoint_path(self, info: dict) -> str:
+        """アノテーションやクラスアノテーションからエンドポイントの path を抽出する
+
+        戻り値: 見つかれば path（例: /api/foo や https://... など）、見つからなければ空文字
+        """
+        if not info:
+            return ""
+
+        text = ""
+        text += str(info.get("annotations", "")) + " "
+        text += str(info.get("class_annotations", ""))
+
+        # よく使われるマッピングアノテーションのパターン
+        patterns = [
+            r"\w*Mapping\(\s*[\"']([^\"']+)[\"']",  # GetMapping("/x"), RequestMapping("/x") 等
+            r"RequestMapping\(.*?path\s*=\s*[\"']([^\"']+)[\"']",  # path = "/x"
+            r"RequestMapping\(.*?value\s*=\s*[\"']([^\"']+)[\"']",  # value = "/x"
+            r"Path\(\s*[\"']([^\"']+)[\"']",  # JAX-RS @Path
+            r"[\"'](\/[^\"']+)[\"']",  # 汎用: 引用された /... パス
+            r"[\"'](https?://[^\"']+)[\"']",  # フルURL
+        ]
+
+        for p in patterns:
+            m = re.search(p, text)
+            if m:
+                return m.group(1)
+
+        # SOAP系: class アノテーションに serviceName や targetNamespace があれば返す
+        m2 = re.search(
+            r"(?:serviceName|targetNamespace)\s*=\s*[\"']([^\"']+)[\"']", text
+        )
+        if m2:
+            return m2.group(1)
+
+        return ""
 
     def _determine_entry_type(self, info: dict) -> str:
         """エントリーポイントの種別を判定"""
