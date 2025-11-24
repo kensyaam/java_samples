@@ -67,7 +67,11 @@ mvn dependency:copy-dependencies -DoutputDirectory=target/dependency
 ```
 
 ```bash
-java -jar call-tree-analyzer-1.0.0.jar -s ../../ext/spring-framework-petclinic/src/main -cp ../../ext/spring-framework-petclinic/target/dependency -o dist/output.tsv
+java -jar call-tree-analyzer-1.0.0.jar 
+  -s ../../ext/spring-framework-petclinic/src/main 
+  -cp ../../ext/spring-framework-petclinic/target/dependency 
+  -xml ../../ext/spring-framework-petclinic/src/main/resources/spring 
+  -o dist/output.tsv -d
 ```
 
 ## ツリー可視化
@@ -104,6 +108,10 @@ python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(Str
 # 深度を指定
 python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5
 
+# エントリーポイントの呼び出しツリーを一括出力
+python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
+  python call_tree_visualizer.py call-tree.tsv --forward "$line";
+done
 ```
 
 ```bash
