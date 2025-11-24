@@ -266,12 +266,12 @@ class CallTreeVisualizer:
         if not callers and follow_overrides:
             parent_methods = self._find_parent_methods(method)
             if parent_methods:
-                indent = "    " * (depth + 1)
-                print(f"{indent}↑ [オーバーライド元/インターフェースメソッドを展開]")
+                indent = "    " * (depth)
+                print(f"{indent}↓ [オーバーライド元/インターフェースメソッドを展開]")
                 for parent_method in parent_methods:
                     self._print_reverse_tree_recursive(
                         parent_method,
-                        depth + 1,
+                        depth,
                         max_depth,
                         visited.copy(),
                         show_class,
