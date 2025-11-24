@@ -62,10 +62,20 @@ class CallTreeVisualizer:
                             "is_static": False,
                             "is_entry_point": False,
                             "annotations": "",
+                            "javadoc": (
+                                row.get("メソッドJavadoc", "")
+                                if direction == "Forward"
+                                else ""
+                            ),
                         }
-                    elif not self.method_info[callee].get("sql"):
-                        # SQL文は呼び出し先の情報に基づく
-                        self.method_info[callee] |= {"sql": row.get("SQL文", "")}
+                    else:
+                        if not self.method_info[callee].get("sql"):
+                            # SQL文は呼び出し先の情報に基づく
+                            self.method_info[callee] |= {"sql": row.get("SQL文", "")}
+                        if not self.method_info[callee].get("javadoc"):
+                            self.method_info[callee] |= {
+                                "javadoc": row.get("メソッドJavadoc", "")
+                            }
 
                 # 呼び出し関係を保存
                 if direction == "Forward" and caller and callee:

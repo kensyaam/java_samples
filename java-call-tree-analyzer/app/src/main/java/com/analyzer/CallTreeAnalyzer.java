@@ -90,6 +90,7 @@ public class CallTreeAnalyzer {
         String entryType;
         String annotations;
         String classAnnotations;
+        String calleeJavadoc;
         
         CallRelation() {
             this.callerMethod = "";
@@ -107,6 +108,7 @@ public class CallTreeAnalyzer {
             this.entryType = "";
             this.annotations = "";
             this.classAnnotations = "";
+            this.calleeJavadoc = "";
         }
     }
     
@@ -209,6 +211,7 @@ public class CallTreeAnalyzer {
         String declaringClass;
         String superClass;
         Set<String> interfaces = new HashSet<>();
+        String javadocSummary;
         
         public MethodMetadata(CtMethod<?> method, ClassMetadata classMeta, boolean debugMode) {
             this.isPublic = method.isPublic();
@@ -246,6 +249,34 @@ public class CallTreeAnalyzer {
                 this.classAnnotations = classMeta.annotations;
                 this.superClass = classMeta.superClass;
                 this.interfaces = classMeta.interfaces;
+            }
+
+            // Javadocの1行目を抽出（存在すれば）
+            this.javadocSummary = "";
+            try {
+                String doc = null;
+                try {
+                    doc = method.getDocComment();
+                } catch (Throwable t) {
+                    // Spoon implementation may not provide doc comment; ignore
+                    doc = null;
+                }
+
+                if (doc != null) {
+                    // コメントマーカーを取り除き、最初の有効な行を取得
+                    String cleaned = doc.replaceAll("(?s)/\\*\\*|\\*/", "");
+                    String[] lines = cleaned.split("\\r?\\n");
+                    for (String l : lines) {
+                        String s = l.trim();
+                        s = s.replaceFirst("^\\*+\\s?", "").trim();
+                        if (!s.isEmpty()) {
+                            this.javadocSummary = s;
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                this.javadocSummary = "";
             }
             
             // 戻り値の型
@@ -1090,14 +1121,14 @@ public class CallTreeAnalyzer {
         writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
         writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先は親クラスのメソッド\t");
         writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
-        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\n");
+        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\tメソッドJavadoc\n");
     }
     
     /**
      * TSV行を出力
      */
     private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
-        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
             escape(relation.callerMethod),
             escape(relation.callerClass),
             escape(relation.callerParentClasses),
@@ -1112,7 +1143,8 @@ public class CallTreeAnalyzer {
             relation.isEntryPoint ? "Yes" : "No",
             relation.entryType,
             escape(relation.annotations),
-            escape(relation.classAnnotations)));
+            escape(relation.classAnnotations),
+            escape(relation.calleeJavadoc)));
     }
     
     /**
@@ -1141,6 +1173,10 @@ public class CallTreeAnalyzer {
             relation.entryType = callerMeta.getEntryPointType();
             relation.annotations = String.join(",", callerMeta.annotations);
             relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
+        }
+        MethodMetadata calleeMeta = methodMetadata.get(callee);
+        if (calleeMeta != null) {
+            relation.calleeJavadoc = calleeMeta.javadocSummary != null ? calleeMeta.javadocSummary : "";
         }
         
         return relation;
@@ -1172,6 +1208,13 @@ public class CallTreeAnalyzer {
             relation.entryType = callerMeta.getEntryPointType();
             relation.annotations = String.join(",", callerMeta.annotations);
             relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
+        }
+
+        // Reverse の場合、relation.callerMethod は 'callee' パラメータ (呼び出し元) を指すため
+        // そちらの Javadoc を設定する
+        MethodMetadata callerMetaForRelation = methodMetadata.get(callee);
+        if (callerMetaForRelation != null) {
+            relation.calleeJavadoc = callerMetaForRelation.javadocSummary != null ? callerMetaForRelation.javadocSummary : "";
         }
         
         return relation;
