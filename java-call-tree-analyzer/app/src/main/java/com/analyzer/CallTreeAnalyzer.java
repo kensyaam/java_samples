@@ -34,7 +34,81 @@ public class CallTreeAnalyzer {
     private Set<String> visitedMethods = new HashSet<>();
     private Map<String, MethodMetadata> methodMetadata = new HashMap<>();
     private Map<String, ClassMetadata> classMetadata = new HashMap<>();
+    private Map<String, Map<String, String>> fieldInjections = new HashMap<>(); // クラス -> (フィールド名 -> 型)
+    private Map<String, FieldInjectionInfo> fieldInjectionDetails = new HashMap<>(); // クラス.フィールド名 -> 詳細情報
+    private Map<String, BeanDefinition> beanDefinitions = new HashMap<>(); // beanId -> Bean定義
     private boolean debugMode = false; // デバッグモードフラグ
+    
+    /**
+     * Bean定義情報
+     */
+    static class BeanDefinition {
+        String id;
+        String className;
+        String source; // "XML", "Component", "Service" など
+        
+        BeanDefinition(String id, String className, String source) {
+            this.id = id;
+            this.className = className;
+            this.source = source;
+        }
+    }
+    
+    /**
+     * フィールドインジェクション情報
+     */
+    static class FieldInjectionInfo {
+        String fieldName;
+        String fieldType;
+        String qualifierId; // @Qualifier で指定されたID
+        String ownerClass;
+        
+        FieldInjectionInfo(String ownerClass, String fieldName, String fieldType, String qualifierId) {
+            this.ownerClass = ownerClass;
+            this.fieldName = fieldName;
+            this.fieldType = fieldType;
+            this.qualifierId = qualifierId;
+        }
+    }
+    
+    /**
+     * 呼び出し関係のデータクラス
+     */
+    static class CallRelation {
+        String callerMethod;
+        String callerClass;
+        String callerParentClasses;
+        String calleeMethod;
+        String calleeClass;
+        boolean isParentMethod;
+        String implementations;
+        String sqlStatements;
+        String direction; // "Forward" or "Reverse"
+        String visibility;
+        boolean isStatic;
+        boolean isEntryPoint;
+        String entryType;
+        String annotations;
+        String classAnnotations;
+        
+        CallRelation() {
+            this.callerMethod = "";
+            this.callerClass = "";
+            this.callerParentClasses = "";
+            this.calleeMethod = "";
+            this.calleeClass = "";
+            this.isParentMethod = false;
+            this.implementations = "";
+            this.sqlStatements = "";
+            this.direction = "";
+            this.visibility = "";
+            this.isStatic = false;
+            this.isEntryPoint = false;
+            this.entryType = "";
+            this.annotations = "";
+            this.classAnnotations = "";
+        }
+    }
     
     // クラスのメタデータを保持するクラス
     static class ClassMetadata {
@@ -435,6 +509,7 @@ public class CallTreeAnalyzer {
         
         options.addOption("s", "source", true, "解析対象のソースディレクトリ（複数指定可、カンマ区切り）");
         options.addOption("cp", "classpath", true, "依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）");
+        options.addOption("xml", "xml-config", true, "Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）");
         options.addOption("o", "output", true, "出力ファイルパス（デフォルト: call-tree.tsv）");
         options.addOption("f", "format", true, "出力フォーマット（tsv/json/graphml、デフォルト: tsv）");
         options.addOption("d", "debug", false, "デバッグモードを有効化");
@@ -453,13 +528,14 @@ public class CallTreeAnalyzer {
             
             String sourceDirs = cmd.getOptionValue("source", "src/main/java");
             String classpath = cmd.getOptionValue("classpath", "");
+            String xmlConfig = cmd.getOptionValue("xml-config", "");
             String outputPath = cmd.getOptionValue("output", "call-tree.tsv");
             String format = cmd.getOptionValue("format", "tsv");
             boolean debug = cmd.hasOption("debug");
             
             CallTreeAnalyzer analyzer = new CallTreeAnalyzer();
             analyzer.setDebugMode(debug);
-            analyzer.analyze(sourceDirs, classpath);
+            analyzer.analyze(sourceDirs, classpath, xmlConfig);
             analyzer.export(outputPath, format);
             
             System.out.println("解析完了: " + outputPath);
@@ -476,7 +552,7 @@ public class CallTreeAnalyzer {
     /**
      * ソースコードを解析
      */
-    public void analyze(String sourceDirs, String classpath) {
+    public void analyze(String sourceDirs, String classpath, String xmlConfig) {
         System.out.println("解析開始...");
         
         Launcher launcher = new Launcher();
@@ -501,19 +577,32 @@ public class CallTreeAnalyzer {
         model = launcher.buildModel();
         System.out.println("モデル構築完了");
         
-        // 1. メソッド情報の収集
+        // 1. XML Bean定義の解析
+        if (!xmlConfig.isEmpty()) {
+            parseXmlBeanDefinitions(xmlConfig);
+        }
+        
+        // 2. メソッド情報の収集
         collectMethods();
         
-        // 2. クラス階層の収集
+        // 3. クラス階層の収集
         collectClassHierarchy();
         
-        // 3. 呼び出し関係の解析
+        // 4. アノテーションベースのBean定義を収集
+        collectAnnotationBasedBeans();
+        
+        // 5. 呼び出し関係の解析
         analyzeCallRelations();
         
-        // 4. SQL文の検出
+        // 6. フィールドインジェクションの解析
+        analyzeFieldInjections();
+        
+        // 7. SQL文の検出
         detectSqlStatements();
         
         System.out.println("解析完了: " + methodMap.size() + "個のメソッドを検出");
+        System.out.println("Bean定義: " + beanDefinitions.size() + "個");
+        System.out.println("SQL文検出: " + sqlStatements.size() + "個のメソッドでSQL文を検出");
     }
     
     /**
@@ -557,6 +646,60 @@ public class CallTreeAnalyzer {
         return result;
     }
     
+    /**
+     * XML Bean定義を解析
+     */
+    private void parseXmlBeanDefinitions(String xmlConfigDirs) {
+        for (String dirPath : xmlConfigDirs.split(",")) {
+            dirPath = dirPath.trim();
+            Path dir = Paths.get(dirPath);
+            
+            try {
+                if (Files.isDirectory(dir)) {
+                    Files.walk(dir)
+                        .filter(p -> p.toString().endsWith(".xml"))
+                        .forEach(this::parseXmlFile);
+                } else if (Files.isRegularFile(dir) && dir.toString().endsWith(".xml")) {
+                    parseXmlFile(dir);
+                }
+            } catch (IOException e) {
+                System.err.println("XML設定ファイル読み込みエラー: " + e.getMessage());
+            }
+        }
+    }
+ 
+    /**
+     * 単一のXMLファイルを解析
+     */
+    private void parseXmlFile(Path xmlFile) {
+        try {
+            String content = Files.readString(xmlFile, StandardCharsets.UTF_8);
+            
+            // 簡易的なXMLパース（正規表現使用）
+            // <bean id="..." class="..."> を抽出
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "<bean\\s+[^>]*id\\s*=\\s*[\"']([^\"']+)[\"'][^>]*class\\s*=\\s*[\"']([^\"']+)[\"']|" +
+                "<bean\\s+[^>]*class\\s*=\\s*[\"']([^\"']+)[\"'][^>]*id\\s*=\\s*[\"']([^\"']+)[\"']"
+            );
+            java.util.regex.Matcher matcher = pattern.matcher(content);
+            
+            while (matcher.find()) {
+                String id = matcher.group(1) != null ? matcher.group(1) : matcher.group(4);
+                String className = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+                
+                if (id != null && className != null) {
+                    beanDefinitions.put(id, new BeanDefinition(id, className, "XML"));
+                    
+                    if (debugMode) {
+                        System.out.println("  XML Bean: " + id + " -> " + className);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("XMLファイル読み込みエラー (" + xmlFile + "): " + e.getMessage());
+        }
+    }
+
     /**
      * メソッド情報を収集
      */
@@ -631,6 +774,56 @@ public class CallTreeAnalyzer {
         }
     }
     
+
+    /**
+     * アノテーションベースのBean定義を収集
+     */
+    private void collectAnnotationBasedBeans() {
+        for (CtType<?> type : model.getElements(new TypeFilter<>(CtType.class))) {
+            String className = type.getQualifiedName();
+            String beanId = null;
+            String source = null;
+            
+            for (var annotation : type.getAnnotations()) {
+                String annName = annotation.getAnnotationType().getSimpleName();
+                
+                if (annName.equals("Component") || annName.equals("Service") || 
+                    annName.equals("Repository") || annName.equals("Controller")) {
+                    source = annName;
+                    
+                    // アノテーションの value 属性を取得（安全にリフレクションで取得）
+                    try {
+                        java.lang.annotation.Annotation actual = (java.lang.annotation.Annotation) annotation.getActualAnnotation();
+                        try {
+                            java.lang.reflect.Method m = actual.getClass().getMethod("value");
+                            Object value = m.invoke(actual);
+                            if (value != null && !value.toString().isEmpty()) {
+                                beanId = value.toString();
+                            }
+                        } catch (NoSuchMethodException nsme) {
+                            // value メソッドがない場合は無視
+                        }
+                    } catch (Exception e) {
+                        // value属性がない、または取得できない場合
+                    }
+                    
+                    // ID指定がない場合、クラス名から自動生成
+                    if (beanId == null || beanId.isEmpty()) {
+                        beanId = generateDefaultBeanId(className);
+                    }
+                    
+                    beanDefinitions.put(beanId, new BeanDefinition(beanId, className, source));
+                    
+                    if (debugMode) {
+                        System.out.println("  Annotation Bean: " + beanId + " -> " + className + " (@" + source + ")");
+                    }
+                    
+                    break;
+                }
+            }
+        }
+    }
+
     /**
      * 呼び出し関係を解析
      */
@@ -659,6 +852,73 @@ public class CallTreeAnalyzer {
     }
     
     /**
+     * フィールドインジェクションを解析
+     */
+    private void analyzeFieldInjections() {
+        for (CtType<?> type : model.getElements(new TypeFilter<>(CtType.class))) {
+            String className = type.getQualifiedName();
+            Map<String, String> injectedFields = new HashMap<>();
+            
+            // フィールドを解析
+            for (CtField<?> field : type.getFields()) {
+                boolean isInjected = false;
+                String qualifierId = null;
+                String fieldType = field.getType().getQualifiedName();
+                String fieldName = field.getSimpleName();
+                
+                // @Autowired, @Inject, @Resource などのアノテーションをチェック
+                for (var annotation : field.getAnnotations()) {
+                    String annName = annotation.getAnnotationType().getSimpleName();
+                    if (annName.equals("Autowired") || 
+                        annName.equals("Inject") || 
+                        annName.equals("Resource") ||
+                        annName.equals("Value")) {
+                        isInjected = true;
+                    }
+                    
+                    // @Qualifier のチェック
+                    if (annName.equals("Qualifier")) {
+                        // アノテーションの value 属性を取得（安全にリフレクションで取得）
+                        try {
+                            java.lang.annotation.Annotation actual = (java.lang.annotation.Annotation) annotation.getActualAnnotation();
+                            try {
+                                java.lang.reflect.Method m = actual.getClass().getMethod("value");
+                                Object value = m.invoke(actual);
+                                if (value != null && !value.toString().isEmpty()) {
+                                    qualifierId = value.toString();
+                                }
+                            } catch (NoSuchMethodException nsme) {
+                                // value メソッドがない場合は無視
+                            }
+                        } catch (Exception e) {
+                            // value属性がない、または取得できない場合
+                        }
+                    }
+                }
+                
+                if (isInjected) {
+                    injectedFields.put(fieldName, fieldType);
+                    
+                    // 詳細情報を保存
+                    String key = className + "." + fieldName;
+                    fieldInjectionDetails.put(key, 
+                        new FieldInjectionInfo(className, fieldName, fieldType, qualifierId));
+                    
+                    if (debugMode) {
+                        System.out.println("  Found injection: " + className + "." + fieldName + 
+                                         " (type: " + fieldType + 
+                                         (qualifierId != null ? ", qualifier: " + qualifierId : "") + ")");
+                    }
+                }
+            }
+            
+            if (!injectedFields.isEmpty()) {
+                fieldInjections.put(className, injectedFields);
+            }
+        }
+    }
+    
+    /**
      * SQL文を検出
      */
     private void detectSqlStatements() {
@@ -671,13 +931,21 @@ public class CallTreeAnalyzer {
             for (CtLiteral<?> literal : literals) {
                 if (literal.getValue() instanceof String) {
                     String value = (String) literal.getValue();
-                    if (looksLikeSql(value)) {
-                        sqls.add(value);
+                    // テキストブロック内の改行や空白を正規化
+                    String normalized = value.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                    if (looksLikeSql(normalized)) {
+                        sqls.add(normalized);
                     }
                 }
             }
             
             if (!sqls.isEmpty()) {
+                if (debugMode) {
+                    System.out.println("  Found SQL in method: " + methodSig);
+                    for(String sql : sqls) {
+                        System.out.println("      SQL: " + sql);
+                    }   
+                }
                 sqlStatements.put(methodSig, sqls);
             }
         }
@@ -792,24 +1060,120 @@ public class CallTreeAnalyzer {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
             writeTsvHeader(writer);
             
-            // 呼び出し元からのツリー
+            // 呼び出し元からのツリー（Forward）
             for (Map.Entry<String, Set<String>> entry : callGraph.entrySet()) {
                 String caller = entry.getKey();
+                
                 for (String callee : entry.getValue()) {
                     CallRelation relation = createForwardCallRelation(caller, callee);
                     writeTsvRow(writer, relation);
                 }
             }
             
-            // 呼び出し先からのツリー（逆方向）
+            // 呼び出し先からのツリー（Reverse）
             for (Map.Entry<String, Set<String>> entry : reverseCallGraph.entrySet()) {
                 String callee = entry.getKey();
+                
                 for (String caller : entry.getValue()) {
                     CallRelation relation = createReverseCallRelation(callee, caller);
                     writeTsvRow(writer, relation);
                 }
             }
         }
+    }
+    
+    /**
+     * TSVヘッダーを出力
+     */
+    private void writeTsvHeader(BufferedWriter writer) throws IOException {
+        writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
+        writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先は親クラスのメソッド\t");
+        writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
+        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\n");
+    }
+    
+    /**
+     * TSV行を出力
+     */
+    private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
+        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+            escape(relation.callerMethod),
+            escape(relation.callerClass),
+            escape(relation.callerParentClasses),
+            escape(relation.calleeMethod),
+            escape(relation.calleeClass),
+            relation.isParentMethod ? "Yes" : "No",
+            escape(relation.implementations),
+            escape(relation.sqlStatements),
+            relation.direction,
+            relation.visibility,
+            relation.isStatic ? "Yes" : "No",
+            relation.isEntryPoint ? "Yes" : "No",
+            relation.entryType,
+            escape(relation.annotations),
+            escape(relation.classAnnotations)));
+    }
+    
+    /**
+     * 前方向の呼び出し関係を作成
+     */
+    private CallRelation createForwardCallRelation(String caller, String callee) {
+        CallRelation relation = new CallRelation();
+        
+        relation.callerMethod = caller;
+        relation.callerClass = methodToClassMap.getOrDefault(caller, "");
+        relation.callerParentClasses = getParentClasses(relation.callerClass);
+        relation.calleeMethod = callee;
+        relation.calleeClass = methodToClassMap.getOrDefault(callee, "");
+        relation.isParentMethod = isParentClassMethod(caller, callee);
+        relation.implementations = getImplementations(caller, callee);
+        relation.sqlStatements = sqlStatements.containsKey(callee) ? 
+                                 String.join("; ", sqlStatements.get(callee)) : "";
+        relation.direction = "Forward";
+        
+        MethodMetadata callerMeta = methodMetadata.get(caller);
+        if (callerMeta != null) {
+            relation.visibility = callerMeta.isPublic ? "public" : 
+                                 (callerMeta.isProtected ? "protected" : "private");
+            relation.isStatic = callerMeta.isStatic;
+            relation.isEntryPoint = callerMeta.isEntryPointCandidate();
+            relation.entryType = callerMeta.getEntryPointType();
+            relation.annotations = String.join(",", callerMeta.annotations);
+            relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
+        }
+        
+        return relation;
+    }
+    
+    /**
+     * 逆方向の呼び出し関係を作成
+     */
+    private CallRelation createReverseCallRelation(String callee, String caller) {
+        CallRelation relation = new CallRelation();
+        
+        relation.callerMethod = callee;
+        relation.callerClass = methodToClassMap.getOrDefault(callee, "");
+        relation.callerParentClasses = "";
+        relation.calleeMethod = caller;
+        relation.calleeClass = methodToClassMap.getOrDefault(caller, "");
+        relation.isParentMethod = false;
+        relation.implementations = "";
+        relation.sqlStatements = sqlStatements.containsKey(caller) ? 
+                                 String.join("; ", sqlStatements.get(caller)) : "";
+        relation.direction = "Reverse";
+        
+        MethodMetadata callerMeta = methodMetadata.get(caller);
+        if (callerMeta != null) {
+            relation.visibility = callerMeta.isPublic ? "public" : 
+                                 (callerMeta.isProtected ? "protected" : "private");
+            relation.isStatic = callerMeta.isStatic;
+            relation.isEntryPoint = callerMeta.isEntryPointCandidate();
+            relation.entryType = callerMeta.getEntryPointType();
+            relation.annotations = String.join(",", callerMeta.annotations);
+            relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
+        }
+        
+        return relation;
     }
     
     /**
@@ -825,13 +1189,87 @@ public class CallTreeAnalyzer {
                 if (!first) writer.write(",\n");
                 first = false;
                 
-                String jsonEntry = createJsonMethodEntry(method);
-                writer.write(jsonEntry);
+                writer.write(createJsonMethodEntry(method));
             }
             
             writer.write("\n  ]\n");
             writer.write("}\n");
         }
+    }
+    
+    /**
+     * JSON形式のメソッドエントリを作成
+     */
+    private String createJsonMethodEntry(String method) {
+        String className = methodToClassMap.getOrDefault(method, "");
+        Set<String> calls = callGraph.getOrDefault(method, Collections.emptySet());
+        Set<String> calledBy = reverseCallGraph.getOrDefault(method, Collections.emptySet());
+        MethodMetadata meta = methodMetadata.get(method);
+        
+        StringBuilder json = new StringBuilder();
+        json.append("    {");
+        json.append("\"method\": \"").append(escapeJson(method)).append("\", ");
+        json.append("\"class\": \"").append(escapeJson(className)).append("\", ");
+        
+        if (meta != null) {
+            json.append("\"visibility\": \"").append(meta.isPublic ? "public" : 
+                       (meta.isProtected ? "protected" : "private")).append("\", ");
+            json.append("\"isStatic\": ").append(meta.isStatic).append(", ");
+            json.append("\"isEntryPoint\": ").append(meta.isEntryPointCandidate()).append(", ");
+            json.append("\"entryType\": \"").append(escapeJson(meta.getEntryPointType())).append("\", ");
+            json.append("\"annotations\": [");
+            boolean firstAnn = true;
+            for (String ann : meta.annotations) {
+                if (!firstAnn) json.append(", ");
+                json.append("\"").append(escapeJson(ann)).append("\"");
+                firstAnn = false;
+            }
+            json.append("], ");
+        }
+        
+        json.append("\"calls\": [");
+        boolean firstCall = true;
+        for (String callee : calls) {
+            if (!firstCall) json.append(", ");
+            json.append("\"").append(escapeJson(callee)).append("\"");
+            firstCall = false;
+        }
+        json.append("], ");
+        
+        json.append("\"calledBy\": [");
+        boolean firstCaller = true;
+        for (String caller : calledBy) {
+            if (!firstCaller) json.append(", ");
+            json.append("\"").append(escapeJson(caller)).append("\"");
+            firstCaller = false;
+        }
+        json.append("]");
+
+        if (sqlStatements.containsKey(method)) {
+            json.append(", \"sqlStatements\": [");
+            boolean firstSql = true;
+            for (String sql : sqlStatements.get(method)) {
+                if (!firstSql) json.append(", ");
+                json.append("\"").append(escapeJson(sql)).append("\"");
+                firstSql = false;
+            }
+            json.append("]");
+        }
+        
+        json.append("}");
+        return json.toString();
+    }
+    
+    /**
+     * JSON用のエスケープ
+     */
+    private String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\") // バックスラッシュ
+                 .replace("\"", "\\\"")   // ダブルクォート
+                 .replace("\n", "\\n")   // 改行
+                 .replace("\r", "\\r")   // キャリッジリターン
+                 .replace("\t", "\\t");  // タブ
     }
     
     /**
@@ -882,165 +1320,154 @@ public class CallTreeAnalyzer {
     }
     
     /**
-     * インターフェース/抽象クラスの実装候補を取得
+     * インターフェース/抽象クラスの実装候補を取得（優先度順）
      */
-    private String getImplementations(String methodSignature) {
-        String className = methodToClassMap.getOrDefault(methodSignature, "");
-        Set<String> impls = interfaceImplementations.getOrDefault(className, Collections.emptySet());
-        return String.join(", ", impls);
+    private String getImplementations(String callerMethodSignature, String calleeMethodSignature) {
+        String calleeClass = methodToClassMap.getOrDefault(calleeMethodSignature, "");
+        String callerClass = extractCallerClass(callerMethodSignature);
+        
+        // 優先度0: callerClassとcalleeClassが同じ場合は候補なし
+        if (callerClass != null && callerClass.equals(calleeClass)) {
+            return "";
+        }
+        
+        List<String> candidates = new ArrayList<>();
+        
+        // 優先度1: XML定義されたbeanのidとフィールドの@Qualifier/フィールド名が一致
+        if (callerClass != null && fieldInjectionDetails != null) {
+            for (FieldInjectionInfo fieldInfo : fieldInjectionDetails.values()) {
+                if (fieldInfo.ownerClass.equals(callerClass)) {
+                    String matchId = null;
+                    
+                    // @Qualifierで指定されたIDがある場合、それを優先
+                    if (fieldInfo.qualifierId != null) {
+                        matchId = fieldInfo.qualifierId;
+                    } else {
+                        // @Qualifierがない場合、フィールド名を使用
+                        matchId = fieldInfo.fieldName;
+                    }
+                    
+                    // XMLで定義されたBeanを検索
+                    BeanDefinition xmlBean = beanDefinitions.get(matchId);
+                    if (xmlBean != null && "XML".equals(xmlBean.source) &&
+                        isAssignableFrom(calleeClass, xmlBean.className)) {
+                        candidates.add(xmlBean.className + " [XML:" + xmlBean.id + "]");
+                        return String.join(", ", candidates); // 該当したら以降を探さない
+                    }
+                }
+            }
+        }
+        
+        // 優先度2: Beanアノテーションで明示されたidとフィールドの@Qualifier/フィールド名が一致
+        if (callerClass != null && fieldInjectionDetails != null) {
+            for (FieldInjectionInfo fieldInfo : fieldInjectionDetails.values()) {
+                if (fieldInfo.ownerClass.equals(callerClass)) {
+                    String matchId = null;
+                    
+                    // @Qualifierで指定されたIDがある場合、それを優先
+                    if (fieldInfo.qualifierId != null) {
+                        matchId = fieldInfo.qualifierId;
+                    } else {
+                        // @Qualifierがない場合、フィールド名を使用
+                        matchId = fieldInfo.fieldName;
+                    }
+                    
+                    // Beanアノテーションで明示されたidを検索
+                    BeanDefinition annotatedBean = beanDefinitions.get(matchId);
+                    if (annotatedBean != null && !annotatedBean.source.equals("XML") &&
+                        !annotatedBean.id.equals(generateDefaultBeanId(annotatedBean.className)) &&
+                        isAssignableFrom(calleeClass, annotatedBean.className)) {
+                        candidates.add(annotatedBean.className + " [@" + annotatedBean.source + ":" + annotatedBean.id + "]");
+                        return String.join(", ", candidates); // 該当したら以降を探さない
+                    }
+                }
+            }
+        }
+        
+        // 優先度3: Beanクラス名から自動生成されたidとフィールドの@Qualifier/フィールド名が一致
+        if (callerClass != null && fieldInjectionDetails != null) {
+            for (FieldInjectionInfo fieldInfo : fieldInjectionDetails.values()) {
+                if (fieldInfo.ownerClass.equals(callerClass)) {
+                    String matchId = null;
+                    
+                    // @Qualifierで指定されたIDがある場合、それを優先
+                    if (fieldInfo.qualifierId != null) {
+                        matchId = fieldInfo.qualifierId;
+                    } else {
+                        // @Qualifierがない場合、フィールド名を使用
+                        matchId = fieldInfo.fieldName;
+                    }
+                    
+                    // Beanクラス名から自動生成されたidを検索
+                    BeanDefinition autoBean = beanDefinitions.get(matchId);
+                    if (autoBean != null && !autoBean.source.equals("XML") &&
+                        autoBean.id.equals(generateDefaultBeanId(autoBean.className)) &&
+                        isAssignableFrom(calleeClass, autoBean.className)) {
+                        candidates.add(autoBean.className + " [@" + autoBean.source + ":auto]");
+                        return String.join(", ", candidates); // 該当したら以降を探さない
+                    }
+                }
+            }
+        }
+        
+        // 優先度4: フィールドの型から推測
+        if (callerClass != null && fieldInjections.containsKey(callerClass)) {
+            for (FieldInjectionInfo fieldInfo : fieldInjectionDetails.values()) {
+                if (fieldInfo.ownerClass.equals(callerClass) &&
+                    isAssignableFrom(calleeClass, fieldInfo.fieldType)) {
+                    candidates.add(fieldInfo.fieldType + " [field-type]");
+                }
+            }
+            return String.join(", ", candidates);
+        }
+        
+        // どの条件にも該当しない場合、インターフェース実装から推測
+        Set<String> impls = interfaceImplementations.getOrDefault(calleeClass, Collections.emptySet());
+        for (String impl : impls) {
+            candidates.add(impl + " [interface-impl]");
+        }
+        
+        return String.join(", ", candidates);
     }
     
     /**
-     * 呼び出し関係のデータを保持するクラス
+     * クラスの代入可能性をチェック（継承・実装関係）
      */
-    static class CallRelation {
-        String callerMethod;         // 呼び出し元メソッド
-        String callerClass;          // 呼び出し元クラス
-        String callerParentClasses;  // 呼び出し元の親クラス
-        String calleeMethod;         // 呼び出し先メソッド
-        String calleeClass;          // 呼び出し先クラス
-        boolean isParentMethod;      // 呼び出し先は親クラスのメソッド
-        String implementations;      // 呼び出し先の実装クラス候補
-        String sqlStatements;        // SQL文
-        String direction;            // 方向（Forward/Reverse）
-        String visibility;           // 可視性
-        boolean isStatic;            // Static
-        boolean isEntryPoint;        // エントリーポイント候補
-        String entryPointType;       // エントリータイプ
-        String annotations;          // アノテーション
-        String classAnnotations;     // クラスアノテーション
+    private boolean isAssignableFrom(String baseClass, String derivedClass) {
+        if (baseClass.equals(derivedClass)) {
+            return true;
+        }
+        
+        // インターフェース実装のチェック
+        Set<String> impls = interfaceImplementations.getOrDefault(baseClass, Collections.emptySet());
+        if (impls.contains(derivedClass)) {
+            return true;
+        }
+        
+        // 継承関係のチェック（簡易版）
+        Set<String> parents = classHierarchy.getOrDefault(derivedClass, Collections.emptySet());
+        return parents.contains(baseClass);
     }
     
     /**
-     * TSVヘッダーを出力
+     * メソッドシグネチャから呼び出し元クラスを抽出
      */
-    private void writeTsvHeader(BufferedWriter writer) throws IOException {
-        writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
-        writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先は親クラスのメソッド\t");
-        writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
-        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\n");
+    private String extractCallerClass(String methodSignature) {
+        if (methodSignature.contains("#")) {
+            return methodSignature.split("#")[0];
+        }
+        return null;
     }
     
     /**
-     * TSV行を出力
+     * クラス名からデフォルトのBean IDを生成
      */
-    private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
-        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-            escape(relation.callerMethod),
-            escape(relation.callerClass),
-            escape(relation.callerParentClasses),
-            escape(relation.calleeMethod),
-            escape(relation.calleeClass),
-            relation.isParentMethod ? "Yes" : "No",
-            escape(relation.implementations),
-            escape(relation.sqlStatements),
-            relation.direction,
-            relation.visibility,
-            relation.isStatic ? "Yes" : "No",
-            relation.isEntryPoint ? "Yes" : "No",
-            relation.entryPointType,
-            escape(relation.annotations),
-            escape(relation.classAnnotations)
-        ));
+    private String generateDefaultBeanId(String className) {
+        String simpleName = className.substring(className.lastIndexOf('.') + 1);
+        return Character.toLowerCase(simpleName.charAt(0)) + simpleName.substring(1);
     }
-    
-    /**
-     * 前方向の呼び出し関係を作成（呼び出し元 -> 呼び出し先）
-     */
-    private CallRelation createForwardCallRelation(String caller, String callee) {
-        CallRelation relation = new CallRelation();
-        
-        relation.callerMethod = caller;
-        relation.callerClass = methodToClassMap.getOrDefault(caller, "");
-        relation.callerParentClasses = getParentClasses(relation.callerClass);
-        
-        relation.calleeMethod = callee;
-        relation.calleeClass = methodToClassMap.getOrDefault(callee, "");
-        relation.isParentMethod = isParentClassMethod(caller, callee);
-        relation.implementations = getImplementations(callee);
-        relation.sqlStatements = sqlStatements.containsKey(caller) ? 
-                                String.join("; ", sqlStatements.get(caller)) : "";
-        
-        relation.direction = "Forward";
-        
-        // 呼び出し元メソッドのメタデータ
-        MethodMetadata callerMeta = methodMetadata.get(caller);
-        relation.visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
-                            (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
-        relation.isStatic = callerMeta != null && callerMeta.isStatic;
-        relation.isEntryPoint = callerMeta != null && callerMeta.isEntryPointCandidate();
-        relation.entryPointType = callerMeta != null ? callerMeta.getEntryPointType() : "";
-        relation.annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
-        relation.classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
-        
-        return relation;
-    }
-    
-    /**
-     * 逆方向の呼び出し関係を作成（呼び出し先から呼び出し元への逆引き）
-     */
-    private CallRelation createReverseCallRelation(String callee, String caller) {
-        CallRelation relation = new CallRelation();
-        
-        relation.callerMethod = callee;
-        relation.callerClass = methodToClassMap.getOrDefault(callee, "");
-        relation.callerParentClasses = "";
-        
-        relation.calleeMethod = caller;
-        relation.calleeClass = methodToClassMap.getOrDefault(caller, "");
-        relation.isParentMethod = false;
-        relation.implementations = "";
-        relation.sqlStatements = "";
-        
-        relation.direction = "Reverse";
-        
-        // 呼び出し元メソッドのメタデータ
-        MethodMetadata callerMeta = methodMetadata.get(caller);
-        relation.visibility = callerMeta != null && callerMeta.isPublic ? "public" : 
-                            (callerMeta != null && callerMeta.isProtected ? "protected" : "private");
-        relation.isStatic = callerMeta != null && callerMeta.isStatic;
-        relation.isEntryPoint = callerMeta != null && callerMeta.isEntryPointCandidate();
-        relation.entryPointType = callerMeta != null ? callerMeta.getEntryPointType() : "";
-        relation.annotations = callerMeta != null ? String.join(",", callerMeta.annotations) : "";
-        relation.classAnnotations = callerMeta != null ? String.join(",", callerMeta.classAnnotations) : "";
-        
-        return relation;
-    }
-    
-    /**
-     * JSON形式のメソッドエントリを作成
-     */
-    private String createJsonMethodEntry(String method) {
-        String className = methodToClassMap.getOrDefault(method, "");
-        Set<String> calls = callGraph.getOrDefault(method, Collections.emptySet());
-        Set<String> calledBy = reverseCallGraph.getOrDefault(method, Collections.emptySet());
-        
-        String callsJson = calls.stream()
-            .map(s -> "\"" + escapeJson(s) + "\"")
-            .collect(Collectors.joining(", "));
-        
-        String calledByJson = calledBy.stream()
-            .map(s -> "\"" + escapeJson(s) + "\"")
-            .collect(Collectors.joining(", "));
-        
-        return String.format("    {\"method\": \"%s\", \"class\": \"%s\", " +
-                           "\"calls\": [%s], \"calledBy\": [%s]}",
-                           escapeJson(method), escapeJson(className),
-                           callsJson, calledByJson);
-    }
-    
-    /**
-     * JSON用のエスケープ
-     */
-    private String escapeJson(String str) {
-        if (str == null) return "";
-        return str.replace("\\", "\\\\") // バックスラッシュ
-                 .replace("\"", "\\\"")   // ダブルクォート
-                 .replace("\n", "\\n")   // 改行
-                 .replace("\r", "\\r")   // キャリッジリターン
-                 .replace("\t", "\\t");  // タブ
-    }
-    
+
+
     /**
      * TSV/CSV用のエスケープ
      */

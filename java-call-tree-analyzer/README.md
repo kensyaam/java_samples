@@ -13,8 +13,8 @@
 # 複数のソースディレクトリを指定
 ./gradlew run --args="-s /path/to/src1,/path/to/src2 -o output.tsv"
 
-# 依存ライブラリのクラスパスを指定
-./gradlew run --args="-s /path/to/source -cp /path/to/lib1.jar,/path/to/lib2.jar -o output.tsv"
+# 依存ライブラリのクラスパス、Spring設定XMLファイルのディレクトリを指定
+./gradlew run --args="-s /path/to/source -cp /path/to/lib1.jar,/path/to/lib2.jar -xml /path/to/xmldir -o output.tsv"
 
 # JSON形式で出力
 ./gradlew run --args="-s /path/to/source -o output.json -f json"
@@ -24,7 +24,7 @@
 
 # 実行可能JAR作成、実行
 ./gradlew shadowJar
-java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -o output.tsv
+java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -xml /path/to/xmldir -o output.tsv -d
 ```
 
 ```bash
@@ -36,6 +36,7 @@ usage: CallTreeAnalyzer
  -h,--help               ヘルプを表示
  -o,--output <arg>       出力ファイルパス（デフォルト: call-tree.tsv）
  -s,--source <arg>       解析対象のソースディレクトリ（複数指定可、カンマ区切り）
+ -xml,--xml-config <arg>   Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）
 ```
 
 ## 出力形式について
@@ -118,7 +119,7 @@ $ python call_tree_visualizer.py
   --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
   --export <method> <o> [format]  ツリーをファイルにエクスポート
                       format: text, markdown, html (default: text)
-  --depth <n>         ツリーの最大深度 (default: 10)
+  --depth <n>         ツリーの最大深度 (default: 50)
   --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
   --no-follow-impl    実装クラス候補を追跡しない
   --no-follow-override  逆引き時にオーバーライド元を追跡しない

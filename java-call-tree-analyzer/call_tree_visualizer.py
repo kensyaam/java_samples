@@ -28,12 +28,18 @@ class CallTreeVisualizer:
                 callee = row["呼び出し先メソッド"]
                 direction = row["方向"]
 
+                # print(f"row: {row}")
+
                 # メソッド情報を保存
-                if caller and caller not in self.method_info:
-                    self.method_info[caller] = {
+                if caller and (
+                    caller not in self.method_info
+                    or self.method_info[caller]["visibility"] == ""
+                ):
+                    if caller not in self.method_info:
+                        self.method_info[caller] = {}
+                    self.method_info[caller] |= {
                         "class": row["呼び出し元クラス"],
                         "parent": row["呼び出し元の親クラス"],
-                        "sql": row.get("SQL文", ""),
                         "visibility": row.get("可視性", ""),
                         "is_static": row.get("Static", "") == "Yes",
                         "is_entry_point": row.get("エントリーポイント候補", "")
@@ -43,16 +49,22 @@ class CallTreeVisualizer:
                         "class_annotations": row.get("クラスアノテーション", ""),
                     }
 
-                if callee and callee not in self.method_info:
-                    self.method_info[callee] = {
-                        "class": row["呼び出し先クラス"],
-                        "parent": "",
-                        "sql": "",
-                        "visibility": "",
-                        "is_static": False,
-                        "is_entry_point": False,
-                        "annotations": "",
-                    }
+                if callee:
+                    if callee not in self.method_info:
+                        self.method_info[callee] = {
+                            "class": row["呼び出し先クラス"],
+                            "parent": "",
+                            "sql": (
+                                row.get("SQL文", "") if direction == "Forward" else ""
+                            ),
+                            "visibility": "",
+                            "is_static": False,
+                            "is_entry_point": False,
+                            "annotations": "",
+                        }
+                    elif not self.method_info[callee].get("sql"):
+                        # SQL文は呼び出し先の情報に基づく
+                        self.method_info[callee] |= {"sql": row.get("SQL文", "")}
 
                 # 呼び出し関係を保存
                 if direction == "Forward" and caller and callee:
@@ -69,7 +81,7 @@ class CallTreeVisualizer:
     def print_forward_tree(
         self,
         root_method: str,
-        max_depth: int = 10,
+        max_depth: int = 50,
         show_class: bool = True,
         show_sql: bool = True,
         follow_implementations: bool = True,
@@ -102,7 +114,7 @@ class CallTreeVisualizer:
     def print_reverse_tree(
         self,
         target_method: str,
-        max_depth: int = 10,
+        max_depth: int = 50,
         show_class: bool = True,
         follow_overrides: bool = True,
     ):
@@ -152,16 +164,11 @@ class CallTreeVisualizer:
             for callee_info in callees:
                 callee = callee_info["method"]
 
-                # 親クラスメソッドや実装クラス候補の情報を表示
-                annotations = []
-                if callee_info["is_parent_method"] == "Yes":
-                    annotations.append("親クラスメソッド")
-                if callee_info["implementations"]:
-                    annotations.append(f"実装: {callee_info['implementations']}")
+                indent = "    " * (depth + 1)
 
-                if annotations:
-                    indent = "    " * (depth + 1)
-                    print(f"{indent}↓ [{', '.join(annotations)}]")
+                # 親クラスメソッドの情報を表示
+                if callee_info["is_parent_method"] == "Yes":
+                    print(f"{indent}↓ [親クラスメソッド]")
 
                 # 呼び出し先を再帰的に表示
                 self._print_tree_recursive(
@@ -175,33 +182,48 @@ class CallTreeVisualizer:
                     follow_implementations,
                 )
 
-                # 実装クラス候補がある場合、それらも追跡
-                if follow_implementations and callee_info["implementations"]:
+                # 実装クラス候補の情報を表示
+                if callee_info["implementations"]:
                     implementations = [
                         impl.strip()
                         for impl in callee_info["implementations"].split(",")
                         if impl.strip()
                     ]
 
-                    for impl_class in implementations:
-                        # 実装クラスの対応するメソッドを探す
-                        impl_method = self._find_implementation_method(
-                            callee, impl_class
-                        )
-                        if impl_method:
-                            indent = "    " * (depth + 1)
-                            print(f"{indent}↓ [実装クラスへの展開: {impl_class}]")
+                    annotations = []
+                    for impl_class_info in implementations:
+                        annotations.append(f"実装: {impl_class_info}")
 
-                            self._print_tree_recursive(
-                                impl_method,
-                                depth + 1,
-                                max_depth,
-                                visited.copy(),
-                                show_class,
-                                show_sql,
-                                is_forward,
-                                follow_implementations,
+                    for annotation in annotations:
+                        indent = "    " * (depth + 1)
+                        print(f"{indent}↑ [{annotation}]")
+
+                    # 実装クラス候補がある場合、それらも追跡
+                    if follow_implementations:
+                        # implementationsの各要素は、「<クラス名> + " [<追加情報>]"」の形式かもしれないので、クラス名だけ抽出
+                        implementations = [
+                            impl.split(" ")[0] for impl in implementations
+                        ]
+
+                        for impl_class in implementations:
+                            # 実装クラスの対応するメソッドを探す
+                            impl_method = self._find_implementation_method(
+                                callee, impl_class
                             )
+                            if impl_method:
+                                indent = "    " * (depth + 1)
+                                print(f"{indent}↓ [実装クラスへの展開: {impl_class}]")
+
+                                self._print_tree_recursive(
+                                    impl_method,
+                                    depth + 1,
+                                    max_depth,
+                                    visited.copy(),
+                                    show_class,
+                                    show_sql,
+                                    is_forward,
+                                    follow_implementations,
+                                )
         else:
             callers = self.reverse_calls.get(method, [])
             for caller in callers:
@@ -288,9 +310,10 @@ class CallTreeVisualizer:
 
         # クラス情報を表示
         if show_class and info.get("class"):
-            print(f"{indent}    クラス: {info['class']}")
+            # print(f"{indent}    クラス: {info['class']}")
             if info.get("parent"):
-                print(f"{indent}    親クラス: {info['parent']}")
+                # print(f"{indent}    親クラス: {info['parent']}")
+                pass
 
         # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
@@ -531,6 +554,8 @@ class CallTreeVisualizer:
                         for impl in callee_info["implementations"].split(",")
                         if impl.strip()
                     ]
+                    # implementationsの各要素は、「<クラス名> + " [<追加情報>]"」の形式かもしれないので、クラス名だけ抽出
+                    implementations = [impl.split(" ")[0] for impl in implementations]
 
                     for impl_class in implementations:
                         impl_method = self._find_implementation_method(
@@ -820,7 +845,7 @@ def main():
         print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
         print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
         print("                      format: text, markdown, html (default: text)")
-        print("  --depth <n>         ツリーの最大深度 (default: 10)")
+        print("  --depth <n>         ツリーの最大深度 (default: 50)")
         print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
         print("  --no-follow-impl    実装クラス候補を追跡しない")
         print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
