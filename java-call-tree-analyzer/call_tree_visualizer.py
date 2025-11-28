@@ -9,15 +9,19 @@ import csv
 import re
 import sys
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set
+
+import openpyxl
+from openpyxl.styles import Font
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 
 class CallTreeVisualizer:
     def __init__(self, tsv_file: str):
-        self.tsv_file = tsv_file
-        self.forward_calls = defaultdict(list)  # 呼び出し元 -> 呼び出し先のリスト
-        self.reverse_calls = defaultdict(list)  # 呼び出し先 -> 呼び出し元のリスト
-        self.method_info = {}  # メソッド -> (クラス, 親クラス, SQL, etc.)
+        self.tsv_file: str = tsv_file
+        self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+        self.reverse_calls: Dict[str, List[str]] = defaultdict(list)
+        self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
         self.load_data()
 
     def load_data(self):
@@ -110,7 +114,7 @@ class CallTreeVisualizer:
         print(f"呼び出しツリー (起点: {root_method})")
         print(f"{'=' * 80}\n")
 
-        visited = set()
+        visited: set[str] = set()
         self._print_tree_recursive(
             root_method,
             0,
@@ -141,7 +145,7 @@ class CallTreeVisualizer:
         print(f"逆引きツリー (対象: {target_method})")
         print(f"{'=' * 80}\n")
 
-        visited = set()
+        visited: set[str] = set()
         self._print_reverse_tree_recursive(
             target_method, 0, max_depth, visited, show_class, follow_overrides
         )
@@ -321,29 +325,16 @@ class CallTreeVisualizer:
 
         # クラス情報を表示
         if show_class and info.get("class"):
-            # print(f"{indent}    クラス: {info['class']}")
+            class_name = info.get("class", "")
+            print(f"{indent}    クラス: {class_name}")
             if info.get("parent"):
-                # print(f"{indent}    親クラス: {info['parent']}")
-                pass
+                parent_class = info.get("parent", "")
+                print(f"{indent}    親クラス: {parent_class}")
 
         # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
-            sql_lines = info["sql"].split(";")
-            for sql in sql_lines:
-                sql_text = sql.strip()
-                if sql_text:
-                    # 長いSQL文は改行して表示
-                    # if len(sql_text) > 100:
-                    if False:
-                        # 100文字ごとに改行
-                        sql_chunks = [
-                            sql_text[i : i + 100] for i in range(0, len(sql_text), 100)
-                        ]
-                        print(f"{indent}    SQL:")
-                        for chunk in sql_chunks:
-                            print(f"{indent}      {chunk}")
-                    else:
-                        print(f"{indent}    SQL: {sql_text}")
+            sql_text = info.get("sql", "") or ""
+            print(f"{indent}    SQL: {sql_text}")
 
     def _find_parent_methods(self, method: str) -> List[str]:
         """メソッドのオーバーライド元/インターフェースメソッドを探す
@@ -379,7 +370,9 @@ class CallTreeVisualizer:
 
         return parent_methods
 
-    def _find_implementation_method(self, abstract_method: str, impl_class: str) -> str:
+    def _find_implementation_method(
+        self, abstract_method: str, impl_class: str
+    ) -> Optional[str]:
         """抽象メソッドに対応する実装クラスのメソッドを探す
 
         Args:
@@ -597,7 +590,7 @@ class CallTreeVisualizer:
         """
         print(f"\n{'=' * 80}")
         if strict:
-            print(f"エントリーポイント候補（厳密モード - デフォルト）")
+            print("エントリーポイント候補（厳密モード - デフォルト）")
         else:
             print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
         print(f"{'=' * 80}\n")
@@ -885,6 +878,176 @@ class CallTreeVisualizer:
             print(f"   クラス: {class_name}")
             print()
 
+    def export_tree_to_excel(
+        self,
+        entry_points_file: Optional[str],
+        output_file: str,
+        max_depth: int = 20,
+        follow_implementations: bool = True,
+    ):
+        """Excel形式でツリーをエクスポート
+
+        以下のフォーマットで出力する。
+        - A列：エントリーポイントのメソッド（fully qualified name）
+        - B列：呼び出し先メソッド（fully qualified name）
+        - C列：呼び出し先メソッドのパッケージ名
+        - D列：呼び出し先メソッドのクラス名
+        - E列：呼び出し先メソッドのメソッド名以降
+        - F列：呼び出し先メソッドのJavadoc
+        - G列：呼び出し先が呼び元の親クラスのメソッドなら"親クラス"、実装クラスへ展開したものなら"実装クラスへの展開"
+        - H列：SQL文がある場合はSQL文
+        - L列以降：呼び出しツリー
+        """
+        entry_points: List[str] = []
+
+        if entry_points_file:
+            with open(entry_points_file, "r", encoding="utf-8") as f:
+                entry_points = [line.strip() for line in f if line.strip()]
+        else:
+            all_callees = set()
+            for callees in self.forward_calls.values():
+                for callee_info in callees:
+                    all_callees.add(callee_info["method"])
+
+            for method, info in self.method_info.items():
+                if method not in all_callees and info.get("is_entry_point"):
+                    entry_points.append(method)
+
+        wb: openpyxl.Workbook = openpyxl.Workbook()
+        ws: openpyxl.worksheet.worksheet.Worksheet = wb.active
+        if not isinstance(ws, openpyxl.worksheet.worksheet.Worksheet):
+            raise TypeError("Active sheet is not a Worksheet")
+
+        font = Font(name="游ゴシック等幅")
+
+        headers = [
+            "エントリーポイント",
+            "呼び出し先メソッド",
+            "パッケージ名",
+            "クラス名",
+            "メソッド名以降",
+            "Javadoc",
+            "呼び出し先タイプ",
+            "SQL文",
+        ]
+        ws.append(headers)
+
+        for col in ws.iter_cols(min_row=1, max_row=1):
+            for cell in col:
+                cell.font = font
+
+        # -----------------------------------------
+        # L列以降の列幅を5に設定
+        # （例: L列から40列分）
+        # -----------------------------------------
+        tree_start_col: int = column_index_from_string("L")
+        for col_idx in range(tree_start_col, tree_start_col + 40):
+            letter = get_column_letter(col_idx)
+            ws.column_dimensions[letter].width = 3
+
+        current_row_idx = 2  # データ開始行
+
+        def write_tree(
+            start_row_idx: int,
+            method: str,
+            depth: int,
+            parent_type: str = "",
+        ) -> None:
+            """呼び出しツリーを書き込む再帰関数
+            Args:
+                ws: 書き込み先のワークシート
+                start_row_idx: 書き込み開始行
+                method: 現在のメソッド
+                depth: 現在の深度
+                parent_type: 呼び出し元が親クラスメソッドの場合のタイプ表記
+            """
+            nonlocal current_row_idx
+
+            if depth > max_depth:
+                return
+
+            if depth == 0:
+                pass
+
+            callees = self.forward_calls.get(method, [])
+            for callee_info in callees:
+                callee = callee_info["method"]
+                info = self.method_info.get(callee, {})
+
+                # -----------------------------------------
+                # 行ヘッダ部を書き込む
+                # -----------------------------------------
+                row_header = [
+                    method if depth == 0 else "",
+                    callee,
+                    (info.get("class") or "").rsplit(".", 1)[0],
+                    info.get("class", ""),
+                    callee.split("#", 1)[-1],
+                    info.get("javadoc", ""),
+                    (
+                        "親クラス"
+                        if callee_info["is_parent_method"] == "Yes"
+                        else parent_type
+                    ),
+                    info.get("sql", ""),
+                ]
+                for col_idx, value in enumerate(row_header, start=1):
+                    cell = ws.cell(row=current_row_idx, column=col_idx, value=value)
+                    cell.font = font
+
+                # -----------------------------------------
+                # ツリー部を書き込む
+                # -----------------------------------------
+                col_idx = tree_start_col + depth  # 階層に応じて右にずらす（L, M, N...）
+                value = method if depth == 0 else callee
+                cell = ws.cell(row=current_row_idx, column=col_idx, value=value)
+                cell.font = font
+                print(
+                    f"Writing tree - row: {current_row_idx} depth: {depth} method: {value}"
+                )
+
+                current_row_idx += 1
+
+                # 実装クラス候補がある場合
+                if follow_implementations and callee_info["implementations"]:
+                    implementations = [
+                        impl.strip()
+                        for impl in callee_info["implementations"].split(",")
+                        if impl.strip()
+                    ]
+                    for impl_class in implementations:
+                        impl_method = self._find_implementation_method(
+                            callee, impl_class
+                        )
+                        if impl_method:
+                            write_tree(
+                                current_row_idx,
+                                impl_method,
+                                depth + 1,
+                                "実装クラスへの展開",
+                            )
+
+                # 再帰的に呼び出しツリーを記載
+                write_tree(
+                    current_row_idx,
+                    callee,
+                    depth + 1,
+                )
+
+            return
+
+        # エントリーポイントごとにツリーを出力
+        for entry_point in entry_points:
+            write_tree(
+                current_row_idx,
+                entry_point,
+                0,
+            )
+
+        # Excelファイルの保存
+        wb.save(output_file)
+        print(f"ツリーを {output_file} にエクスポートしました")
+
 
 def main():
     if len(sys.argv) < 2:
@@ -898,6 +1061,9 @@ def main():
         print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
         print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
         print("                      format: text, markdown, html (default: text)")
+        print(
+            "  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート"
+        )
         print("  --depth <n>         ツリーの最大深度 (default: 50)")
         print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
         print("  --no-follow-impl    実装クラス候補を追跡しない")
@@ -919,12 +1085,18 @@ def main():
         print(
             "  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html"
         )
+        print(
+            "  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx"
+        )
+        print(
+            "  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx"
+        )
         sys.exit(1)
 
     tsv_file = sys.argv[1]
     visualizer = CallTreeVisualizer(tsv_file)
 
-    max_depth = 10
+    max_depth = 50
     min_calls = 1
     strict = "--no-strict" not in sys.argv  # デフォルトは厳密モード
     follow_implementations = "--no-follow-impl" not in sys.argv
@@ -976,6 +1148,15 @@ def main():
             format = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else "text"
             visualizer.export_tree_to_file(
                 method, output_file, max_depth, format, follow_implementations
+            )
+
+    elif "--export-excel" in sys.argv:
+        idx = sys.argv.index("--export-excel")
+        if idx + 2 < len(sys.argv):
+            entry_points_file = sys.argv[idx + 1] if sys.argv[idx + 1] != "-" else None
+            output_file = sys.argv[idx + 2]
+            visualizer.export_tree_to_excel(
+                entry_points_file, output_file, max_depth, follow_implementations
             )
 
     else:

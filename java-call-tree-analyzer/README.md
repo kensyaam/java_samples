@@ -77,6 +77,14 @@ java -jar call-tree-analyzer-1.0.0.jar
 ## ツリー可視化
 
 ```bash
+# ツリーをExcelにエクスポートする場合のみ
+python -m venv .venv
+source .venv/Scripts/activate
+pip install openpyxl
+pip install types-openpyxl
+```
+
+```bash
 # エントリーポイントを見つける - 厳密モード（デフォルト）
 python call_tree_visualizer.py call-tree.tsv --list
 
@@ -127,6 +135,8 @@ $ python call_tree_visualizer.py
   --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
   --export <method> <o> [format]  ツリーをファイルにエクスポート
                       format: text, markdown, html (default: text)
+  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクス 
+ポート
   --depth <n>         ツリーの最大深度 (default: 50)
   --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
   --no-follow-impl    実装クラス候補を追跡しない

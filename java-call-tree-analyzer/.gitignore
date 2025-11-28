@@ -5,11 +5,12 @@
 build
 
 dist/
-*.jar
+call-tree-analyzer-*.jar
 *.txt
 *.html
 *.csv
 *.tsv
 *.json
 *.graphml
+*.xlsx
 
