@@ -47,6 +47,18 @@ usage: CallTreeAnalyzer
  -h,--help                     ヘルプを表示
 ```
 
+## 機能
+
+### Javadoc の @inheritDoc サポート
+
+メソッドのJavadocに `@inheritDoc` または `{@inheritDoc}` タグが含まれている場合、親クラスやインターフェースから自動的にJavadocを継承します。
+
+- 親クラス → インターフェースの順で検索
+- 見つかった最初のJavadocを使用
+- 継承元も `@inheritDoc` を使用している場合は再帰的に解決
+
+これにより、TSV出力の「メソッドJavadoc」列やPython可視化ツールの出力で、継承されたJavadocが表示されます。
+
 ## 出力形式について
 
 ### TSV出力（デフォルト）

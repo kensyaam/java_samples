@@ -277,6 +277,15 @@ public class CallTreeAnalyzer {
                             break;
                         }
                     }
+
+                    // @inheritDoc または {@inheritDoc} が含まれている場合、親メソッドからJavadocを継承
+                    if (this.javadocSummary.contains("@inheritDoc") ||
+                            this.javadocSummary.contains("{@inheritDoc}")) {
+                        String inheritedDoc = getInheritedJavadoc(method);
+                        if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
+                            this.javadocSummary = inheritedDoc;
+                        }
+                    }
                 }
             } catch (Exception e) {
                 this.javadocSummary = "";
@@ -560,6 +569,149 @@ public class CallTreeAnalyzer {
             if (annotations.contains("Bean"))
                 return "Bean";
             return "";
+        }
+
+        /**
+         * 親クラスまたはインターフェースからJavadocを継承
+         */
+        private String getInheritedJavadoc(CtMethod<?> method) {
+            if (method == null || method.getDeclaringType() == null) {
+                return null;
+            }
+
+            CtType<?> declaringType = method.getDeclaringType();
+
+            // 1. 親クラスから検索
+            if (declaringType instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) declaringType;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+
+                if (superClassRef != null) {
+                    try {
+                        CtType<?> superClass = superClassRef.getTypeDeclaration();
+                        if (superClass != null) {
+                            CtMethod<?> parentMethod = findParentMethod(method, superClass);
+                            if (parentMethod != null) {
+                                String doc = extractJavadocSummary(parentMethod);
+                                // 親メソッドも@inheritDocを使用している場合は再帰的に解決
+                                if (doc != null && (doc.contains("@inheritDoc") || doc.contains("{@inheritDoc}"))) {
+                                    String inheritedDoc = getInheritedJavadoc(parentMethod);
+                                    if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
+                                        return inheritedDoc;
+                                    }
+                                } else if (doc != null && !doc.isEmpty()) {
+                                    return doc;
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 型解決できない場合は無視
+                    }
+                }
+            }
+
+            // 2. インターフェースから検索
+            Set<CtTypeReference<?>> interfaces = declaringType.getSuperInterfaces();
+            for (CtTypeReference<?> ifaceRef : interfaces) {
+                try {
+                    CtType<?> iface = ifaceRef.getTypeDeclaration();
+                    if (iface != null) {
+                        CtMethod<?> parentMethod = findParentMethod(method, iface);
+                        if (parentMethod != null) {
+                            String doc = extractJavadocSummary(parentMethod);
+                            // インターフェースメソッドも@inheritDocを使用している場合は再帰的に解決
+                            if (doc != null && (doc.contains("@inheritDoc") || doc.contains("{@inheritDoc}"))) {
+                                String inheritedDoc = getInheritedJavadoc(parentMethod);
+                                if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
+                                    return inheritedDoc;
+                                }
+                            } else if (doc != null && !doc.isEmpty()) {
+                                return doc;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // 型解決できない場合は無視
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * 指定された型から対応するメソッドを検索
+         */
+        private CtMethod<?> findParentMethod(CtMethod<?> method, CtType<?> parentType) {
+            if (method == null || parentType == null) {
+                return null;
+            }
+
+            String methodName = method.getSimpleName();
+            List<CtParameter<?>> params = method.getParameters();
+
+            // 親型のメソッドを検索
+            for (CtMethod<?> parentMethod : parentType.getMethods()) {
+                if (!parentMethod.getSimpleName().equals(methodName)) {
+                    continue;
+                }
+
+                // パラメータ数が一致するか確認
+                List<CtParameter<?>> parentParams = parentMethod.getParameters();
+                if (params.size() != parentParams.size()) {
+                    continue;
+                }
+
+                // パラメータの型が一致するか確認
+                boolean allMatch = true;
+                for (int i = 0; i < params.size(); i++) {
+                    String paramType = params.get(i).getType().getQualifiedName();
+                    String parentParamType = parentParams.get(i).getType().getQualifiedName();
+                    if (!paramType.equals(parentParamType)) {
+                        allMatch = false;
+                        break;
+                    }
+                }
+
+                if (allMatch) {
+                    return parentMethod;
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * メソッドからJavadocの要約を抽出
+         */
+        private String extractJavadocSummary(CtMethod<?> method) {
+            if (method == null) {
+                return null;
+            }
+
+            try {
+                String doc = null;
+                try {
+                    doc = method.getDocComment();
+                } catch (Throwable t) {
+                    return null;
+                }
+
+                if (doc != null) {
+                    String cleaned = doc.replaceAll("(?s)/\\*\\*|\\*/", "");
+                    String[] lines = cleaned.split("\\r?\\n");
+                    for (String l : lines) {
+                        String s = l.trim();
+                        s = s.replaceFirst("^\\*+\\s?", "").trim();
+                        if (!s.isEmpty()) {
+                            return s;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                return null;
+            }
+
+            return null;
         }
     }
 
@@ -1068,7 +1220,9 @@ public class CallTreeAnalyzer {
                 upper.startsWith("CALL ") || upper.startsWith("BEGIN ") ||
                 upper.startsWith("DECLARE ") || upper.startsWith("DO ") ||
                 upper.startsWith("EXECUTE ") ||
-                upper.startsWith("{CALL ") || upper.startsWith("{? = CALL ");
+                // ストアドプロシージャ呼び出し (JDBC CallableStatement syntax) - 波括弧と等号の周りの空白を無視
+                upper.matches("^\\{\\s*CALL\\s+.*") || // { CALL ...
+                upper.matches("^\\{\\s*\\?\\s*=\\s*CALL\\s+.*"); // { ? = CALL ...
     }
 
     /**
