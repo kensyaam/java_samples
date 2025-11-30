@@ -1057,13 +1057,18 @@ public class CallTreeAnalyzer {
      * 文字列がSQLらしいかを判定
      */
     private boolean looksLikeSql(String str) {
-        if (str == null || str.length() < 10)
+        if (str == null || str.length() < 3)
             return false;
         String upper = str.trim().toUpperCase();
         return upper.startsWith("SELECT ") || upper.startsWith("INSERT ") ||
                 upper.startsWith("UPDATE ") || upper.startsWith("DELETE ") ||
                 upper.startsWith("CREATE ") || upper.startsWith("ALTER ") ||
-                upper.startsWith("DROP ");
+                upper.startsWith("DROP ") ||
+                // PL/SQL, PL/pgSQL
+                upper.startsWith("CALL ") || upper.startsWith("BEGIN ") ||
+                upper.startsWith("DECLARE ") || upper.startsWith("DO ") ||
+                upper.startsWith("EXECUTE ") ||
+                upper.startsWith("{CALL ") || upper.startsWith("{? = CALL ");
     }
 
     /**
