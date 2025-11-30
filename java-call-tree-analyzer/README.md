@@ -102,7 +102,70 @@ python -m venv .venv
 source .venv/Scripts/activate
 pip install openpyxl
 pip install types-openpyxl
+
+# SQL抽出機能を使う場合
+pip install sqlparse
 ```
+
+### SQL抽出・テーブル分析機能
+
+#### SQL文の抽出
+
+TSVファイルから検出されたSQL文を個別のSQLファイルとして出力します。
+
+```bash
+# 基本的な使い方（デフォルトでは ./found_sql に出力）
+python call_tree_visualizer.py call-tree.tsv --extract-sql
+
+# 出力先ディレクトリを指定
+python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls
+```
+
+**出力ファイル名の規則:**
+- 同一メソッド内で検出されたSQL文が1つ: `<メソッド名>.sql`
+- 同一メソッド内で検出されたSQL文が複数: `<メソッド名>_<通番>.sql`
+
+**SQL整形:**
+- `sqlparse` ライブラリを使用してSQL文を自動整形
+- キーワードの大文字化、適切なインデントと改行を適用
+- 構文エラーがあっても処理を継続（エラーで落ちない設計）
+
+#### テーブル使用状況の分析
+
+出力されたSQLファイルから使用テーブルを検出し、標準出力に表示します。
+
+```bash
+# 基本的な使い方
+python call_tree_visualizer.py call-tree.tsv --analyze-tables
+
+# SQLディレクトリとテーブルリストファイルを指定
+python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
+```
+
+**テーブルリストファイル (`table_list.tsv`) のフォーマット:**
+```
+<物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
+```
+
+**例:**
+```
+users	ユーザーマスタ	基本情報を管理
+orders	注文テーブル	注文情報
+order_details	注文明細	注文の詳細情報
+```
+
+**出力フォーマット:**
+```
+<SQLファイル名><TAB><物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
+```
+
+**使用例:**
+```bash
+# SQL抽出 → テーブル分析の一連の流れ
+python call_tree_visualizer.py call-tree.tsv --extract-sql
+python call_tree_visualizer.py call-tree.tsv --analyze-tables > table_usage.tsv
+```
+
 
 ```bash
 # エントリーポイントを見つける - 厳密モード（デフォルト）

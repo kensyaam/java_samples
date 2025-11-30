@@ -14,4 +14,5 @@ call-tree-analyzer-*.jar
 *.json
 *.graphml
 *.xlsx
+*.sql
 

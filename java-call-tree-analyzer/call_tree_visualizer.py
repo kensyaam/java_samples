@@ -1175,6 +1175,240 @@ class CallTreeVisualizer:
             print(f"   クラス: {class_name}")
             print()
 
+    def extract_sql_to_files(self, output_dir: str = "./found_sql") -> None:
+        """
+        SQL文を抽出してファイルに出力
+
+        Args:
+            output_dir: SQL出力先ディレクトリ
+        """
+        import os
+        from pathlib import Path
+
+        # 出力ディレクトリを作成
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # メソッド毎にSQL文を集約
+        method_sqls: Dict[str, List[str]] = defaultdict(list)
+
+        for method, info in self.method_info.items():
+            sql = info.get("sql", "")
+            if sql and sql.strip():
+                method_sqls[method].append(sql)
+
+        if not method_sqls:
+            print("SQL文が見つかりませんでした")
+            return
+
+        # ファイル出力
+        file_count = 0
+        for method, sqls in method_sqls.items():
+            safe_name = self._sanitize_method_name(method)
+
+            if len(sqls) == 1:
+                filename = f"{safe_name}.sql"
+                self._write_sql_file(os.path.join(output_dir, filename), sqls[0])
+                file_count += 1
+            else:
+                for idx, sql in enumerate(sqls, 1):
+                    filename = f"{safe_name}_{idx}.sql"
+                    self._write_sql_file(os.path.join(output_dir, filename), sql)
+                    file_count += 1
+
+        print(f"\n{file_count} 個のSQLファイルを {output_dir} に出力しました")
+
+    def _sanitize_method_name(self, method_signature: str) -> str:
+        """
+        メソッドシグネチャをファイル名として安全な文字列に変換
+
+        Args:
+            method_signature: メソッドシグネチャ (例: "com.example.Class#method()")
+
+        Returns:
+            ファイル名として安全な文字列
+        """
+        # クラス名#メソッド名(引数) -> クラス名_メソッド名_引数
+        name = method_signature.replace("#", "_")
+        name = re.sub(r"[()<>,\s\[\]]", "_", name)
+        name = re.sub(r"_+", "_", name)  # 連続するアンダースコアを1つに
+        name = name.strip("_")
+        return name[:200]  # ファイル名の長さを制限
+
+    def _format_sql(self, sql_text: str) -> str:
+        """
+        SQL文を緩やかに整形
+
+        Args:
+            sql_text: 整形前のSQL文
+
+        Returns:
+            整形後のSQL文
+        """
+        try:
+            import sqlparse
+
+            # sqlparseで整形
+            formatted = sqlparse.format(
+                sql_text,
+                reindent=True,
+                keyword_case="upper",
+                indent_width=2,
+                wrap_after=80,
+            )
+            return formatted
+        except ImportError:
+            # sqlparseがインストールされていない場合は警告を表示して元のSQL文を返す
+            print("警告: sqlparseがインストールされていません。SQL整形をスキップします。")
+            print("  インストール: pip install sqlparse")
+            return sql_text
+        except Exception as e:
+            # エラーが発生しても元のSQL文を返す
+            print(f"警告: SQL整形中にエラーが発生しました: {e}")
+            return sql_text
+
+    def _write_sql_file(self, filepath: str, sql_text: str) -> None:
+        """
+        SQL文をファイルに書き込み
+
+        Args:
+            filepath: 出力ファイルパス
+            sql_text: SQL文
+        """
+        try:
+            formatted_sql = self._format_sql(sql_text)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(formatted_sql)
+        except Exception as e:
+            print(f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}")
+
+    def analyze_table_usage(
+        self, sql_dir: str = "./found_sql", table_list_file: str = "./table_list.tsv"
+    ) -> None:
+        """
+        SQLファイルから使用テーブルを検出
+
+        Args:
+            sql_dir: SQLファイルが格納されているディレクトリ
+            table_list_file: テーブル一覧TSVファイルのパス
+        """
+        import os
+        from pathlib import Path
+
+        # テーブル一覧を読み込み
+        if not os.path.exists(table_list_file):
+            print(f"エラー: テーブル一覧ファイルが見つかりません: {table_list_file}")
+            return
+
+        table_list = self._load_table_list(table_list_file)
+
+        if not table_list:
+            print(f"警告: テーブル一覧が空です")
+            return
+
+        # SQLファイルを走査
+        sql_dir_path = Path(sql_dir)
+        if not sql_dir_path.exists():
+            print(f"エラー: SQLディレクトリが見つかりません: {sql_dir}")
+            return
+
+        sql_files = sorted(sql_dir_path.glob("*.sql"))
+
+        if not sql_files:
+            print(f"警告: SQLファイルが見つかりません: {sql_dir}")
+            return
+
+        # ヘッダーを出力
+        print("SQLファイル名\t物理テーブル名\t論理テーブル名\t補足情報")
+
+        # 各SQLファイルを解析
+        for sql_file in sql_files:
+            try:
+                with open(sql_file, "r", encoding="utf-8") as f:
+                    sql_content = f.read()
+
+                # テーブルを検出
+                found_tables = self._find_tables_in_sql(sql_content, table_list)
+
+                # 結果を出力
+                if found_tables:
+                    for physical_name, logical_name, note in found_tables:
+                        print(f"{sql_file.name}\t{physical_name}\t{logical_name}\t{note}")
+                else:
+                    # テーブルが見つからない場合も1行出力
+                    print(f"{sql_file.name}\t\t\t")
+
+            except Exception as e:
+                print(f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}")
+
+    def _load_table_list(
+        self, table_list_file: str
+    ) -> List[tuple[str, str, str]]:
+        """
+        テーブル一覧をTSVファイルから読み込み
+
+        Args:
+            table_list_file: テーブル一覧TSVファイルのパス
+
+        Returns:
+            (物理テーブル名, 論理テーブル名, 補足情報)のリスト
+        """
+        table_list = []
+
+        try:
+            with open(table_list_file, "r", encoding="utf-8") as f:
+                reader = csv.reader(f, delimiter="\t")
+                for row in reader:
+                    # コメント行や空行をスキップ
+                    if not row or (row[0] and row[0].startswith("#")):
+                        continue
+
+                    # 最低でも物理テーブル名が必要
+                    if len(row) >= 1 and row[0].strip():
+                        physical_name = row[0].strip()
+                        logical_name = row[1].strip() if len(row) >= 2 else ""
+                        note = row[2].strip() if len(row) >= 3 else ""
+                        table_list.append((physical_name, logical_name, note))
+
+        except Exception as e:
+            print(f"エラー: テーブル一覧ファイルの読み込みに失敗しました: {e}")
+
+        return table_list
+
+    def _find_tables_in_sql(
+        self, sql_content: str, table_list: List[tuple[str, str, str]]
+    ) -> List[tuple[str, str, str]]:
+        """
+        SQL文からテーブルを検出
+
+        Args:
+            sql_content: SQL文
+            table_list: テーブル一覧
+
+        Returns:
+            検出されたテーブル情報のリスト
+        """
+        # SQL文を大文字化して検索
+        sql_upper = sql_content.upper()
+
+        found_tables = []
+        seen_tables = set()  # 重複を避けるため
+
+        for physical_name, logical_name, note in table_list:
+            # テーブル名を大文字化して検索
+            table_upper = physical_name.upper()
+
+            # 単語境界を考慮してテーブル名を検索
+            # テーブル名の前後が英数字でないことを確認
+            pattern = r"\b" + re.escape(table_upper) + r"\b"
+
+            if re.search(pattern, sql_upper):
+                if physical_name not in seen_tables:
+                    found_tables.append((physical_name, logical_name, note))
+                    seen_tables.add(physical_name)
+
+        return found_tables
+
+
     def export_tree_to_excel(
         self,
         entry_points_file: Optional[str],
@@ -1364,10 +1598,19 @@ def print_usage():
     print("  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)")
     print("  --no-follow-impl    実装クラス候補を追跡しない")
     print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
+    print("")
+    print("  --extract-sql [--sql-output-dir <dir>]  SQL文を抽出してファイル出力")
+    print("                      デフォルト出力先: ./found_sql")
+    print("  --analyze-tables [--sql-dir <dir>] [--table-list <file>]")
+    print("                      SQLファイルから使用テーブルを検出")
+    print("                      デフォルトSQLディレクトリ: ./found_sql")
+    print("                      デフォルトテーブルリスト: ./table_list.tsv")
     print("\n除外ルールファイルのフォーマット:")
     print("  <クラス名 or メソッド名><TAB><I|E>")
     print("  I: 対象自体を除外")
     print("  E: 対象は表示するが、配下の呼び出しを除外")
+    print("\nテーブルリストファイル (table_list.tsv) のフォーマット:")
+    print("  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>")
     print("\n例:")
     print("  python call_tree_visualizer.py call-tree.tsv --list")
     print("  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5")
@@ -1378,6 +1621,10 @@ def print_usage():
     print("  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx")
     print("  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx")
     print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt")
+    print("  python call_tree_visualizer.py call-tree.tsv --extract-sql")
+    print("  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls")
+    print("  python call_tree_visualizer.py call-tree.tsv --analyze-tables")
+    print("  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv")
 
 
 def main():
@@ -1464,6 +1711,33 @@ def main():
             visualizer.export_tree_to_excel(
                 entry_points_file, output_file, max_depth, follow_implementations
             )
+
+    elif "--extract-sql" in sys.argv:
+        # SQL出力先ディレクトリのオプション処理
+        sql_output_dir = "./found_sql"
+        if "--sql-output-dir" in sys.argv:
+            idx = sys.argv.index("--sql-output-dir")
+            if idx + 1 < len(sys.argv):
+                sql_output_dir = sys.argv[idx + 1]
+
+        visualizer.extract_sql_to_files(sql_output_dir)
+
+    elif "--analyze-tables" in sys.argv:
+        # SQLディレクトリとテーブルリストファイルのオプション処理
+        sql_dir = "./found_sql"
+        table_list_file = "./table_list.tsv"
+
+        if "--sql-dir" in sys.argv:
+            idx = sys.argv.index("--sql-dir")
+            if idx + 1 < len(sys.argv):
+                sql_dir = sys.argv[idx + 1]
+
+        if "--table-list" in sys.argv:
+            idx = sys.argv.index("--table-list")
+            if idx + 1 < len(sys.argv):
+                table_list_file = sys.argv[idx + 1]
+
+        visualizer.analyze_table_usage(sql_dir, table_list_file)
 
     else:
         print("オプションを指定してください。--help で使い方を確認できます")
