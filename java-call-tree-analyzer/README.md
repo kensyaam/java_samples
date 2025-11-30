@@ -166,6 +166,54 @@ python call_tree_visualizer.py call-tree.tsv --extract-sql
 python call_tree_visualizer.py call-tree.tsv --analyze-tables > table_usage.tsv
 ```
 
+### Excel出力機能
+
+呼び出しツリーを構造化されたExcel形式で出力します。複数のエントリーポイントからの呼び出しツリーを1つのExcelファイルにまとめて出力できます。
+
+#### 使用方法
+
+```bash
+# エントリーポイントをファイルで指定
+python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt output.xlsx
+
+# 厳密モードのすべてのエントリーポイントを出力（ファイル指定なし）
+python call_tree_visualizer.py call-tree.tsv --export-excel - output.xlsx
+
+# 深度を指定
+python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt output.xlsx --depth 15
+```
+
+#### エントリーポイントファイルの形式
+
+1行に1つのメソッドシグネチャを記載します。空行と`#`で始まるコメント行はスキップされます。
+
+```
+# エントリーポイント例
+com.example.Main#main(String[])
+com.example.api.UserController#getUser(Long)
+com.example.service.OrderService#processOrder(Order)
+```
+
+#### Excel出力フォーマット
+
+- **A列**: 呼び出しツリーの先頭メソッド（fully qualified name）
+- **B列**: 呼び出しメソッド（fully qualified name）
+- **C列**: 呼び出しメソッドのパッケージ名
+- **D列**: 呼び出しメソッドのクラス名
+- **E列**: 呼び出しメソッドのメソッド名（simple name）
+- **F列**: 呼び出しメソッドのJavadoc
+- **G列**: 呼び出しメソッドが呼び元の親クラスのメソッドなら"親クラス"、実装クラスへ展開したものなら"実装クラスへの展開"
+- **H列**: SQL文がある場合: ●
+- **L列以降**: 呼び出しツリー（メソッドからパッケージ名は除外、列のインデントで階層表現）
+- **AZ列**: SQL文
+
+**特徴:**
+- フォント: 游ゴシック等幅
+- L列以降の列幅: 5
+- 実装クラス候補がある場合は自動的に追跡・展開
+- 循環参照は `[循環参照]` として表示され、それ以上展開されない
+- 除外ルールファイルにも対応
+
 
 ```bash
 # エントリーポイントを見つける - 厳密モード（デフォルト）
@@ -195,6 +243,13 @@ python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(Str
 
 # HTML形式（ブラウザで開ける）
 python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.html html
+
+# Excel形式で呼び出しツリーを一括出力
+# エントリーポイントファイルを指定する場合
+python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
+
+# エントリーポイントファイルを指定しない場合（厳密モードのすべてのエントリーポイントを出力）
+python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
 
 # 深度を指定
 python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5

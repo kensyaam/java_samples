@@ -1227,9 +1227,9 @@ class CallTreeVisualizer:
         Returns:
             ファイル名として安全な文字列
         """
-        # クラス名#メソッド名(引数) -> クラス名_メソッド名_引数
-        name = method_signature.replace("#", "_")
-        name = re.sub(r"[()<>,\s\[\]]", "_", name)
+        name = method_signature.replace("#", ".")  # メソッドとクラスの区切りをドットに変換
+        # Windowsでファイル名として安全でない文字をアンダースコアに変換
+        name = re.sub(r'[<>:"/\\|?*()\[\]\s]', "_", name)
         name = re.sub(r"_+", "_", name)  # 連続するアンダースコアを1つに
         name = name.strip("_")
         return name[:200]  # ファイル名の長さを制限
@@ -1409,32 +1409,204 @@ class CallTreeVisualizer:
         return found_tables
 
 
+    def _extract_method_signature_parts(self, method_signature: str) -> Dict[str, str]:
+        """
+        メソッドシグネチャを分解
+
+        Args:
+            method_signature: メソッドシグネチャ (例: "com.example.service.UserService#getUser(String)")
+
+        Returns:
+            各要素を含む辞書
+        """
+        if "#" not in method_signature:
+            return {
+                "package": "",
+                "class": "",
+                "simple_class": "",
+                "method": method_signature,
+                "full_signature": method_signature,
+            }
+
+        class_part, method_part = method_signature.split("#", 1)
+
+        # パッケージ名とクラス名を分離
+        if "." in class_part:
+            package = ".".join(class_part.split(".")[:-1])
+            simple_class = class_part.split(".")[-1]
+        else:
+            package = ""
+            simple_class = class_part
+
+        return {
+            "package": package,
+            "class": class_part,
+            "simple_class": simple_class,
+            "method": method_part,
+            "full_signature": method_signature,
+        }
+
+    def _format_tree_display(self, method_signature: str) -> str:
+        """
+        L列以降に表示するツリー用のメソッド名を生成
+        パッケージ名を除外し、SimpleClassName#methodName(params)形式
+
+        Args:
+            method_signature: メソッドシグネチャ
+
+        Returns:
+            ツリー表示用のメソッド名
+        """
+        parts = self._extract_method_signature_parts(method_signature)
+        if parts["simple_class"]:
+            return f"{parts['simple_class']}#{parts['method']}"
+        return parts["method"]
+
+    def _collect_tree_data(
+        self,
+        root_method: str,
+        max_depth: int,
+        follow_implementations: bool,
+        visited: Optional[Set[str]] = None,
+        depth: int = 0,
+        parent_relation: str = "",
+    ) -> List[Dict[str, any]]:
+        """
+        1つの呼び出しツリーを再帰的にトラバースし、全メソッド情報を収集
+
+        Args:
+            root_method: ルートメソッド
+            max_depth: 最大深度
+            follow_implementations: 実装クラス候補を追跡するか
+            visited: 訪問済みメソッド集合（循環参照チェック用）
+            depth: 現在の深度
+            parent_relation: 親との関係（"親クラス" / "実装クラスへの展開" / ""）
+
+        Returns:
+            各メソッドの情報を含む辞書のリスト
+        """
+        if visited is None:
+            visited = set()
+
+        result = []
+
+        if depth > max_depth:
+            return result
+
+        # 除外ルールチェック
+        if not self.exclusion_manager.should_include(root_method):
+            return result
+
+        # 循環参照チェック
+        is_circular = root_method in visited
+
+        # メソッド情報を取得
+        info = self.method_info.get(root_method, {})
+        parts = self._extract_method_signature_parts(root_method)
+
+        # 現在のメソッドを結果に追加
+        result.append(
+            {
+                "depth": depth,
+                "method": root_method,
+                "package": parts["package"],
+                "class": parts["class"],
+                "simple_method": parts["method"],
+                "javadoc": info.get("javadoc", ""),
+                "parent_relation": parent_relation,
+                "sql": info.get("sql", ""),
+                "is_circular": is_circular,
+                "tree_display": self._format_tree_display(root_method),
+            }
+        )
+
+        # 循環参照の場合は子ノードを展開しない
+        if is_circular:
+            return result
+
+        visited_copy = visited.copy()
+        visited_copy.add(root_method)
+
+        # 除外ルールで配下を除外する場合
+        if self.exclusion_manager.should_exclude_children(root_method):
+            return result
+
+        # 子ノードを再帰的に処理
+        callees = self.forward_calls.get(root_method, [])
+        for callee_info in callees:
+            callee = callee_info["method"]
+
+            # 親クラスメソッドかどうか
+            relation = "親クラス" if callee_info["is_parent_method"] == "Yes" else ""
+
+            # 呼び出し先を再帰的に収集
+            result.extend(
+                self._collect_tree_data(
+                    callee,
+                    max_depth,
+                    follow_implementations,
+                    visited_copy.copy(),
+                    depth + 1,
+                    relation,
+                )
+            )
+
+            # 実装クラス候補がある場合
+            if follow_implementations and callee_info["implementations"]:
+                implementations = [
+                    impl.strip().split(" ")[0]
+                    for impl in callee_info["implementations"].split(",")
+                    if impl.strip()
+                ]
+
+                for impl_class in implementations:
+                    impl_method = self._find_implementation_method(callee, impl_class)
+                    if impl_method:
+                        result.extend(
+                            self._collect_tree_data(
+                                impl_method,
+                                max_depth,
+                                follow_implementations,
+                                visited_copy.copy(),
+                                depth + 1,
+                                "実装クラスへの展開",
+                            )
+                        )
+
+        return result
+
     def export_tree_to_excel(
         self,
         entry_points_file: Optional[str],
         output_file: str,
         max_depth: int = 20,
         follow_implementations: bool = True,
-    ):
-        """Excel形式でツリーをエクスポート
-
-        以下のフォーマットで出力する。
-        - A列：エントリーポイントのメソッド（fully qualified name）
-        - B列：呼び出し先メソッド（fully qualified name）
-        - C列：呼び出し先メソッドのパッケージ名
-        - D列：呼び出し先メソッドのクラス名
-        - E列：呼び出し先メソッドのメソッド名以降
-        - F列：呼び出し先メソッドのJavadoc
-        - G列：呼び出し先が呼び元の親クラスのメソッドなら"親クラス"、実装クラスへ展開したものなら"実装クラスへの展開"
-        - H列：SQL文がある場合はSQL文
-        - L列以降：呼び出しツリー
+    ) -> None:
         """
+        Excel形式でツリーをエクスポート
+
+        Args:
+            entry_points_file: エントリーポイントファイル（Noneの場合は厳密モードのエントリーポイント）
+            output_file: 出力ファイル名
+            max_depth: 最大深度
+            follow_implementations: 実装クラス候補を追跡するか
+        """
+        # エントリーポイントの決定
         entry_points: List[str] = []
 
         if entry_points_file:
-            with open(entry_points_file, "r", encoding="utf-8") as f:
-                entry_points = [line.strip() for line in f if line.strip()]
+            try:
+                with open(entry_points_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        # 空行とコメント行をスキップ
+                        if line and not line.startswith("#"):
+                            entry_points.append(line)
+            except Exception as e:
+                print(f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}")
+                return
         else:
+            # 厳密モードのエントリーポイントを取得
             all_callees = set()
             for callees in self.forward_calls.values():
                 for callee_info in callees:
@@ -1444,140 +1616,93 @@ class CallTreeVisualizer:
                 if method not in all_callees and info.get("is_entry_point"):
                     entry_points.append(method)
 
-        wb: openpyxl.Workbook = openpyxl.Workbook()
-        ws: openpyxl.worksheet.worksheet.Worksheet = wb.active
+        if not entry_points:
+            print("警告: エントリーポイントが見つかりませんでした")
+            return
+
+        print(f"エントリーポイント数: {len(entry_points)}")
+
+        # Excelワークブックの作成
+        wb = openpyxl.Workbook()
+        ws = wb.active
         if not isinstance(ws, openpyxl.worksheet.worksheet.Worksheet):
             raise TypeError("Active sheet is not a Worksheet")
 
         font = Font(name="游ゴシック等幅")
 
-        headers = [
-            "エントリーポイント",
-            "呼び出し先メソッド",
-            "パッケージ名",
-            "クラス名",
-            "メソッド名以降",
-            "Javadoc",
-            "呼び出し先タイプ",
-            "SQL文",
-        ]
-        ws.append(headers)
-
-        for col in ws.iter_cols(min_row=1, max_row=1):
-            for cell in col:
-                cell.font = font
-
-        # -----------------------------------------
         # L列以降の列幅を5に設定
-        # （例: L列から40列分）
-        # -----------------------------------------
-        tree_start_col: int = column_index_from_string("L")
-        for col_idx in range(tree_start_col, tree_start_col + 40):
+        tree_start_col = column_index_from_string("L")
+        for col_idx in range(tree_start_col, tree_start_col + 50):
             letter = get_column_letter(col_idx)
-            ws.column_dimensions[letter].width = 3
+            ws.column_dimensions[letter].width = 5
 
-        current_row_idx = 2  # データ開始行
+        # AZ列のインデックス
+        az_col = column_index_from_string("AZ")
 
-        def write_tree(
-            start_row_idx: int,
-            method: str,
-            depth: int,
-            parent_type: str = "",
-        ) -> None:
-            """呼び出しツリーを書き込む再帰関数
-            Args:
-                ws: 書き込み先のワークシート
-                start_row_idx: 書き込み開始行
-                method: 現在のメソッド
-                depth: 現在の深度
-                parent_type: 呼び出し元が親クラスメソッドの場合のタイプ表記
-            """
-            nonlocal current_row_idx
+        # 各エントリーポイントについてツリーを収集して出力
+        current_row = 1
 
-            if depth > max_depth:
-                return
-
-            if depth == 0:
-                pass
-
-            callees = self.forward_calls.get(method, [])
-            for callee_info in callees:
-                callee = callee_info["method"]
-                info = self.method_info.get(callee, {})
-
-                # -----------------------------------------
-                # 行ヘッダ部を書き込む
-                # -----------------------------------------
-                row_header = [
-                    method if depth == 0 else "",
-                    callee,
-                    (info.get("class") or "").rsplit(".", 1)[0],
-                    info.get("class", ""),
-                    callee.split("#", 1)[-1],
-                    info.get("javadoc", ""),
-                    (
-                        "親クラス"
-                        if callee_info["is_parent_method"] == "Yes"
-                        else parent_type
-                    ),
-                    info.get("sql", ""),
-                ]
-                for col_idx, value in enumerate(row_header, start=1):
-                    cell = ws.cell(row=current_row_idx, column=col_idx, value=value)
-                    cell.font = font
-
-                # -----------------------------------------
-                # ツリー部を書き込む
-                # -----------------------------------------
-                col_idx = tree_start_col + depth  # 階層に応じて右にずらす（L, M, N...）
-                value = method if depth == 0 else callee
-                cell = ws.cell(row=current_row_idx, column=col_idx, value=value)
-                cell.font = font
-                print(
-                    f"Writing tree - row: {current_row_idx} depth: {depth} method: {value}"
-                )
-
-                current_row_idx += 1
-
-                # 実装クラス候補がある場合
-                if follow_implementations and callee_info["implementations"]:
-                    implementations = [
-                        impl.strip()
-                        for impl in callee_info["implementations"].split(",")
-                        if impl.strip()
-                    ]
-                    for impl_class in implementations:
-                        impl_method = self._find_implementation_method(
-                            callee, impl_class
-                        )
-                        if impl_method:
-                            write_tree(
-                                current_row_idx,
-                                impl_method,
-                                depth + 1,
-                                "実装クラスへの展開",
-                            )
-
-                # 再帰的に呼び出しツリーを記載
-                write_tree(
-                    current_row_idx,
-                    callee,
-                    depth + 1,
-                )
-
-            return
-
-        # エントリーポイントごとにツリーを出力
         for entry_point in entry_points:
-            write_tree(
-                current_row_idx,
-                entry_point,
-                0,
+            print(f"処理中: {entry_point}")
+
+            # ツリーデータを収集
+            tree_data = self._collect_tree_data(
+                entry_point, max_depth, follow_implementations
             )
 
+            # Excelに書き込み
+            for node in tree_data:
+                # A列: エントリーポイント（すべての行に出力）
+                ws.cell(row=current_row, column=1, value=entry_point).font = font
+
+                # B列: 呼び出しメソッド（fully qualified name）
+                ws.cell(row=current_row, column=2, value=node["method"]).font = font
+
+                # C列: パッケージ名
+                ws.cell(row=current_row, column=3, value=node["package"]).font = font
+
+                # D列: クラス名
+                ws.cell(row=current_row, column=4, value=node["class"]).font = font
+
+                # E列: メソッド名（simple name）
+                ws.cell(
+                    row=current_row, column=5, value=node["simple_method"]
+                ).font = font
+
+                # F列: Javadoc
+                ws.cell(row=current_row, column=6, value=node["javadoc"]).font = font
+
+                # G列: 親クラス / 実装クラスへの展開
+                ws.cell(
+                    row=current_row, column=7, value=node["parent_relation"]
+                ).font = font
+
+                # H列: SQL有無
+                sql_marker = "●" if node["sql"] else ""
+                ws.cell(row=current_row, column=8, value=sql_marker).font = font
+
+                # L列以降: 呼び出しツリー
+                tree_col = tree_start_col + node["depth"]
+                tree_text = node["tree_display"]
+                if node["is_circular"]:
+                    tree_text += " [循環参照]"
+                ws.cell(row=current_row, column=tree_col, value=tree_text).font = font
+
+                # AZ列: SQL文
+                if node["sql"]:
+                    ws.cell(row=current_row, column=az_col, value=node["sql"]).font = (
+                        font
+                    )
+
+                current_row += 1
+
         # Excelファイルの保存
-        wb.save(output_file)
-        print(f"ツリーを {output_file} にエクスポートしました")
+        try:
+            wb.save(output_file)
+            print(f"ツリーを {output_file} にエクスポートしました")
+            print(f"総行数: {current_row - 1}")
+        except Exception as e:
+            print(f"エラー: Excelファイルの保存に失敗しました: {e}")
 
 
 def print_usage():
