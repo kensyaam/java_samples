@@ -22,6 +22,7 @@ class CallTreeVisualizer:
         self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
         self.reverse_calls: Dict[str, List[str]] = defaultdict(list)
         self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
+        self.class_info: Dict[str, List[str]] = {}
         self.load_data()
 
     def load_data(self):
@@ -54,6 +55,15 @@ class CallTreeVisualizer:
                         "class_annotations": row.get("クラスアノテーション", ""),
                     }
 
+                    # クラス階層情報を保存
+                    if row["呼び出し元クラス"]:
+                        parents = [
+                            p.strip()
+                            for p in row["呼び出し元の親クラス"].split(",")
+                            if p.strip()
+                        ]
+                        self.class_info[row["呼び出し元クラス"]] = parents
+
                 if callee:
                     if callee not in self.method_info:
                         self.method_info[callee] = {
@@ -80,6 +90,16 @@ class CallTreeVisualizer:
                             self.method_info[callee] |= {
                                 "javadoc": row.get("メソッドJavadoc", "")
                             }
+
+                    # クラス階層情報を保存（呼び出し先）
+                    callee_class = row["呼び出し先クラス"]
+                    callee_parents_str = row.get("呼び出し先の親クラス", "")
+                    if callee_class:
+                        parents = [
+                            p.strip() for p in callee_parents_str.split(",") if p.strip()
+                        ]
+                        if callee_class not in self.class_info or not self.class_info[callee_class]:
+                            self.class_info[callee_class] = parents
 
                 # 呼び出し関係を保存
                 if direction == "Forward" and caller and callee:
@@ -390,13 +410,79 @@ class CallTreeVisualizer:
         method_part = abstract_method.split("#", 1)[1]
 
         # 実装クラスの同じシグネチャのメソッドを探す
+        # 1. 直接の実装を探す
         for method_sig, info in self.method_info.items():
             if info.get("class") == impl_class:
-                # クラス名を除いたメソッド部分が一致するか確認
                 if "#" in method_sig:
                     sig_method_part = method_sig.split("#", 1)[1]
                     if sig_method_part == method_part:
                         return method_sig
+
+        # 2. 親クラスを辿って実装を探す
+        current_class = impl_class
+        visited_classes = set()
+        
+        while current_class:
+            if current_class in visited_classes:
+                break
+            visited_classes.add(current_class)
+            
+            parents = self.class_info.get(current_class, [])
+            if not parents:
+                break
+                
+            # 親クラス（インターフェース含む）の中から実装を探す
+            # 優先順位: クラス > インターフェース だが、ここでは見つかった順
+            # Javaの単一継承を考えると、親クラスは1つ（+インターフェース複数）
+            # ここでは単純に見つかったものを返す
+            found_in_parent = False
+            for parent in parents:
+                # 親クラスでメソッドを探す
+                for method_sig, info in self.method_info.items():
+                    if info.get("class") == parent:
+                        if "#" in method_sig:
+                            sig_method_part = method_sig.split("#", 1)[1]
+                            if sig_method_part == method_part:
+                                return method_sig
+                
+                # 見つからなければ、次のループのために親クラスを更新したいが、
+                # 複数の親（インターフェース）があるため、幅優先探索すべきか？
+                # ここでは単純化して、最初の親（おそらくスーパークラス）を優先して探索する
+                # ただし、parentsリストの順序は保証されていないかもしれない
+                pass
+
+            # 幅優先探索で次の階層へ
+            # parents の中から次の current_class を選ぶ必要があるが、
+            # ここでは簡易的に、parents のすべてを次の探索候補にするBFSにする
+            
+            # 上のループで return していないので、ここに来たということは
+            # 直近の親には実装がない。
+            # 次の階層（親の親）を探す
+            
+            # BFS queue logic implementation
+            # Since we are inside a while loop designed for single path, let's refactor to BFS queue
+            break # Break inner loop to switch to BFS structure below
+        
+        # BFSで親クラスを探索
+        queue = list(self.class_info.get(impl_class, []))
+        visited_classes = {impl_class}
+        
+        while queue:
+            current_parent = queue.pop(0)
+            if current_parent in visited_classes:
+                continue
+            visited_classes.add(current_parent)
+            
+            # この親クラスにメソッドがあるか確認
+            for method_sig, info in self.method_info.items():
+                if info.get("class") == current_parent:
+                    if "#" in method_sig:
+                        sig_method_part = method_sig.split("#", 1)[1]
+                        if sig_method_part == method_part:
+                            return method_sig
+            
+            # 次の親を追加
+            queue.extend(self.class_info.get(current_parent, []))
 
         return None
 
@@ -613,7 +699,7 @@ class CallTreeVisualizer:
             # 厳密モードの場合
             if strict:
                 if info.get("is_entry_point"):
-                    entry_type = self._determine_entry_type(info)
+                    entry_type = self._determine_entry_type(method, info)
                     entry_points.append(
                         (
                             method,
@@ -627,7 +713,7 @@ class CallTreeVisualizer:
             else:
                 # 非厳密モードの場合は呼び出し数で判定
                 if call_count >= min_calls:
-                    entry_type = self._determine_entry_type(info)
+                    entry_type = self._determine_entry_type(method, info)
                     entry_points.append(
                         (
                             method,
@@ -713,9 +799,11 @@ class CallTreeVisualizer:
 
         return ""
 
-    def _determine_entry_type(self, info: dict) -> str:
+    def _determine_entry_type(self, method: str, info: dict) -> str:
         """エントリーポイントの種別を判定"""
-        # まず、解析時に判定されたエントリータイプを使用
+        candidates = []
+
+        # 1. 解析時に判定されたエントリータイプ
         entry_type = info.get("entry_type", "")
         if entry_type:
             type_map = {
@@ -731,9 +819,31 @@ class CallTreeVisualizer:
                 "Thread": "Runnable/Callable",
                 "Bean": "Bean Factory",
             }
-            return type_map.get(entry_type, entry_type)
+            candidates.append(type_map.get(entry_type, entry_type))
 
-        # フォールバック：アノテーションから判定
+        # 2. アノテーションから判定
+        entry_type = self._check_entry_type_from_info(info)
+        if entry_type:
+            candidates.append(entry_type)
+
+        # 3. 親メソッド（インターフェース/スーパークラス）のアノテーションを確認
+        parent_methods = self._find_parent_methods(method)
+        for parent_method in parent_methods:
+            parent_info = self.method_info.get(parent_method, {})
+            if parent_info:
+                entry_type = self._check_entry_type_from_info(parent_info)
+                if entry_type:
+                    candidates.append(entry_type)
+
+        if not candidates:
+            return ""
+
+        # 優先順位でソート（数値が小さい方が優先）
+        candidates.sort(key=lambda x: self._entry_priority(x))
+        return candidates[0]
+
+    def _check_entry_type_from_info(self, info: dict) -> str:
+        """メソッド情報からエントリータイプを判定（ヘルパー）"""
         annotations = info.get("annotations", "")
         class_annotations = info.get("class_annotations", "")
 
