@@ -16,14 +16,177 @@ from openpyxl.styles import Font
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 
+class ExclusionRuleManager:
+    """除外ルールを管理するクラス"""
+
+    def __init__(self, exclusion_file: Optional[str] = None):
+        """
+        コンストラクタ
+
+        Args:
+            exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルトファイルを使用）
+        """
+        self.include_exclusions: Set[str] = set()  # Iモード: 対象自体を除外
+        self.exclude_children: Set[str] = set()  # Eモード: 配下のみ除外
+
+        # デフォルトファイル名
+        if exclusion_file is None:
+            exclusion_file = "exclusion_rules.txt"
+
+        # ファイルが存在する場合のみ読み込む
+        import os
+
+        if os.path.exists(exclusion_file):
+            self.load_rules(exclusion_file)
+
+    def load_rules(self, file_path: str) -> None:
+        """
+        除外ルールをファイルから読み込む
+
+        Args:
+            file_path: 除外ルールファイルのパス
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        # 空行とコメント行はスキップ
+                        continue
+
+                    parts = line.split("\t")
+                    if len(parts) != 2:
+                        print(
+                            f"警告: 行 {line_num} のフォーマットが不正です: {line}"
+                        )
+                        continue
+
+                    target, mode = parts
+                    target = target.strip()
+                    mode = mode.strip().upper()
+
+                    if mode == "I":
+                        self.include_exclusions.add(target)
+                    elif mode == "E":
+                        self.exclude_children.add(target)
+                    else:
+                        print(
+                            f"警告: 行 {line_num} の除外モードが不正です: {mode} (I または E を指定してください)"
+                        )
+
+            print(f"除外ルールを読み込みました: {file_path}")
+            print(f"  Iモード(対象除外): {len(self.include_exclusions)} 件")
+            print(f"  Eモード(配下除外): {len(self.exclude_children)} 件")
+
+        except Exception as e:
+            print(f"除外ルールファイルの読み込みに失敗しました: {e}")
+
+    def should_include(self, method_or_class: str) -> bool:
+        """
+        メソッド/クラスがIモード（対象自体を除外）の対象かチェック
+
+        Args:
+            method_or_class: メソッドシグネチャまたはクラス名
+
+        Returns:
+            True: 表示すべき（除外対象ではない）
+            False: 除外すべき（除外対象）
+        """
+        # メソッドシグネチャ全体が除外対象か
+        if method_or_class in self.include_exclusions:
+            return False
+
+        # クラス名を抽出して除外対象かチェック
+        class_name = self._extract_class_name(method_or_class)
+        if class_name and class_name in self.include_exclusions:
+            return False
+
+        # メソッド名のみを抽出して除外対象かチェック
+        method_name = self._extract_method_name(method_or_class)
+        if method_name and method_name in self.include_exclusions:
+            return False
+
+        return True
+
+    def should_exclude_children(self, method_or_class: str) -> bool:
+        """
+        メソッド/クラスがEモード（配下のみ除外）の対象かチェック
+
+        Args:
+            method_or_class: メソッドシグネチャまたはクラス名
+
+        Returns:
+            True: 配下を除外すべき
+            False: 配下も展開すべき
+        """
+        # メソッドシグネチャ全体が除外対象か
+        if method_or_class in self.exclude_children:
+            return True
+
+        # クラス名を抽出して除外対象かチェック
+        class_name = self._extract_class_name(method_or_class)
+        if class_name and class_name in self.exclude_children:
+            return True
+
+        # メソッド名のみを抽出して除外対象かチェック
+        method_name = self._extract_method_name(method_or_class)
+        if method_name and method_name in self.exclude_children:
+            return True
+
+        return False
+
+    def _extract_class_name(self, method_signature: str) -> Optional[str]:
+        """
+        メソッドシグネチャからクラス名を抽出
+
+        Args:
+            method_signature: メソッドシグネチャ (例: "com.example.Class#method()")
+
+        Returns:
+            クラス名 (例: "com.example.Class")、抽出できない場合はNone
+        """
+        if "#" in method_signature:
+            return method_signature.split("#")[0]
+        return None
+
+    def _extract_method_name(self, method_signature: str) -> Optional[str]:
+        """
+        メソッドシグネチャからメソッド名を抽出
+
+        Args:
+            method_signature: メソッドシグネチャ (例: "com.example.Class#method()")
+
+        Returns:
+            メソッド名 (例: "method")、抽出できない場合はNone
+        """
+        if "#" in method_signature:
+            method_part = method_signature.split("#")[1]
+            # 引数部分を除去
+            if "(" in method_part:
+                return method_part.split("(")[0]
+            return method_part
+        return None
+
+
 class CallTreeVisualizer:
-    def __init__(self, tsv_file: str):
+    def __init__(self, tsv_file: str, exclusion_file: Optional[str] = None):
+        """
+        コンストラクタ
+
+        Args:
+            tsv_file: TSVファイルのパス
+            exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルト）
+        """
         self.tsv_file: str = tsv_file
         self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
         self.reverse_calls: Dict[str, List[str]] = defaultdict(list)
         self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
         self.class_info: Dict[str, List[str]] = {}
+        self.exclusion_manager: ExclusionRuleManager = ExclusionRuleManager(
+            exclusion_file
+        )
         self.load_data()
+
 
     def load_data(self):
         """TSVファイルを読み込む"""
@@ -185,6 +348,10 @@ class CallTreeVisualizer:
         if depth > max_depth:
             return
 
+        # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+        if not self.exclusion_manager.should_include(method):
+            return
+
         # 循環参照チェック
         if method in visited:
             self._print_node(method, depth, show_class, show_sql, is_circular=True)
@@ -192,6 +359,12 @@ class CallTreeVisualizer:
 
         visited.add(method)
         self._print_node(method, depth, show_class, show_sql)
+
+        # Eモード: 除外対象の場合、配下の展開を停止
+        if self.exclusion_manager.should_exclude_children(method):
+            indent = "    " * (depth + 1)
+            print(f"{indent}[配下の呼び出しを除外]")
+            return
 
         # 子ノードを表示
         if is_forward:
@@ -284,6 +457,10 @@ class CallTreeVisualizer:
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
+            return
+
+        # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+        if not self.exclusion_manager.should_include(method):
             return
 
         # 循環参照チェック
@@ -611,6 +788,10 @@ class CallTreeVisualizer:
         if depth > max_depth:
             return ""
 
+        # Iモード: 除外対象の場合、ノード自体をスキップ
+        if not self.exclusion_manager.should_include(method):
+            return ""
+
         html = ""
         info = self.method_info.get(method, {})
 
@@ -624,6 +805,12 @@ class CallTreeVisualizer:
 
         if info.get("class"):
             html += f'<div class="class-info">クラス: {info["class"]}</div>'
+
+        # Eモード: 配下の展開を停止
+        if self.exclusion_manager.should_exclude_children(method):
+            html += '<div class="class-info">[配下の呼び出しを除外]</div>'
+            html += '</li>'
+            return html
 
         callees = self.forward_calls.get(method, [])
         if callees:
@@ -1159,58 +1346,67 @@ class CallTreeVisualizer:
         print(f"ツリーを {output_file} にエクスポートしました")
 
 
+def print_usage():
+    """使い方を表示"""
+    print("使い方:")
+    print("  python call_tree_visualizer.py <TSVファイル> [オプション]")
+    print("\nオプション:")
+    print("  --list [--no-strict]  エントリーポイント候補を表示")
+    print("                        デフォルトは厳密モード、--no-strictで緩和")
+    print("  --search <keyword>  キーワードでメソッドを検索")
+    print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
+    print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
+    print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
+    print("                      format: text, markdown, html (default: text)")
+    print("  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート")
+    print("  --depth <n>         ツリーの最大深度 (default: 50)")
+    print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
+    print("  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)")
+    print("  --no-follow-impl    実装クラス候補を追跡しない")
+    print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
+    print("\n除外ルールファイルのフォーマット:")
+    print("  <クラス名 or メソッド名><TAB><I|E>")
+    print("  I: 対象自体を除外")
+    print("  E: 対象は表示するが、配下の呼び出しを除外")
+    print("\n例:")
+    print("  python call_tree_visualizer.py call-tree.tsv --list")
+    print("  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5")
+    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'")
+    print("  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'")
+    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl")
+    print("  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html")
+    print("  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx")
+    print("  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx")
+    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt")
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("使い方:")
-        print("  python call_tree_visualizer.py <TSVファイル> [オプション]")
-        print("\nオプション:")
-        print("  --list [--no-strict]  エントリーポイント候補を表示")
-        print("                        デフォルトは厳密モード、--no-strictで緩和")
-        print("  --search <keyword>  キーワードでメソッドを検索")
-        print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
-        print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
-        print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
-        print("                      format: text, markdown, html (default: text)")
-        print(
-            "  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート"
-        )
-        print("  --depth <n>         ツリーの最大深度 (default: 50)")
-        print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
-        print("  --no-follow-impl    実装クラス候補を追跡しない")
-        print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
-        print("\n例:")
-        print("  python call_tree_visualizer.py call-tree.tsv --list")
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx"
-        )
-        print(
-            "  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx"
-        )
-        sys.exit(1)
+    """メイン関数"""
+
+    # TSVファイルの指定
+    if len(sys.argv) < 2 or sys.argv[1] == "--help":
+        print_usage()
+        sys.exit(0)
 
     tsv_file = sys.argv[1]
-    visualizer = CallTreeVisualizer(tsv_file)
 
-    max_depth = 50
+    # 除外ファイルの指定
+    exclusion_file = None
+    if "--exclusion-file" in sys.argv:
+        idx = sys.argv.index("--exclusion-file")
+        if idx + 1 < len(sys.argv):
+            exclusion_file = sys.argv[idx + 1]
+
+    # Visualizerの初期化
+    visualizer = CallTreeVisualizer(tsv_file, exclusion_file)
+
+    # デフォルト値
+    max_depth = 10
     min_calls = 1
-    strict = "--no-strict" not in sys.argv  # デフォルトは厳密モード
+    strict = "--no-strict" not in sys.argv
     follow_implementations = "--no-follow-impl" not in sys.argv
     follow_overrides = "--no-follow-override" not in sys.argv
+
 
     # 深度オプションの処理
     if "--depth" in sys.argv:

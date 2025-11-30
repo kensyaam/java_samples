@@ -124,10 +124,50 @@ python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(Str
 # 深度を指定
 python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5
 
+# 除外ルールファイルを使用
+python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --exclusion-file my_exclusions.txt
+
 # エントリーポイントの呼び出しツリーを一括出力
 python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
   python call_tree_visualizer.py call-tree.tsv --forward "$line";
 done
+```
+
+### 除外機能
+
+特定のクラスやメソッドをツリーから除外できます。
+
+#### 除外ルールファイルのフォーマット
+
+`exclusion_rules.txt`というファイル（デフォルト）を作成し、各行に以下の形式で記述します：
+
+```
+<クラス名 or メソッド名><TAB><I|E>
+```
+
+- **Iモード**: 対象自体を除外（そのメソッド/クラスおよび配下のツリー全体を除外）
+- **Eモード**: 対象は表示するが、配下の呼び出しを除外（そのメソッド/クラスまでは表示するが、それ以降の展開をスキップ）
+
+#### 除外ルールの例
+
+```
+# Iモード: ログ出力関連を完全に除外
+org.slf4j.Logger	I
+log	I
+
+# Eモード: java.util.List は表示するが、その配下は展開しない
+java.util.List	E
+java.util.ArrayList#add(Object)	E
+```
+
+#### 除外機能の使用例
+
+```bash
+# デフォルトの除外ファイル(exclusion_rules.txt)を使用
+python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])"
+
+# カスタム除外ファイルを指定
+python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --exclusion-file my_exclusions.txt
 ```
 
 ```bash
@@ -143,12 +183,17 @@ $ python call_tree_visualizer.py
   --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
   --export <method> <o> [format]  ツリーをファイルにエクスポート
                       format: text, markdown, html (default: text)
-  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクス 
-ポート
+  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート
   --depth <n>         ツリーの最大深度 (default: 50)
   --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
+  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)
   --no-follow-impl    実装クラス候補を追跡しない
   --no-follow-override  逆引き時にオーバーライド元を追跡しない
+
+除外ルールファイルのフォーマット:
+  <クラス名 or メソッド名><TAB><I|E>
+  I: 対象自体を除外
+  E: 対象は表示するが、配下の呼び出しを除外
 
 例:
   python call_tree_visualizer.py call-tree.tsv --list
@@ -157,5 +202,5 @@ $ python call_tree_visualizer.py
   python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'
   python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
   python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
-
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
 ```
