@@ -8,13 +8,13 @@
 
 ```bash
 # 基本的な使い方
-./gradlew run --args="-s /path/to/your/source -o output.tsv"
+./gradlew run --args="-s /path/to/your/source -o call-tree.tsv"
 
 # 複数のソースディレクトリを指定
-./gradlew run --args="-s /path/to/src1,/path/to/src2 -o output.tsv"
+./gradlew run --args="-s /path/to/src1,/path/to/src2 -o call-tree.tsv"
 
 # 依存ライブラリのクラスパス、Spring設定XMLファイルのディレクトリを指定
-./gradlew run --args="-s /path/to/source -cp /path/to/lib1.jar,/path/to/lib2.jar -xml /path/to/xmldir -o output.tsv"
+./gradlew run --args="-s /path/to/source -cp /path/to/lib1.jar,/path/to/lib2.jar -xml /path/to/xmldir -o call-tree.tsv"
 
 # JSON形式で出力
 ./gradlew run --args="-s /path/to/source -o output.json -f json"
@@ -24,19 +24,27 @@
 
 # 実行可能JAR作成、実行
 ./gradlew shadowJar
-java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -xml /path/to/xmldir -o output.tsv -d
+java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -xml /path/to/xmldir -o call-tree.tsv -d
+
+# クラスパスが複数あり、かつ、Git Bashから実行する場合を考慮
+LIB_DIR="/path/to/libdir1,/path/to/libdir2"
+LIB_DIR=$([[ -n "$MSYSTEM" ]] && printf '%s' "$LIB_DIR" | tr ',' '\n' | cygpath -w -f - | paste -sd',' - || printf '%s' "$LIB_DIR")
+java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp "$LIB_DIR" -xml /path/to/xmldir -o call-tree.tsv -d
+
 ```
 
 ```bash
 $ java -jar call-tree-analyzer-1.0.0.jar -h                                                     
 usage: CallTreeAnalyzer
- -cp,--classpath <arg>   依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）
- -d,--debug              デバッグモードを有効化
- -f,--format <arg>       出力フォーマット（tsv/json/graphml、デフォルト: tsv）
- -h,--help               ヘルプを表示
- -o,--output <arg>       出力ファイルパス（デフォルト: call-tree.tsv）
- -s,--source <arg>       解析対象のソースディレクトリ（複数指定可、カンマ区切り）
- -xml,--xml-config <arg>   Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）
+ -s,--source <arg>             解析対象のソースディレクトリ（複数指定可、カンマ区切り）
+ -cp,--classpath <arg>         依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）
+ -xml,--xml-config <arg>       Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）
+ -o,--output <arg>             出力ファイルパス（デフォルト: call-tree.tsv）
+ -f,--format <arg>             出力フォーマット（tsv/json/graphml、デフォルト: tsv）
+ -d,--debug                    デバッグモードを有効化
+ -cl,--complianceLevel <arg>   Javaのコンプライアンスレベル（デフォルト: 21）
+ -e,--encoding <arg>           ソースコードの文字エンコーディング（デフォルト: UTF-8）
+ -h,--help                     ヘルプを表示
 ```
 
 ## 出力形式について
@@ -71,7 +79,7 @@ java -jar call-tree-analyzer-1.0.0.jar
   -s ../../ext/spring-framework-petclinic/src/main 
   -cp ../../ext/spring-framework-petclinic/target/dependency 
   -xml ../../ext/spring-framework-petclinic/src/main/resources/spring 
-  -o dist/output.tsv -d
+  -o dist/call-tree.tsv -d
 ```
 
 ## ツリー可視化

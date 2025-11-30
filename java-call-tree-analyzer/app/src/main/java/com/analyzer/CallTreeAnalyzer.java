@@ -10,6 +10,7 @@ import spoon.reflect.visitor.filter.TypeFilter;
 import spoon.reflect.code.*;
 
 import java.io.*;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -545,6 +546,8 @@ public class CallTreeAnalyzer {
         options.addOption("o", "output", true, "出力ファイルパス（デフォルト: call-tree.tsv）");
         options.addOption("f", "format", true, "出力フォーマット（tsv/json/graphml、デフォルト: tsv）");
         options.addOption("d", "debug", false, "デバッグモードを有効化");
+        options.addOption("cl", "complianceLevel", true, "Javaのコンプライアンスレベル（デフォルト: 21）");
+        options.addOption("e", "encoding", true, "ソースコードの文字エンコーディング（デフォルト: UTF-8）");
         options.addOption("h", "help", false, "ヘルプを表示");
         
         CommandLineParser parser = new DefaultParser();
@@ -554,6 +557,7 @@ public class CallTreeAnalyzer {
             CommandLine cmd = parser.parse(options, args);
             
             if (cmd.hasOption("h")) {
+                formatter.setOptionComparator(null);
                 formatter.printHelp("CallTreeAnalyzer", options);
                 return;
             }
@@ -564,10 +568,12 @@ public class CallTreeAnalyzer {
             String outputPath = cmd.getOptionValue("output", "call-tree.tsv");
             String format = cmd.getOptionValue("format", "tsv");
             boolean debug = cmd.hasOption("debug");
+            int complianceLevel = Integer.parseInt(cmd.getOptionValue("complianceLevel", "21"));
+            String encoding = cmd.getOptionValue("encoding", "UTF-8");
             
             CallTreeAnalyzer analyzer = new CallTreeAnalyzer();
             analyzer.setDebugMode(debug);
-            analyzer.analyze(sourceDirs, classpath, xmlConfig);
+            analyzer.analyze(sourceDirs, classpath, xmlConfig, complianceLevel, encoding);
             analyzer.export(outputPath, format);
             
             System.out.println("解析完了: " + outputPath);
@@ -584,12 +590,13 @@ public class CallTreeAnalyzer {
     /**
      * ソースコードを解析
      */
-    public void analyze(String sourceDirs, String classpath, String xmlConfig) {
+    public void analyze(String sourceDirs, String classpath, String xmlConfig, int complianceLevel, String encoding) {
         System.out.println("解析開始...");
         
         Launcher launcher = new Launcher();
         launcher.getEnvironment().setNoClasspath(false);
-        launcher.getEnvironment().setComplianceLevel(21);
+        launcher.getEnvironment().setComplianceLevel(complianceLevel);
+        launcher.getEnvironment().setEncoding(Charset.forName(encoding));
         launcher.getEnvironment().setAutoImports(true);
         
         // ソースディレクトリを追加
