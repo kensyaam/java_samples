@@ -207,6 +207,7 @@ public class CallTreeAnalyzer {
         boolean isMain;
         boolean isAbstract;
         Set<String> annotations = new HashSet<>();
+        Set<String> annotationRaws = new HashSet<>();
         Set<String> classAnnotations = new HashSet<>();
         String returnType;
         String methodName;
@@ -235,7 +236,8 @@ public class CallTreeAnalyzer {
                 String simpleName = ann.getAnnotationType().getSimpleName();
                 String qualifiedName = ann.getAnnotationType().getQualifiedName();
                 String annotationStr = ann.toString();
-                annotations.add(annotationStr);
+                annotations.add(simpleName);
+                annotationRaws.add(annotationStr);
 
                 // デバッグ: WebMethod等の重要なアノテーションをログ出力
                 if (debugMode && (simpleName.equals("WebMethod") ||
@@ -1400,7 +1402,7 @@ public class CallTreeAnalyzer {
             relation.isStatic = callerMeta.isStatic;
             relation.isEntryPoint = callerMeta.isEntryPointCandidate();
             relation.entryType = callerMeta.getEntryPointType();
-            relation.annotations = String.join(",", callerMeta.annotations);
+            relation.annotations = String.join(",", callerMeta.annotationRaws);
             relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
         }
         MethodMetadata calleeMeta = methodMetadata.get(callee);
@@ -1433,13 +1435,13 @@ public class CallTreeAnalyzer {
             relation.isStatic = callerMeta.isStatic;
             relation.isEntryPoint = callerMeta.isEntryPointCandidate();
             relation.entryType = callerMeta.getEntryPointType();
-            relation.annotations = String.join(",", callerMeta.annotations);
+            relation.annotations = String.join(",", callerMeta.annotationRaws);
             relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
         }
 
-        // Reverse の場合、relation.callerMethod は 'callee' パラメータ (呼び出し元) を指すため
+        // Reverse の場合、relation.callerMethod は 呼び出し元 を指すため
         // そちらの Javadoc を設定する
-        MethodMetadata callerMetaForRelation = methodMetadata.get(callee);
+        MethodMetadata callerMetaForRelation = methodMetadata.get(caller);
         if (callerMetaForRelation != null) {
             relation.calleeJavadoc = callerMetaForRelation.javadocSummary != null ? callerMetaForRelation.javadocSummary
                     : "";
@@ -1492,7 +1494,7 @@ public class CallTreeAnalyzer {
             json.append("\"entryType\": \"").append(escapeJson(meta.getEntryPointType())).append("\", ");
             json.append("\"annotations\": [");
             boolean firstAnn = true;
-            for (String ann : meta.annotations) {
+            for (String ann : meta.annotationRaws) {
                 if (!firstAnn)
                     json.append(", ");
                 json.append("\"").append(escapeJson(ann)).append("\"");
