@@ -1236,7 +1236,10 @@ class CallTreeVisualizer:
 
     def _format_sql(self, sql_text: str) -> str:
         """
-        SQL文を緩やかに整形
+        SQL文を整形（カスタムルール適用）
+        - SELECTやFROMなどのキーワードの後は改行してインデント
+        - サブクエリーなどの部分はインデントをネスト
+        - カラムやテーブルの指定は1行に1つ
 
         Args:
             sql_text: 整形前のSQL文
@@ -1247,7 +1250,7 @@ class CallTreeVisualizer:
         try:
             import sqlparse
 
-            # sqlparseで整形
+            # 1. sqlparseで基本整形
             formatted = sqlparse.format(
                 sql_text,
                 reindent=True,
@@ -1255,14 +1258,106 @@ class CallTreeVisualizer:
                 indent_width=2,
                 wrap_after=80,
             )
-            return formatted
+
+            # 2. カスタムルール適用（キーワード後の改行とインデント調整）
+            lines = formatted.splitlines()
+            new_lines = []
+            keywords = [
+                "SELECT",
+                "FROM",
+                "WHERE",
+                "GROUP BY",
+                "ORDER BY",
+                "HAVING",
+                "SET",
+                "VALUES",
+                "JOIN",
+                "LEFT JOIN",
+                "RIGHT JOIN",
+                "INNER JOIN",
+                "OUTER JOIN",
+            ]
+
+            current_alignment_indent = None
+            replacement_indent = None
+
+            for line in lines:
+                # 整形によるインデント調整ブロック内かチェック
+                if current_alignment_indent is not None:
+                    if line.startswith(current_alignment_indent):
+                        content = line[len(current_alignment_indent) :]
+                        
+                        # コンテンツをカンマで分割して1行1つにする
+                        parts = content.split(", ")
+                        for i, part in enumerate(parts):
+                            if i < len(parts) - 1:
+                                new_lines.append(replacement_indent + part + ",")
+                            else:
+                                new_lines.append(replacement_indent + part)
+                        continue
+                    else:
+                        # インデントが変わったのでブロック終了
+                        current_alignment_indent = None
+                        replacement_indent = None
+
+                stripped = line.lstrip()
+                base_indent = line[: len(line) - len(stripped)]
+
+                matched_keyword = None
+                prefix = ""
+
+                # キーワード判定（(SELECT のようなケースも考慮）
+                for kw in keywords:
+                    if stripped.startswith(kw + " "):
+                        matched_keyword = kw
+                        prefix = ""
+                        break
+                    if stripped.startswith("(" + kw + " "):
+                        matched_keyword = kw
+                        prefix = "("
+                        break
+
+                if matched_keyword:
+                    # コンテンツは "PREFIX KEYWORD " の後ろから
+                    start_index = len(prefix) + len(matched_keyword) + 1
+                    content = stripped[start_index:]
+
+                    if content.strip():
+                        # キーワード行を出力
+                        new_lines.append(base_indent + prefix + matched_keyword)
+
+                        # コンテンツをカンマで分割して1行1つにする
+                        # 注意: 関数内のカンマなどで誤爆する可能性があるが、
+                        # sqlparseが既に整形しているため、ある程度は安全。
+                        # ただし、完全ではない。簡易的な実装とする。
+                        parts = content.split(", ")
+
+                        # 新しいインデントはベース + 2スペース
+                        new_indent = base_indent + "  "
+
+                        for i, part in enumerate(parts):
+                            if i < len(parts) - 1:
+                                new_lines.append(new_indent + part + ",")
+                            else:
+                                new_lines.append(new_indent + part)
+
+                        # sqlparseの整形で揃えられた後続行をキャッチするためのインデント長
+                        # sqlparseはコンテンツの開始位置に合わせてインデントする
+                        align_len = len(base_indent) + start_index
+                        current_alignment_indent = " " * align_len
+                        replacement_indent = new_indent
+                    else:
+                        new_lines.append(line)
+                else:
+                    new_lines.append(line)
+
+            return "\n".join(new_lines)
+
         except ImportError:
-            # sqlparseがインストールされていない場合は警告を表示して元のSQL文を返す
             print("警告: sqlparseがインストールされていません。SQL整形をスキップします。")
             print("  インストール: pip install sqlparse")
             return sql_text
         except Exception as e:
-            # エラーが発生しても元のSQL文を返す
             print(f"警告: SQL整形中にエラーが発生しました: {e}")
             return sql_text
 
