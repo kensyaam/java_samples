@@ -575,35 +575,67 @@ public class CallTreeAnalyzer {
 
         /**
          * 親クラスまたはインターフェースからJavadocを継承
+         * 親の親クラス、親クラスのインターフェース、インターフェースの親インターフェースも再帰的にチェック
          */
         private String getInheritedJavadoc(CtMethod<?> method) {
             if (method == null || method.getDeclaringType() == null) {
                 return null;
             }
 
-            CtType<?> declaringType = method.getDeclaringType();
+            // 無限ループを防ぐため、訪問済みの型を追跡
+            Set<String> visitedTypes = new HashSet<>();
+            return searchInType(method, method.getDeclaringType(), visitedTypes);
+        }
+
+        /**
+         * 指定された型とその親型を再帰的に検索してJavadocを取得
+         */
+        private String searchInType(CtMethod<?> method, CtType<?> type, Set<String> visitedTypes) {
+            if (type == null) {
+                return null;
+            }
+
+            // 型の完全修飾名を取得して訪問済みチェック
+            String typeName = type.getQualifiedName();
+            if (visitedTypes.contains(typeName)) {
+                return null; // 既に訪問済み（循環参照を防ぐ）
+            }
+            visitedTypes.add(typeName);
 
             // 1. 親クラスから検索
-            if (declaringType instanceof CtClass) {
-                CtClass<?> ctClass = (CtClass<?>) declaringType;
+            if (type instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) type;
                 CtTypeReference<?> superClassRef = ctClass.getSuperclass();
 
                 if (superClassRef != null) {
                     try {
                         CtType<?> superClass = superClassRef.getTypeDeclaration();
                         if (superClass != null) {
+                            // 親クラスのメソッドを検索
                             CtMethod<?> parentMethod = findParentMethod(method, superClass);
                             if (parentMethod != null) {
                                 String doc = extractJavadocSummary(parentMethod);
                                 // 親メソッドも@inheritDocを使用している場合は再帰的に解決
                                 if (doc != null && (doc.contains("@inheritDoc") || doc.contains("{@inheritDoc}"))) {
-                                    String inheritedDoc = getInheritedJavadoc(parentMethod);
+                                    String inheritedDoc = searchInType(method, superClass, visitedTypes);
                                     if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
                                         return inheritedDoc;
                                     }
                                 } else if (doc != null && !doc.isEmpty()) {
                                     return doc;
                                 }
+                            }
+
+                            // 親クラスのメソッドが見つからない場合、親クラスのインターフェースも検索
+                            String docFromParentInterfaces = searchInInterfaces(method, superClass, visitedTypes);
+                            if (docFromParentInterfaces != null && !docFromParentInterfaces.isEmpty()) {
+                                return docFromParentInterfaces;
+                            }
+
+                            // さらに親クラスの親クラスも検索
+                            String docFromGrandParent = searchInType(method, superClass, visitedTypes);
+                            if (docFromGrandParent != null && !docFromGrandParent.isEmpty()) {
+                                return docFromGrandParent;
                             }
                         }
                     } catch (Exception e) {
@@ -612,24 +644,54 @@ public class CallTreeAnalyzer {
                 }
             }
 
-            // 2. インターフェースから検索
-            Set<CtTypeReference<?>> interfaces = declaringType.getSuperInterfaces();
+            // 2. 直接実装しているインターフェースから検索
+            String docFromInterfaces = searchInInterfaces(method, type, visitedTypes);
+            if (docFromInterfaces != null && !docFromInterfaces.isEmpty()) {
+                return docFromInterfaces;
+            }
+
+            return null;
+        }
+
+        /**
+         * インターフェースとその親インターフェースを再帰的に検索
+         */
+        private String searchInInterfaces(CtMethod<?> method, CtType<?> type, Set<String> visitedTypes) {
+            if (type == null) {
+                return null;
+            }
+
+            Set<CtTypeReference<?>> interfaces = type.getSuperInterfaces();
             for (CtTypeReference<?> ifaceRef : interfaces) {
                 try {
                     CtType<?> iface = ifaceRef.getTypeDeclaration();
                     if (iface != null) {
+                        String ifaceName = iface.getQualifiedName();
+                        if (visitedTypes.contains(ifaceName)) {
+                            continue; // 既に訪問済み
+                        }
+                        visitedTypes.add(ifaceName);
+
+                        // インターフェースのメソッドを検索
                         CtMethod<?> parentMethod = findParentMethod(method, iface);
                         if (parentMethod != null) {
                             String doc = extractJavadocSummary(parentMethod);
                             // インターフェースメソッドも@inheritDocを使用している場合は再帰的に解決
                             if (doc != null && (doc.contains("@inheritDoc") || doc.contains("{@inheritDoc}"))) {
-                                String inheritedDoc = getInheritedJavadoc(parentMethod);
+                                // インターフェースの親インターフェースを検索
+                                String inheritedDoc = searchInInterfaces(method, iface, visitedTypes);
                                 if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
                                     return inheritedDoc;
                                 }
                             } else if (doc != null && !doc.isEmpty()) {
                                 return doc;
                             }
+                        }
+
+                        // インターフェースの親インターフェースも検索
+                        String docFromParentInterface = searchInInterfaces(method, iface, visitedTypes);
+                        if (docFromParentInterface != null && !docFromParentInterface.isEmpty()) {
+                            return docFromParentInterface;
                         }
                     }
                 } catch (Exception e) {
