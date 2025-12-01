@@ -1242,9 +1242,9 @@ public class CallTreeAnalyzer {
     private void detectSqlStatements() {
         for (CtMethod<?> method : methodMap.values()) {
             String methodSig = getMethodSignature(method);
-            List<String> sqls = new ArrayList<>();
+            Set<String> sqlSet = new LinkedHashSet<>(); // 重複を防ぐためSetを使用
 
-            // リテラル文字列からSQLを検出
+            // 1. リテラル文字列からSQLを検出
             List<CtLiteral<?>> literals = method.getElements(new TypeFilter<>(CtLiteral.class));
             for (CtLiteral<?> literal : literals) {
                 if (literal.getValue() instanceof String) {
@@ -1252,12 +1252,56 @@ public class CallTreeAnalyzer {
                     // テキストブロック内の改行や空白を正規化
                     String normalized = value.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
                     if (looksLikeSql(normalized)) {
-                        sqls.add(normalized);
+                        sqlSet.add(normalized);
                     }
                 }
             }
 
-            if (!sqls.isEmpty()) {
+            // 2. 文字列連結式からSQLを検出
+            List<CtBinaryOperator<?>> binaryOps = method.getElements(new TypeFilter<>(CtBinaryOperator.class));
+            for (CtBinaryOperator<?> binOp : binaryOps) {
+                if (binOp.getKind() == spoon.reflect.code.BinaryOperatorKind.PLUS) {
+                    // 文字列連結の可能性がある
+                    String evaluated = evaluateStringExpression(binOp);
+                    if (evaluated != null) {
+                        String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                        if (looksLikeSql(normalized)) {
+                            sqlSet.add(normalized);
+                        }
+                    }
+                }
+            }
+
+            // 3. 変数代入からSQLを検出
+            // ローカル変数宣言
+            List<CtLocalVariable<?>> localVars = method.getElements(new TypeFilter<>(CtLocalVariable.class));
+            for (CtLocalVariable<?> localVar : localVars) {
+                CtExpression<?> assignment = localVar.getAssignment();
+                if (assignment != null) {
+                    String evaluated = evaluateStringExpression(assignment);
+                    if (evaluated != null) {
+                        String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                        if (looksLikeSql(normalized)) {
+                            sqlSet.add(normalized);
+                        }
+                    }
+                }
+            }
+
+            // 代入文
+            List<CtAssignment<?, ?>> assignments = method.getElements(new TypeFilter<>(CtAssignment.class));
+            for (CtAssignment<?, ?> assignment : assignments) {
+                String evaluated = evaluateStringExpression(assignment.getAssignment());
+                if (evaluated != null) {
+                    String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                    if (looksLikeSql(normalized)) {
+                        sqlSet.add(normalized);
+                    }
+                }
+            }
+
+            if (!sqlSet.isEmpty()) {
+                List<String> sqls = new ArrayList<>(sqlSet);
                 if (debugMode) {
                     System.out.println("  Found SQL in method: " + methodSig);
                     for (String sql : sqls) {
@@ -1267,6 +1311,53 @@ public class CallTreeAnalyzer {
                 sqlStatements.put(methodSig, sqls);
             }
         }
+    }
+
+    /**
+     * 文字列式を評価して文字列値を取得
+     * 文字列連結式を再帰的に評価する
+     * 
+     * @param expr 評価する式
+     * @return 評価結果の文字列、評価できない場合はnull
+     */
+    private String evaluateStringExpression(CtExpression<?> expr) {
+        if (expr == null) {
+            return null;
+        }
+
+        // リテラル文字列
+        if (expr instanceof CtLiteral) {
+            CtLiteral<?> literal = (CtLiteral<?>) expr;
+            if (literal.getValue() instanceof String) {
+                return (String) literal.getValue();
+            }
+            return null;
+        }
+
+        // 文字列連結 (+ 演算子)
+        if (expr instanceof CtBinaryOperator) {
+            CtBinaryOperator<?> binOp = (CtBinaryOperator<?>) expr;
+            if (binOp.getKind() == spoon.reflect.code.BinaryOperatorKind.PLUS) {
+                String left = evaluateStringExpression(binOp.getLeftHandOperand());
+                String right = evaluateStringExpression(binOp.getRightHandOperand());
+
+                // 両方が文字列として評価できた場合のみ連結
+                if (left != null && right != null) {
+                    return left + right;
+                }
+            }
+            return null;
+        }
+
+        // 変数参照 - 基本的な対応のみ
+        // より高度な変数追跡は複雑になるため、現時点では対応しない
+        if (expr instanceof CtVariableRead) {
+            // 変数の値を解決するのは複雑なため、現時点では未対応
+            return null;
+        }
+
+        // その他の式は評価できない
+        return null;
     }
 
     /**
