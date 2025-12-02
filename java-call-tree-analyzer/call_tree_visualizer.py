@@ -1250,6 +1250,10 @@ class CallTreeVisualizer:
         try:
             import sqlparse
 
+            # 0. コメント除去 (/* ... */)
+            # sqlparseの整形前に除去しないと、整形によってコメントの位置がおかしくなる可能性があるため
+            sql_text = re.sub(r"/\*[\s\S]*?\*/", "", sql_text)
+
             # 1. sqlparseで基本整形
             formatted = sqlparse.format(
                 sql_text,
