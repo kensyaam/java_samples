@@ -1264,7 +1264,7 @@ public class CallTreeAnalyzer {
                     // 文字列連結の可能性がある
                     String evaluated = evaluateStringExpression(binOp);
                     if (evaluated != null) {
-                        String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                        String normalized = normalizeAndOptimizeSql(evaluated);
                         if (looksLikeSql(normalized)) {
                             sqlSet.add(normalized);
                         }
@@ -1280,7 +1280,7 @@ public class CallTreeAnalyzer {
                 if (assignment != null) {
                     String evaluated = evaluateStringExpression(assignment);
                     if (evaluated != null) {
-                        String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                        String normalized = normalizeAndOptimizeSql(evaluated);
                         if (looksLikeSql(normalized)) {
                             sqlSet.add(normalized);
                         }
@@ -1293,7 +1293,7 @@ public class CallTreeAnalyzer {
             for (CtAssignment<?, ?> assignment : assignments) {
                 String evaluated = evaluateStringExpression(assignment.getAssignment());
                 if (evaluated != null) {
-                    String normalized = evaluated.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+                    String normalized = normalizeAndOptimizeSql(evaluated);
                     if (looksLikeSql(normalized)) {
                         sqlSet.add(normalized);
                     }
@@ -1316,6 +1316,7 @@ public class CallTreeAnalyzer {
     /**
      * 文字列式を評価して文字列値を取得
      * 文字列連結式を再帰的に評価する
+     * 動的な部分は ${UNRESOLVED} として表現する
      * 
      * @param expr 評価する式
      * @return 評価結果の文字列、評価できない場合はnull
@@ -1331,7 +1332,8 @@ public class CallTreeAnalyzer {
             if (literal.getValue() instanceof String) {
                 return (String) literal.getValue();
             }
-            return null;
+            // 文字列以外のリテラル(数値など)は未解決として扱う
+            return "${UNRESOLVED}";
         }
 
         // 文字列連結 (+ 演算子)
@@ -1341,32 +1343,96 @@ public class CallTreeAnalyzer {
                 String left = evaluateStringExpression(binOp.getLeftHandOperand());
                 String right = evaluateStringExpression(binOp.getRightHandOperand());
 
-                // 両方が文字列として評価できた場合のみ連結
+                // 少なくとも一方が評価できた場合は連結
                 if (left != null && right != null) {
                     return left + right;
+                } else if (left != null) {
+                    return left + "${UNRESOLVED}";
+                } else if (right != null) {
+                    return "${UNRESOLVED}" + right;
                 }
             }
+            // その他の二項演算子は未解決
+            return "${UNRESOLVED}";
+        }
+
+        // 三項演算子 (condition ? trueValue : falseValue)
+        if (expr instanceof spoon.reflect.code.CtConditional) {
+            spoon.reflect.code.CtConditional<?> conditional = (spoon.reflect.code.CtConditional<?>) expr;
+            String trueValue = evaluateStringExpression(conditional.getThenExpression());
+            String falseValue = evaluateStringExpression(conditional.getElseExpression());
+
+            // 両方が同じ値なら採用
+            if (trueValue != null && trueValue.equals(falseValue)) {
+                return trueValue;
+            }
+
+            // 片方が空文字列の場合、条件によって追加される可能性があるため未解決
+            if ((trueValue != null && trueValue.isEmpty()) || (falseValue != null && falseValue.isEmpty())) {
+                return "${UNRESOLVED}";
+            }
+
+            // それ以外は未解決
+            return "${UNRESOLVED}";
+        }
+
+        // 変数参照、メソッド呼び出し、その他の式は未解決として扱う
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * SQL文字列を正規化し、${UNRESOLVED}を最適化
+     * 
+     * @param sql SQL文字列
+     * @return 正規化・最適化されたSQL文字列
+     */
+    private String normalizeAndOptimizeSql(String sql) {
+        if (sql == null) {
             return null;
         }
 
-        // 変数参照 - 基本的な対応のみ
-        // より高度な変数追跡は複雑になるため、現時点では対応しない
-        if (expr instanceof CtVariableRead) {
-            // 変数の値を解決するのは複雑なため、現時点では未対応
-            return null;
+        // 改行や空白を正規化
+        String normalized = sql.replaceAll("\\n", " ").replaceAll("\\s+", " ").trim();
+
+        // ${UNRESOLVED}の連続を1つにまとめる
+        // 例: ${UNRESOLVED}${UNRESOLVED} -> ${UNRESOLVED}
+        while (normalized.contains("${UNRESOLVED}${UNRESOLVED}")) {
+            normalized = normalized.replace("${UNRESOLVED}${UNRESOLVED}", "${UNRESOLVED}");
         }
 
-        // その他の式は評価できない
-        return null;
+        // ${UNRESOLVED}の前後に適切なスペースを確保
+        // まず、余分なスペースを削除してから、必要なスペースを追加
+        normalized = normalized.replace(" ${UNRESOLVED} ", "${UNRESOLVED}");
+        normalized = normalized.replace(" ${UNRESOLVED}", "${UNRESOLVED}");
+        normalized = normalized.replace("${UNRESOLVED} ", "${UNRESOLVED}");
+
+        // 前後にスペースを追加（文字列の先頭・末尾を除く）
+        normalized = normalized.replace("${UNRESOLVED}", " ${UNRESOLVED} ");
+
+        // 文字列の先頭・末尾の余分なスペースを削除
+        normalized = normalized.trim();
+
+        // 連続したスペースを1つにまとめる
+        normalized = normalized.replaceAll("\\s+", " ");
+
+        return normalized;
     }
 
     /**
      * 文字列がSQLらしいかを判定
+     * ${UNRESOLVED}を含む文字列も判定対象とする
      */
     private boolean looksLikeSql(String str) {
         if (str == null || str.length() < 3)
             return false;
-        String upper = str.trim().toUpperCase();
+
+        // ${UNRESOLVED}を一時的に除去してSQL判定
+        String testStr = str.replace("${UNRESOLVED}", "").trim();
+        if (testStr.isEmpty()) {
+            return false;
+        }
+
+        String upper = testStr.toUpperCase();
         return upper.startsWith("SELECT ") || upper.startsWith("INSERT ") ||
                 upper.startsWith("UPDATE ") || upper.startsWith("DELETE ") ||
                 upper.startsWith("CREATE ") || upper.startsWith("ALTER ") ||

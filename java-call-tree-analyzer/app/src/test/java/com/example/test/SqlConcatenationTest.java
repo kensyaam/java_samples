@@ -101,6 +101,55 @@ public class SqlConcatenationTest {
     }
 
     /**
+     * 三項演算子を使った動的SQL生成 (ユーザー要求例)
+     * 期待: SELECT * FROM user ${UNRESOLVED} ORDER BY id
+     */
+    public void testConditionalConcatenation() {
+        boolean isAdmin = true;
+        String sql = "SELECT * FROM user " +
+                (isAdmin ? "WHERE admin_flg = 1 " : "") +
+                "ORDER BY id";
+        System.out.println(sql);
+    }
+
+    /**
+     * 三項演算子を使った動的SQL生成 (複雑なケース)
+     * 期待: SELECT ${UNRESOLVED} FROM user WHERE ${UNRESOLVED}
+     */
+    public void testComplexConditionalConcatenation() {
+        boolean includeAll = false;
+        String condition = "status = 'ACTIVE'";
+        String sql = "SELECT " +
+                (includeAll ? "*" : "id, name") +
+                " FROM user WHERE " +
+                condition;
+        System.out.println(sql);
+    }
+
+    /**
+     * 変数参照を含む動的SQL生成
+     * 期待: SELECT * FROM ${UNRESOLVED} WHERE id = 1
+     */
+    public void testVariableReferenceConcatenation() {
+        String tableName = "user";
+        String sql = "SELECT * FROM " + tableName + " WHERE id = 1";
+        System.out.println(sql);
+    }
+
+    /**
+     * メソッド呼び出しを含む動的SQL生成
+     * 期待: SELECT * FROM ${UNRESOLVED} WHERE id = 1
+     */
+    public void testMethodCallConcatenation() {
+        String sql = "SELECT * FROM " + getTableName() + " WHERE id = 1";
+        System.out.println(sql);
+    }
+
+    private String getTableName() {
+        return "user";
+    }
+
+    /**
      * 通常の文字列(SQL以外)
      */
     public void testNonSqlConcatenation() {
