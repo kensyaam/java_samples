@@ -1654,6 +1654,8 @@ public class CallTreeAnalyzer {
                 firstAnn = false;
             }
             json.append("], ");
+            json.append("\"javadoc\": \"").append(escapeJson(meta.javadocSummary != null ? meta.javadocSummary : ""))
+                    .append("\", ");
         }
 
         json.append("\"calls\": [");
