@@ -56,9 +56,7 @@ class ExclusionRuleManager:
 
                     parts = line.split("\t")
                     if len(parts) != 2:
-                        print(
-                            f"警告: 行 {line_num} のフォーマットが不正です: {line}"
-                        )
+                        print(f"警告: 行 {line_num} のフォーマットが不正です: {line}")
                         continue
 
                     target, mode = parts
@@ -101,9 +99,9 @@ class ExclusionRuleManager:
         if class_name and class_name in self.include_exclusions:
             return False
 
-        # メソッド名のみを抽出して除外対象かチェック
-        method_name = self._extract_method_name(method_or_class)
-        if method_name and method_name in self.include_exclusions:
+        # クラス名を除くメソッド部分のみを抽出して除外対象かチェック
+        method_part = self._extract_method_part(method_or_class)
+        if method_part and method_part in self.include_exclusions:
             return False
 
         return True
@@ -128,9 +126,9 @@ class ExclusionRuleManager:
         if class_name and class_name in self.exclude_children:
             return True
 
-        # メソッド名のみを抽出して除外対象かチェック
-        method_name = self._extract_method_name(method_or_class)
-        if method_name and method_name in self.exclude_children:
+        # クラス名を除くメソッド部分のみを抽出して除外対象かチェック
+        method_part = self._extract_method_part(method_or_class)
+        if method_part and method_part in self.exclude_children:
             return True
 
         return False
@@ -149,21 +147,21 @@ class ExclusionRuleManager:
             return method_signature.split("#")[0]
         return None
 
-    def _extract_method_name(self, method_signature: str) -> Optional[str]:
+    def _extract_method_part(self, method_signature: str) -> Optional[str]:
         """
-        メソッドシグネチャからメソッド名を抽出
+        メソッドシグネチャからクラスを除去したメソッド部分のみを抽出
 
         Args:
             method_signature: メソッドシグネチャ (例: "com.example.Class#method()")
 
         Returns:
-            メソッド名 (例: "method")、抽出できない場合はNone
+            クラスを除去したメソッド部分 (例: "method()")、抽出できない場合はNone
         """
         if "#" in method_signature:
             method_part = method_signature.split("#")[1]
-            # 引数部分を除去
-            if "(" in method_part:
-                return method_part.split("(")[0]
+            # # 引数部分を除去
+            # if "(" in method_part:
+            #     return method_part.split("(")[0]
             return method_part
         return None
 
@@ -186,7 +184,6 @@ class CallTreeVisualizer:
             exclusion_file
         )
         self.load_data()
-
 
     def load_data(self):
         """TSVファイルを読み込む"""
@@ -259,9 +256,14 @@ class CallTreeVisualizer:
                     callee_parents_str = row.get("呼び出し先の親クラス", "")
                     if callee_class:
                         parents = [
-                            p.strip() for p in callee_parents_str.split(",") if p.strip()
+                            p.strip()
+                            for p in callee_parents_str.split(",")
+                            if p.strip()
                         ]
-                        if callee_class not in self.class_info or not self.class_info[callee_class]:
+                        if (
+                            callee_class not in self.class_info
+                            or not self.class_info[callee_class]
+                        ):
                             self.class_info[callee_class] = parents
 
                 # 呼び出し関係を保存
@@ -598,16 +600,16 @@ class CallTreeVisualizer:
         # 2. 親クラスを辿って実装を探す
         current_class = impl_class
         visited_classes = set()
-        
+
         while current_class:
             if current_class in visited_classes:
                 break
             visited_classes.add(current_class)
-            
+
             parents = self.class_info.get(current_class, [])
             if not parents:
                 break
-                
+
             # 親クラス（インターフェース含む）の中から実装を探す
             # 優先順位: クラス > インターフェース だが、ここでは見つかった順
             # Javaの単一継承を考えると、親クラスは1つ（+インターフェース複数）
@@ -621,7 +623,7 @@ class CallTreeVisualizer:
                             sig_method_part = method_sig.split("#", 1)[1]
                             if sig_method_part == method_part:
                                 return method_sig
-                
+
                 # 見つからなければ、次のループのために親クラスを更新したいが、
                 # 複数の親（インターフェース）があるため、幅優先探索すべきか？
                 # ここでは単純化して、最初の親（おそらくスーパークラス）を優先して探索する
@@ -631,25 +633,25 @@ class CallTreeVisualizer:
             # 幅優先探索で次の階層へ
             # parents の中から次の current_class を選ぶ必要があるが、
             # ここでは簡易的に、parents のすべてを次の探索候補にするBFSにする
-            
+
             # 上のループで return していないので、ここに来たということは
             # 直近の親には実装がない。
             # 次の階層（親の親）を探す
-            
+
             # BFS queue logic implementation
             # Since we are inside a while loop designed for single path, let's refactor to BFS queue
-            break # Break inner loop to switch to BFS structure below
-        
+            break  # Break inner loop to switch to BFS structure below
+
         # BFSで親クラスを探索
         queue = list(self.class_info.get(impl_class, []))
         visited_classes = {impl_class}
-        
+
         while queue:
             current_parent = queue.pop(0)
             if current_parent in visited_classes:
                 continue
             visited_classes.add(current_parent)
-            
+
             # この親クラスにメソッドがあるか確認
             for method_sig, info in self.method_info.items():
                 if info.get("class") == current_parent:
@@ -657,7 +659,7 @@ class CallTreeVisualizer:
                         sig_method_part = method_sig.split("#", 1)[1]
                         if sig_method_part == method_part:
                             return method_sig
-            
+
             # 次の親を追加
             queue.extend(self.class_info.get(current_parent, []))
 
@@ -809,7 +811,7 @@ class CallTreeVisualizer:
         # Eモード: 配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
             html += '<div class="class-info">[配下の呼び出しを除外]</div>'
-            html += '</li>'
+            html += "</li>"
             return html
 
         callees = self.forward_calls.get(method, [])
@@ -1227,7 +1229,9 @@ class CallTreeVisualizer:
         Returns:
             ファイル名として安全な文字列
         """
-        name = method_signature.replace("#", ".")  # メソッドとクラスの区切りをドットに変換
+        name = method_signature.replace(
+            "#", "."
+        )  # メソッドとクラスの区切りをドットに変換
         # Windowsでファイル名として安全でない文字をアンダースコアに変換
         name = re.sub(r'[<>:"/\\|?*()\[\]\s]', "_", name)
         name = re.sub(r"_+", "_", name)  # 連続するアンダースコアを1つに
@@ -1290,7 +1294,7 @@ class CallTreeVisualizer:
                 if current_alignment_indent is not None:
                     if line.startswith(current_alignment_indent):
                         content = line[len(current_alignment_indent) :]
-                        
+
                         # コンテンツをカンマで分割して1行1つにする
                         parts = content.split(", ")
                         for i, part in enumerate(parts):
@@ -1358,7 +1362,9 @@ class CallTreeVisualizer:
             return "\n".join(new_lines)
 
         except ImportError:
-            print("警告: sqlparseがインストールされていません。SQL整形をスキップします。")
+            print(
+                "警告: sqlparseがインストールされていません。SQL整形をスキップします。"
+            )
             print("  インストール: pip install sqlparse")
             return sql_text
         except Exception as e:
@@ -1431,17 +1437,19 @@ class CallTreeVisualizer:
                 # 結果を出力
                 if found_tables:
                     for physical_name, logical_name, note in found_tables:
-                        print(f"{sql_file.name}\t{physical_name}\t{logical_name}\t{note}")
+                        print(
+                            f"{sql_file.name}\t{physical_name}\t{logical_name}\t{note}"
+                        )
                 else:
                     # テーブルが見つからない場合も1行出力
                     print(f"{sql_file.name}\t\t\t")
 
             except Exception as e:
-                print(f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}")
+                print(
+                    f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}"
+                )
 
-    def _load_table_list(
-        self, table_list_file: str
-    ) -> List[tuple[str, str, str]]:
+    def _load_table_list(self, table_list_file: str) -> List[tuple[str, str, str]]:
         """
         テーブル一覧をTSVファイルから読み込み
 
@@ -1506,7 +1514,6 @@ class CallTreeVisualizer:
                     seen_tables.add(physical_name)
 
         return found_tables
-
 
     def _extract_method_signature_parts(self, method_signature: str) -> Dict[str, str]:
         """
@@ -1702,7 +1709,9 @@ class CallTreeVisualizer:
                         if line and not line.startswith("#"):
                             entry_points.append(line)
             except Exception as e:
-                print(f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}")
+                print(
+                    f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}"
+                )
                 return
         else:
             # 厳密モードのエントリーポイントを取得
@@ -1727,7 +1736,7 @@ class CallTreeVisualizer:
         if not isinstance(ws, openpyxl.worksheet.worksheet.Worksheet):
             raise TypeError("Active sheet is not a Worksheet")
 
-        font = Font(name="游ゴシック等幅")
+        font = Font(name="Meiryo UI")
 
         # L列以降の列幅を5に設定
         tree_start_col = column_index_from_string("L")
@@ -1764,9 +1773,9 @@ class CallTreeVisualizer:
                 ws.cell(row=current_row, column=4, value=node["class"]).font = font
 
                 # E列: メソッド名（simple name）
-                ws.cell(
-                    row=current_row, column=5, value=node["simple_method"]
-                ).font = font
+                ws.cell(row=current_row, column=5, value=node["simple_method"]).font = (
+                    font
+                )
 
                 # F列: Javadoc
                 ws.cell(row=current_row, column=6, value=node["javadoc"]).font = font
@@ -1816,10 +1825,14 @@ def print_usage():
     print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
     print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
     print("                      format: text, markdown, html (default: text)")
-    print("  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート")
+    print(
+        "  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート"
+    )
     print("  --depth <n>         ツリーの最大深度 (default: 50)")
     print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
-    print("  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)")
+    print(
+        "  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)"
+    )
     print("  --no-follow-impl    実装クラス候補を追跡しない")
     print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
     print("")
@@ -1837,18 +1850,38 @@ def print_usage():
     print("  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>")
     print("\n例:")
     print("  python call_tree_visualizer.py call-tree.tsv --list")
-    print("  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5")
-    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'")
-    print("  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'")
-    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl")
-    print("  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html")
-    print("  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx")
-    print("  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx")
-    print("  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt")
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx"
+    )
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt"
+    )
     print("  python call_tree_visualizer.py call-tree.tsv --extract-sql")
-    print("  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls")
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls"
+    )
     print("  python call_tree_visualizer.py call-tree.tsv --analyze-tables")
-    print("  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv")
+    print(
+        "  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv"
+    )
 
 
 def main():
@@ -1877,7 +1910,6 @@ def main():
     strict = "--no-strict" not in sys.argv
     follow_implementations = "--no-follow-impl" not in sys.argv
     follow_overrides = "--no-follow-override" not in sys.argv
-
 
     # 深度オプションの処理
     if "--depth" in sys.argv:
