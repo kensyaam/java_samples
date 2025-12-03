@@ -1302,13 +1302,31 @@ public class CallTreeAnalyzer {
 
             if (!sqlSet.isEmpty()) {
                 List<String> sqls = new ArrayList<>(sqlSet);
+
+                // 重複除去: あるSQL文が別のSQL文の部分文字列である場合、短い方を除外
+                List<String> filtered = new ArrayList<>();
+                for (String sql : sqls) {
+                    boolean isSubstring = false;
+                    for (String other : sqls) {
+                        if (!sql.equals(other) && other.contains(sql)) {
+                            isSubstring = true;
+                            break;
+                        }
+                    }
+                    if (!isSubstring) {
+                        filtered.add(sql);
+                    }
+                }
+
                 if (debugMode) {
                     System.out.println("  Found SQL in method: " + methodSig);
-                    for (String sql : sqls) {
+                    System.out.println("    Before deduplication: " + sqls.size() + " SQL(s)");
+                    System.out.println("    After deduplication: " + filtered.size() + " SQL(s)");
+                    for (String sql : filtered) {
                         System.out.println("      SQL: " + sql);
                     }
                 }
-                sqlStatements.put(methodSig, sqls);
+                sqlStatements.put(methodSig, filtered);
             }
         }
     }
@@ -1612,7 +1630,8 @@ public class CallTreeAnalyzer {
         relation.calleeParentClasses = getParentClasses(relation.calleeClass);
         relation.isParentMethod = isParentClassMethod(caller, callee);
         relation.implementations = getImplementations(caller, callee);
-        relation.sqlStatements = sqlStatements.containsKey(callee) ? String.join("; ", sqlStatements.get(callee)) : "";
+        relation.sqlStatements = sqlStatements.containsKey(callee) ? String.join(" ||| ", sqlStatements.get(callee))
+                : "";
         relation.direction = "Forward";
 
         MethodMetadata callerMeta = methodMetadata.get(caller);
@@ -1645,7 +1664,8 @@ public class CallTreeAnalyzer {
         relation.calleeClass = methodToClassMap.getOrDefault(caller, "");
         relation.isParentMethod = false;
         relation.implementations = "";
-        relation.sqlStatements = sqlStatements.containsKey(caller) ? String.join("; ", sqlStatements.get(caller)) : "";
+        relation.sqlStatements = sqlStatements.containsKey(caller) ? String.join(" ||| ", sqlStatements.get(caller))
+                : "";
         relation.direction = "Reverse";
 
         MethodMetadata callerMeta = methodMetadata.get(caller);

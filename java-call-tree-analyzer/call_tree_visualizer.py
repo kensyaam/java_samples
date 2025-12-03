@@ -1196,7 +1196,9 @@ class CallTreeVisualizer:
         for method, info in self.method_info.items():
             sql = info.get("sql", "")
             if sql and sql.strip():
-                method_sqls[method].append(sql)
+                # SQL文を分割 (複数ある場合は " ||| " で連結されている)
+                sqls = [s.strip() for s in sql.split(" ||| ") if s.strip()]
+                method_sqls[method].extend(sqls)
 
         if not method_sqls:
             print("SQL文が見つかりませんでした")
@@ -1233,7 +1235,7 @@ class CallTreeVisualizer:
             "#", "."
         )  # メソッドとクラスの区切りをドットに変換
         # Windowsでファイル名として安全でない文字をアンダースコアに変換
-        name = re.sub(r'[<>:"/\\|?*()\[\]\s]', "_", name)
+        name = re.sub(r'[<>:"/\\|?*\[\]]', "_", name)
         name = re.sub(r"_+", "_", name)  # 連続するアンダースコアを1つに
         name = name.strip("_")
         return name[:200]  # ファイル名の長さを制限
