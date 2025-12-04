@@ -105,6 +105,12 @@ pip install types-openpyxl
 
 # SQL抽出機能を使う場合
 pip install sqlparse
+
+# .pyをexeに変換する場合
+pip install pyinstaller pillow
+#   app.pngをapp.icoに変換
+python -c "from PIL import Image; Image.open('app.png').resize((256,256), Image.LANCZOS).save('app.ico')"
+pyinstaller --onefile --noconsole --icon=app.ico call_tree_visualizer.py
 ```
 
 ### SQL抽出・テーブル分析機能
@@ -334,3 +340,4 @@ $ python call_tree_visualizer.py
   python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
   python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
 ```
+
