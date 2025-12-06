@@ -376,6 +376,10 @@ class CallTreeVisualizer:
 
                 indent = "    " * (depth + 1)
 
+                # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                if not self.exclusion_manager.should_include(callee):
+                    continue
+
                 # 親クラスメソッドの情報を表示
                 if callee_info["is_parent_method"] == "Yes":
                     print(f"{indent}↓ [親クラスメソッド]")
@@ -414,6 +418,12 @@ class CallTreeVisualizer:
                         implementations = [
                             impl.split(" ")[0] for impl in implementations
                         ]
+
+                        # Eモード: 除外対象の場合、実装クラスへの展開を停止
+                        if self.exclusion_manager.should_exclude_children(callee):
+                            indent = "    " * (depth + 1)
+                            print(f"{indent}[実装クラスへの展開を除外]")
+                            continue
 
                         for impl_class in implementations:
                             # 実装クラスの対応するメソッドを探す
@@ -512,7 +522,7 @@ class CallTreeVisualizer:
     ):
         """ノード情報を表示"""
         indent = "    " * depth
-        prefix = "├── " if depth > 0 else ""
+        prefix = "|-- " if depth > 0 else ""
 
         info = self.method_info.get(method, {})
 
@@ -520,7 +530,7 @@ class CallTreeVisualizer:
         display = f"{indent}{prefix}{method}"
         if is_circular:
             display += " [循環参照]"
-        print(display)
+        print(display.encode("utf-8", "replace").decode("utf-8"))
 
         # クラス情報を表示
         if show_class and info.get("class"):
@@ -897,6 +907,7 @@ class CallTreeVisualizer:
                             entry_type,
                             info.get("annotations", ""),
                             info.get("visibility", ""),
+                            info.get("javadoc", ""),
                         )
                     )
             else:
@@ -911,6 +922,7 @@ class CallTreeVisualizer:
                             entry_type,
                             info.get("annotations", ""),
                             info.get("visibility", ""),
+                            info.get("javadoc", ""),
                         )
                     )
 
@@ -929,10 +941,12 @@ class CallTreeVisualizer:
             entry_type,
             annotations,
             visibility,
+            javadoc,
         ) in enumerate(entry_points, 1):
             print(f"{i}. {method}")
             print(f"   クラス: {class_name}")
             print(f"   種別: {entry_type}")
+            print(f"   Javadoc: {javadoc}")
             print(f"   可視性: {visibility}")
             if annotations:
                 print(f"   メソッドアノテーション: {annotations}")
