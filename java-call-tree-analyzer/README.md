@@ -214,12 +214,12 @@ com.example.service.OrderService#processOrder(Order)
 - **AZ列**: SQL文
 
 **特徴:**
-- フォント: 游ゴシック等幅
+
+- フォント: Meiryo UI
 - L列以降の列幅: 5
 - 実装クラス候補がある場合は自動的に追跡・展開
 - 循環参照は `[循環参照]` として表示され、それ以上展開されない
 - 除外ルールファイルにも対応
-
 
 ```bash
 # エントリーポイントを見つける - 厳密モード（デフォルト）
@@ -277,7 +277,7 @@ done
 
 `exclusion_rules.txt`というファイル（デフォルト）を作成し、各行に以下の形式で記述します：
 
-```
+```txt
 <クラス名 or メソッド名><TAB><I|E>
 ```
 
@@ -286,15 +286,17 @@ done
 
 #### 除外ルールの例
 
-```
+```txt
 # Iモード: ログ出力関連を完全に除外
-org.slf4j.Logger	I
-log	I
+org.slf4j.Logger<tab>I
+log<tab>I
 
 # Eモード: java.util.List は表示するが、その配下は展開しない
-java.util.List	E
-java.util.ArrayList#add(Object)	E
+java.util.List<tab>E
+java.util.ArrayList#add(Object)<tab>E
 ```
+
+`<tab>` : ハードタブ
 
 #### 除外機能の使用例
 
@@ -340,4 +342,3 @@ $ python call_tree_visualizer.py
   python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
   python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
 ```
-
