@@ -58,7 +58,7 @@ class ExclusionRuleManager:
 
                     parts = line.split("\t")
                     if len(parts) != 2:
-                        print(f"警告: 行 {line_num} のフォーマットが不正です: {line}")
+                        print(f"警告: 行 {line_num} のフォーマットが不正です: {line}", file=sys.stderr)
                         continue
 
                     target, mode = parts
@@ -71,15 +71,16 @@ class ExclusionRuleManager:
                         self.exclude_children.add(target)
                     else:
                         print(
-                            f"警告: 行 {line_num} の除外モードが不正です: {mode} (I または E を指定してください)"
+                            f"警告: 行 {line_num} の除外モードが不正です: {mode} (I または E を指定してください)",
+                            file=sys.stderr,
                         )
 
-            print(f"除外ルールを読み込みました: {file_path}")
-            print(f"  Iモード(対象除外): {len(self.include_exclusions)} 件")
-            print(f"  Eモード(配下除外): {len(self.exclude_children)} 件")
+            print(f"除外ルールを読み込みました: {file_path}", file=sys.stderr)
+            print(f"  Iモード(対象除外): {len(self.include_exclusions)} 件", file=sys.stderr)
+            print(f"  Eモード(配下除外): {len(self.exclude_children)} 件", file=sys.stderr)
 
         except Exception as e:
-            print(f"除外ルールファイルの読み込みに失敗しました: {e}")
+            print(f"除外ルールファイルの読み込みに失敗しました: {e}", file=sys.stderr)
 
     def should_include(self, method_or_class: str) -> bool:
         """
@@ -169,13 +170,14 @@ class ExclusionRuleManager:
 
 
 class CallTreeVisualizer:
-    def __init__(self, tsv_file: str, exclusion_file: Optional[str] = None):
+    def __init__(self, tsv_file: str, exclusion_file: Optional[str] = None, output_tsv_encoding: str = "Shift_JIS"):
         """
         コンストラクタ
 
         Args:
             tsv_file: TSVファイルのパス
             exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルト）
+            output_tsv_encoding: 出力TSVファイルのエンコーディング
         """
         self.tsv_file: str = tsv_file
         self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
@@ -185,6 +187,7 @@ class CallTreeVisualizer:
         self.exclusion_manager: ExclusionRuleManager = ExclusionRuleManager(
             exclusion_file
         )
+        self.output_tsv_encoding: str = output_tsv_encoding
         self.load_data()
 
     def load_data(self):
@@ -500,7 +503,7 @@ class CallTreeVisualizer:
             parent_methods = self._find_parent_methods(method)
             if parent_methods:
                 indent = "    " * (depth)
-                print(f"{indent}↓ [オーバーライド元/インターフェースメソッドを展開]")
+                print(f"{indent}> [オーバーライド元/インターフェースメソッドを展開]")
                 for parent_method in parent_methods:
                     self._print_reverse_tree_recursive(
                         parent_method,
@@ -885,7 +888,7 @@ class CallTreeVisualizer:
         """
         print(f"\n{'=' * 80}")
         if strict:
-            print("エントリーポイント候補（厳密モード - デフォルト）")
+            print("エントリーポイント候補（厳密モード）")
         else:
             print(f"エントリーポイント候補 (呼び出し先が{min_calls}個以上)")
         print(f"{'=' * 80}\n")
@@ -941,7 +944,7 @@ class CallTreeVisualizer:
 
         # 結果を表示
         if not entry_points:
-            print("エントリーポイント候補が見つかりませんでした")
+            print("エントリーポイント候補が見つかりませんでした", file=sys.stderr)
             return
 
         for i, (
@@ -975,6 +978,109 @@ class CallTreeVisualizer:
 
             print(f"   呼び出し数: {call_count}")
             print()
+
+    def list_entry_points_tsv(self, min_calls: int = 1, strict: bool = True) -> None:
+        """エントリーポイント候補をTSV形式で出力
+
+        Args:
+            min_calls: 最小呼び出し数
+            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
+        """
+        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
+        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
+
+        # すべての呼び出し先を収集
+        all_callees = set()
+        for callees in self.forward_calls.values():
+            for callee_info in callees:
+                all_callees.add(callee_info["method"])
+
+        entry_points = []
+
+        for method, info in self.method_info.items():
+            # 他から呼ばれていないメソッドのみ
+            if method in all_callees:
+                continue
+
+            call_count = len(self.forward_calls.get(method, []))
+
+            # 厳密モードの場合
+            if strict:
+                if info.get("is_entry_point"):
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+            else:
+                # 非厳密モードの場合は呼び出し数で判定
+                if call_count >= min_calls:
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+
+        # エントリータイプと呼び出し数でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
+
+        # TSVヘッダーを出力
+        print("メソッド\tクラス\tメソッド名\tエンドポイント\tjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション")
+
+        # 結果をTSV形式で出力
+        for (
+            method,
+            call_count,
+            class_name,
+            entry_type,
+            annotations,
+            visibility,
+            javadoc,
+        ) in entry_points:
+            # メソッド名（クラスや引数を含めないメソッド名のみ）を抽出
+            method_name_only = ""
+            if "#" in method:
+                # クラス#メソッド(引数) の形式からメソッド名のみを抽出
+                method_part = method.split("#", 1)[1]
+                # 引数部分を除去
+                if "(" in method_part:
+                    method_name_only = method_part.split("(", 1)[0]
+                else:
+                    method_name_only = method_part
+            else:
+                # #がない場合はそのまま
+                if "(" in method:
+                    method_name_only = method.split("(", 1)[0]
+                else:
+                    method_name_only = method
+
+            # エンドポイントを抽出
+            info = self.method_info.get(method, {})
+            endpoint_path = ""
+            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
+                endpoint_path = self._extract_endpoint_path(info)
+
+            # クラスアノテーションを取得
+            class_annotations = info.get("class_annotations", "")
+
+            # TSV行を出力
+            print(
+                f"{method}\t{class_name}\t{method_name_only}\t{endpoint_path}\t{javadoc}\t{entry_type}\t{annotations}\t{class_annotations}"
+            )
 
     def _extract_endpoint_path(self, info: dict) -> str:
         """アノテーションやクラスアノテーションからエンドポイントの path を抽出する
@@ -1193,7 +1299,7 @@ class CallTreeVisualizer:
                 matches.append((method, info.get("class", "")))
 
         if not matches:
-            print("該当するメソッドが見つかりませんでした")
+            print("該当するメソッドが見つかりませんでした", file=sys.stderr)
             return
 
         for i, (method, class_name) in enumerate(matches, 1):
@@ -1225,7 +1331,7 @@ class CallTreeVisualizer:
                 method_sqls[method].extend(sqls)
 
         if not method_sqls:
-            print("SQL文が見つかりませんでした")
+            print("SQL文が見つかりませんでした", file=sys.stderr)
             return
 
         # ファイル出力
@@ -1389,12 +1495,13 @@ class CallTreeVisualizer:
 
         except ImportError:
             print(
-                "警告: sqlparseがインストールされていません。SQL整形をスキップします。"
+                "警告: sqlparseがインストールされていません。SQL整形をスキップします。",
+                file=sys.stderr,
             )
-            print("  インストール: pip install sqlparse")
+            print("  インストール: pip install sqlparse", file=sys.stderr)
             return sql_text
         except Exception as e:
-            print(f"警告: SQL整形中にエラーが発生しました: {e}")
+            print(f"警告: SQL整形中にエラーが発生しました: {e}", file=sys.stderr)
             return sql_text
 
     def _write_sql_file(self, filepath: str, sql_text: str) -> None:
@@ -1410,7 +1517,7 @@ class CallTreeVisualizer:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(formatted_sql)
         except Exception as e:
-            print(f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}")
+            print(f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}", file=sys.stderr)
 
     def analyze_table_usage(
         self, sql_dir: str = "./found_sql", table_list_file: str = "./table_list.tsv"
@@ -1427,26 +1534,29 @@ class CallTreeVisualizer:
 
         # テーブル一覧を読み込み
         if not os.path.exists(table_list_file):
-            print(f"エラー: テーブル一覧ファイルが見つかりません: {table_list_file}")
+            print(f"エラー: テーブル一覧ファイルが見つかりません: {table_list_file}", file=sys.stderr)
             return
 
         table_list = self._load_table_list(table_list_file)
 
         if not table_list:
-            print(f"警告: テーブル一覧が空です")
+            print(f"警告: テーブル一覧が空です", file=sys.stderr)
             return
 
         # SQLファイルを走査
         sql_dir_path = Path(sql_dir)
         if not sql_dir_path.exists():
-            print(f"エラー: SQLディレクトリが見つかりません: {sql_dir}")
+            print(f"エラー: SQLディレクトリが見つかりません: {sql_dir}", file=sys.stderr)
             return
 
         sql_files = sorted(sql_dir_path.glob("*.sql"))
 
         if not sql_files:
-            print(f"警告: SQLファイルが見つかりません: {sql_dir}")
+            print(f"警告: SQLファイルが見つかりません: {sql_dir}", file=sys.stderr)
             return
+
+        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
+        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
 
         # ヘッダーを出力
         print("SQLファイル名\t物理テーブル名\t論理テーブル名\t補足情報")
@@ -1472,7 +1582,8 @@ class CallTreeVisualizer:
 
             except Exception as e:
                 print(
-                    f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}"
+                    f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}",
+                    file=sys.stderr,
                 )
 
     def _load_table_list(self, table_list_file: str) -> List[tuple[str, str, str]]:
@@ -1503,7 +1614,7 @@ class CallTreeVisualizer:
                         table_list.append((physical_name, logical_name, note))
 
         except Exception as e:
-            print(f"エラー: テーブル一覧ファイルの読み込みに失敗しました: {e}")
+            print(f"エラー: テーブル一覧ファイルの読み込みに失敗しました: {e}", file=sys.stderr)
 
         return table_list
 
@@ -1736,7 +1847,8 @@ class CallTreeVisualizer:
                             entry_points.append(line)
             except Exception as e:
                 print(
-                    f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}"
+                    f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}",
+                    file=sys.stderr,
                 )
                 return
         else:
@@ -1751,7 +1863,7 @@ class CallTreeVisualizer:
                     entry_points.append(method)
 
         if not entry_points:
-            print("警告: エントリーポイントが見つかりませんでした")
+            print("警告: エントリーポイントが見つかりませんでした", file=sys.stderr)
             return
 
         print(f"エントリーポイント数: {len(entry_points)}")
@@ -1836,7 +1948,7 @@ class CallTreeVisualizer:
             print(f"ツリーを {output_file} にエクスポートしました")
             print(f"総行数: {current_row - 1}")
         except Exception as e:
-            print(f"エラー: Excelファイルの保存に失敗しました: {e}")
+            print(f"エラー: Excelファイルの保存に失敗しました: {e}", file=sys.stderr)
 
 
 # サブコマンドハンドラー関数
@@ -1844,7 +1956,10 @@ class CallTreeVisualizer:
 
 def handle_list(args, visualizer: CallTreeVisualizer) -> None:
     """listサブコマンドの処理"""
-    visualizer.list_entry_points(args.min_calls, args.strict)
+    if args.tsv:
+        visualizer.list_entry_points_tsv(args.min_calls, args.strict)
+    else:
+        visualizer.list_entry_points(args.min_calls, args.strict)
 
 
 def handle_search(args, visualizer: CallTreeVisualizer) -> None:
@@ -1938,6 +2053,11 @@ def main():
         "--exclusion-file",
         help="除外ルールファイルのパス (デフォルト: exclusion_rules.txt)",
     )
+    parser.add_argument(
+        "--output-tsv-encoding",
+        default="Shift_JIS",
+        help="出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))",
+    )
 
     # サブコマンドの作成
     subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
@@ -1955,6 +2075,11 @@ def main():
         type=int,
         default=1,
         help="エントリーポイントの最小呼び出し数 (デフォルト: 1)",
+    )
+    parser_list.add_argument(
+        "--tsv",
+        action="store_true",
+        help="TSV形式で出力",
     )
 
     # search サブコマンド
@@ -2081,7 +2206,7 @@ def main():
         sys.exit(1)
 
     # Visualizerの初期化
-    visualizer = CallTreeVisualizer(args.tsv_file, args.exclusion_file)
+    visualizer = CallTreeVisualizer(args.tsv_file, args.exclusion_file, args.output_tsv_encoding)
 
     # サブコマンドに応じた処理を実行
     if args.command == "list":

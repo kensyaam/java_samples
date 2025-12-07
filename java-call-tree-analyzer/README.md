@@ -131,7 +131,7 @@ pyinstaller --onefile --noconsole --icon=app.ico -n CallTreeVisualizer call_tree
 
 ```bash
 $ python call_tree_visualizer.py --help
-usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE]
+usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE] [--output-tsv-encoding OUTPUT_TSV_ENCODING]
                                tsv_file
                                {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables} ...
 
@@ -154,6 +154,8 @@ options:
   -h, --help            show this help message and exit
   --exclusion-file EXCLUSION_FILE
                         除外ルールファイルのパス (デフォルト: exclusion_rules.txt)
+  --output-tsv-encoding OUTPUT_TSV_ENCODING
+                        出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))
 
 除外ルールファイルのフォーマット:
   <クラス名 or メソッド名><TAB><I|E>
