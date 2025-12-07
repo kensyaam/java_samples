@@ -15,6 +15,8 @@ import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils import column_index_from_string, get_column_letter
 
+# Git Bash上でパイプを使うと、stdoutがCP932として扱われるのを防ぐ
+sys.stdout.reconfigure(encoding="utf-8")
 
 class ExclusionRuleManager:
     """除外ルールを管理するクラス"""
@@ -406,11 +408,15 @@ class CallTreeVisualizer:
 
                     annotations = []
                     for impl_class_info in implementations:
+                        # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                        impl_class = impl_class_info.split(" ")[0]
+                        if not self.exclusion_manager.should_include(impl_class):
+                            continue
                         annotations.append(f"実装: {impl_class_info}")
 
                     for annotation in annotations:
                         indent = "    " * (depth + 1)
-                        print(f"{indent}↑ [{annotation}]")
+                        print(f"{indent}^ [{annotation}]")
 
                     # 実装クラス候補がある場合、それらも追跡
                     if follow_implementations:
@@ -431,8 +437,12 @@ class CallTreeVisualizer:
                                 callee, impl_class
                             )
                             if impl_method:
+                                # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                                if not self.exclusion_manager.should_include(impl_method):
+                                    continue
+
                                 indent = "    " * (depth + 1)
-                                print(f"{indent}↓ [実装クラスへの展開: {impl_class}]")
+                                print(f"{indent}> [実装クラスへの展開: {impl_class}]")
 
                                 self._print_tree_recursive(
                                     impl_method,
@@ -530,7 +540,7 @@ class CallTreeVisualizer:
         display = f"{indent}{prefix}{method}"
         if is_circular:
             display += " [循環参照]"
-        print(display.encode("utf-8", "replace").decode("utf-8"))
+        print(display)
 
         # クラス情報を表示
         if show_class and info.get("class"):
