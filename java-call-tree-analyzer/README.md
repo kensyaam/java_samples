@@ -120,7 +120,7 @@ pip install sqlparse
 pip install pyinstaller pillow
 #   app.pngをapp.icoに変換
 python -c "from PIL import Image; Image.open('app.png').resize((256,256), Image.LANCZOS).save('app.ico')"
-pyinstaller --onefile --noconsole --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.py
+pyinstaller --onefile --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.py
 ```
 
 ### 使い方
