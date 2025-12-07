@@ -1829,190 +1829,267 @@ class CallTreeVisualizer:
             print(f"エラー: Excelファイルの保存に失敗しました: {e}")
 
 
-def print_usage():
-    """使い方を表示"""
-    print("使い方:")
-    print("  python call_tree_visualizer.py <TSVファイル> [オプション]")
-    print("\nオプション:")
-    print("  --list [--no-strict]  エントリーポイント候補を表示")
-    print("                        デフォルトは厳密モード、--no-strictで緩和")
-    print("  --search <keyword>  キーワードでメソッドを検索")
-    print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
-    print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
-    print("  --export <method> <output_file> [format]  ツリーをファイルにエクスポート")
-    print("                      format: text, markdown, html (default: text)")
-    print(
-        "  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート"
+# サブコマンドハンドラー関数
+
+
+def handle_list(args, visualizer: CallTreeVisualizer) -> None:
+    """listサブコマンドの処理"""
+    visualizer.list_entry_points(args.min_calls, args.strict)
+
+
+def handle_search(args, visualizer: CallTreeVisualizer) -> None:
+    """searchサブコマンドの処理"""
+    visualizer.search_methods(args.keyword)
+
+
+def handle_forward(args, visualizer: CallTreeVisualizer) -> None:
+    """forwardサブコマンドの処理"""
+    visualizer.print_forward_tree(
+        args.method,
+        args.depth,
+        show_class=args.show_class,
+        show_sql=args.show_sql,
+        follow_implementations=args.follow_impl,
     )
-    print("  --depth <n>         ツリーの最大深度 (default: 50)")
-    print("  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)")
-    print(
-        "  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)"
+
+
+def handle_reverse(args, visualizer: CallTreeVisualizer) -> None:
+    """reverseサブコマンドの処理"""
+    visualizer.print_reverse_tree(
+        args.method,
+        args.depth,
+        show_class=args.show_class,
+        follow_overrides=args.follow_override,
     )
-    print("  --no-follow-impl    実装クラス候補を追跡しない")
-    print("  --no-follow-override  逆引き時にオーバーライド元を追跡しない")
-    print("")
-    print("  --extract-sql [--sql-output-dir <dir>]  SQL文を抽出してファイル出力")
-    print("                      デフォルト出力先: ./found_sql")
-    print("  --analyze-tables [--sql-dir <dir>] [--table-list <file>]")
-    print("                      SQLファイルから使用テーブルを検出")
-    print("                      デフォルトSQLディレクトリ: ./found_sql")
-    print("                      デフォルトテーブルリスト: ./table_list.tsv")
-    print("\n除外ルールファイルのフォーマット:")
-    print("  <クラス名 or メソッド名><TAB><I|E>")
-    print("  I: 対象自体を除外")
-    print("  E: 対象は表示するが、配下の呼び出しを除外")
-    print("\nテーブルリストファイル (table_list.tsv) のフォーマット:")
-    print("  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>")
-    print("\n例:")
-    print("  python call_tree_visualizer.py call-tree.tsv --list")
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5"
+
+
+def handle_export(args, visualizer: CallTreeVisualizer) -> None:
+    """exportサブコマンドの処理"""
+    visualizer.export_tree_to_file(
+        args.method,
+        args.output_file,
+        args.depth,
+        args.format,
+        args.follow_impl,
     )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'"
+
+
+def handle_export_excel(args, visualizer: CallTreeVisualizer) -> None:
+    """export-excelサブコマンドの処理"""
+    visualizer.export_tree_to_excel(
+        args.entry_points,
+        args.output_file,
+        args.depth,
+        args.follow_impl,
     )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'"
-    )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl"
-    )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html"
-    )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx"
-    )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx"
-    )
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt"
-    )
-    print("  python call_tree_visualizer.py call-tree.tsv --extract-sql")
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls"
-    )
-    print("  python call_tree_visualizer.py call-tree.tsv --analyze-tables")
-    print(
-        "  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv"
-    )
+
+
+def handle_extract_sql(args, visualizer: CallTreeVisualizer) -> None:
+    """extract-sqlサブコマンドの処理"""
+    visualizer.extract_sql_to_files(args.output_dir)
+
+
+def handle_analyze_tables(args, visualizer: CallTreeVisualizer) -> None:
+    """analyze-tablesサブコマンドの処理"""
+    visualizer.analyze_table_usage(args.sql_dir, args.table_list)
 
 
 def main():
     """メイン関数"""
+    import argparse
 
-    # TSVファイルの指定
-    if len(sys.argv) < 2 or sys.argv[1] == "--help":
-        print_usage()
-        sys.exit(0)
+    # メインパーサーの作成
+    parser = argparse.ArgumentParser(
+        description="呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーを生成します",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+除外ルールファイルのフォーマット:
+  <クラス名 or メソッド名><TAB><I|E>
+  I: 対象自体を除外
+  E: 対象は表示するが、配下の呼び出しを除外
 
-    tsv_file = sys.argv[1]
+テーブルリストファイル (table_list.tsv) のフォーマット:
+  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 
-    # 除外ファイルの指定
-    exclusion_file = None
-    if "--exclusion-file" in sys.argv:
-        idx = sys.argv.index("--exclusion-file")
-        if idx + 1 < len(sys.argv):
-            exclusion_file = sys.argv[idx + 1]
+使用例:
+  %(prog)s call-tree.tsv list
+  %(prog)s call-tree.tsv list --no-strict --min-calls 5
+  %(prog)s call-tree.tsv forward 'com.example.Main#main(String[])'
+  %(prog)s call-tree.tsv reverse 'com.example.Service#process()'
+  %(prog)s call-tree.tsv export 'com.example.Main#main(String[])' tree.html --format html
+  %(prog)s call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
+  %(prog)s call-tree.tsv extract-sql --output-dir ./output/sqls
+  %(prog)s call-tree.tsv analyze-tables --sql-dir ./output/sqls
+        """,
+    )
+
+    parser.add_argument("tsv_file", help="TSVファイルのパス")
+    parser.add_argument(
+        "--exclusion-file",
+        help="除外ルールファイルのパス (デフォルト: exclusion_rules.txt)",
+    )
+
+    # サブコマンドの作成
+    subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
+
+    # list サブコマンド
+    parser_list = subparsers.add_parser("list", help="エントリーポイント候補を表示")
+    parser_list.add_argument(
+        "--no-strict",
+        action="store_false",
+        dest="strict",
+        help="緩和モード（デフォルトは厳密モード）",
+    )
+    parser_list.add_argument(
+        "--min-calls",
+        type=int,
+        default=1,
+        help="エントリーポイントの最小呼び出し数 (デフォルト: 1)",
+    )
+
+    # search サブコマンド
+    parser_search = subparsers.add_parser("search", help="キーワードでメソッドを検索")
+    parser_search.add_argument("keyword", help="検索キーワード")
+
+    # forward サブコマンド
+    parser_forward = subparsers.add_parser(
+        "forward", help="指定メソッドからの呼び出しツリーを表示"
+    )
+    parser_forward.add_argument("method", help="起点メソッド")
+    parser_forward.add_argument(
+        "--depth", type=int, default=50, help="ツリーの最大深度 (デフォルト: 50)"
+    )
+    parser_forward.add_argument(
+        "--no-class",
+        action="store_false",
+        dest="show_class",
+        help="クラス情報を非表示",
+    )
+    parser_forward.add_argument(
+        "--no-sql", action="store_false", dest="show_sql", help="SQL情報を非表示"
+    )
+    parser_forward.add_argument(
+        "--no-follow-impl",
+        action="store_false",
+        dest="follow_impl",
+        help="実装クラス候補を追跡しない",
+    )
+
+    # reverse サブコマンド
+    parser_reverse = subparsers.add_parser(
+        "reverse", help="指定メソッドへの呼び出し元ツリーを表示"
+    )
+    parser_reverse.add_argument("method", help="対象メソッド")
+    parser_reverse.add_argument(
+        "--depth", type=int, default=50, help="ツリーの最大深度 (デフォルト: 50)"
+    )
+    parser_reverse.add_argument(
+        "--no-class",
+        action="store_false",
+        dest="show_class",
+        help="クラス情報を非表示",
+    )
+    parser_reverse.add_argument(
+        "--no-follow-override",
+        action="store_false",
+        dest="follow_override",
+        help="オーバーライド元を追跡しない",
+    )
+
+    # export サブコマンド
+    parser_export = subparsers.add_parser(
+        "export", help="ツリーをファイルにエクスポート"
+    )
+    parser_export.add_argument("method", help="起点メソッド")
+    parser_export.add_argument("output_file", help="出力ファイル名")
+    parser_export.add_argument(
+        "--format",
+        choices=["text", "markdown", "html"],
+        default="text",
+        help="出力形式 (デフォルト: text)",
+    )
+    parser_export.add_argument(
+        "--depth", type=int, default=50, help="ツリーの最大深度 (デフォルト: 50)"
+    )
+    parser_export.add_argument(
+        "--no-follow-impl",
+        action="store_false",
+        dest="follow_impl",
+        help="実装クラス候補を追跡しない",
+    )
+
+    # export-excel サブコマンド
+    parser_export_excel = subparsers.add_parser(
+        "export-excel", help="ツリーをExcelにエクスポート"
+    )
+    parser_export_excel.add_argument("output_file", help="出力Excelファイル名")
+    parser_export_excel.add_argument(
+        "--entry-points",
+        help="エントリーポイントファイル（指定しない場合は厳密モードのエントリーポイントを使用）",
+    )
+    parser_export_excel.add_argument(
+        "--depth", type=int, default=20, help="ツリーの最大深度 (デフォルト: 20)"
+    )
+    parser_export_excel.add_argument(
+        "--no-follow-impl",
+        action="store_false",
+        dest="follow_impl",
+        help="実装クラス候補を追跡しない",
+    )
+
+    # extract-sql サブコマンド
+    parser_extract_sql = subparsers.add_parser(
+        "extract-sql", help="SQL文を抽出してファイル出力"
+    )
+    parser_extract_sql.add_argument(
+        "--output-dir",
+        default="./found_sql",
+        help="SQL出力先ディレクトリ (デフォルト: ./found_sql)",
+    )
+
+    # analyze-tables サブコマンド
+    parser_analyze_tables = subparsers.add_parser(
+        "analyze-tables", help="SQLファイルから使用テーブルを検出"
+    )
+    parser_analyze_tables.add_argument(
+        "--sql-dir",
+        default="./found_sql",
+        help="SQLディレクトリ (デフォルト: ./found_sql)",
+    )
+    parser_analyze_tables.add_argument(
+        "--table-list",
+        default="./table_list.tsv",
+        help="テーブルリストファイル (デフォルト: ./table_list.tsv)",
+    )
+
+    # 引数を解析
+    args = parser.parse_args()
+
+    # サブコマンドが指定されていない場合
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
 
     # Visualizerの初期化
-    visualizer = CallTreeVisualizer(tsv_file, exclusion_file)
+    visualizer = CallTreeVisualizer(args.tsv_file, args.exclusion_file)
 
-    # デフォルト値
-    max_depth = 10
-    min_calls = 1
-    strict = "--no-strict" not in sys.argv
-    follow_implementations = "--no-follow-impl" not in sys.argv
-    follow_overrides = "--no-follow-override" not in sys.argv
-
-    # 深度オプションの処理
-    if "--depth" in sys.argv:
-        idx = sys.argv.index("--depth")
-        if idx + 1 < len(sys.argv):
-            max_depth = int(sys.argv[idx + 1])
-
-    # 最小呼び出し数オプションの処理
-    if "--min-calls" in sys.argv:
-        idx = sys.argv.index("--min-calls")
-        if idx + 1 < len(sys.argv):
-            min_calls = int(sys.argv[idx + 1])
-
-    # コマンド処理
-    if "--list" in sys.argv:
-        visualizer.list_entry_points(min_calls, strict)
-
-    elif "--search" in sys.argv:
-        idx = sys.argv.index("--search")
-        if idx + 1 < len(sys.argv):
-            keyword = sys.argv[idx + 1]
-            visualizer.search_methods(keyword)
-
-    elif "--forward" in sys.argv:
-        idx = sys.argv.index("--forward")
-        if idx + 1 < len(sys.argv):
-            method = sys.argv[idx + 1]
-            visualizer.print_forward_tree(
-                method, max_depth, follow_implementations=follow_implementations
-            )
-
-    elif "--reverse" in sys.argv:
-        idx = sys.argv.index("--reverse")
-        if idx + 1 < len(sys.argv):
-            method = sys.argv[idx + 1]
-            visualizer.print_reverse_tree(
-                method, max_depth, follow_overrides=follow_overrides
-            )
-
-    elif "--export" in sys.argv:
-        idx = sys.argv.index("--export")
-        if idx + 2 < len(sys.argv):
-            method = sys.argv[idx + 1]
-            output_file = sys.argv[idx + 2]
-            format = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else "text"
-            visualizer.export_tree_to_file(
-                method, output_file, max_depth, format, follow_implementations
-            )
-
-    elif "--export-excel" in sys.argv:
-        idx = sys.argv.index("--export-excel")
-        if idx + 2 < len(sys.argv):
-            entry_points_file = sys.argv[idx + 1] if sys.argv[idx + 1] != "-" else None
-            output_file = sys.argv[idx + 2]
-            visualizer.export_tree_to_excel(
-                entry_points_file, output_file, max_depth, follow_implementations
-            )
-
-    elif "--extract-sql" in sys.argv:
-        # SQL出力先ディレクトリのオプション処理
-        sql_output_dir = "./found_sql"
-        if "--sql-output-dir" in sys.argv:
-            idx = sys.argv.index("--sql-output-dir")
-            if idx + 1 < len(sys.argv):
-                sql_output_dir = sys.argv[idx + 1]
-
-        visualizer.extract_sql_to_files(sql_output_dir)
-
-    elif "--analyze-tables" in sys.argv:
-        # SQLディレクトリとテーブルリストファイルのオプション処理
-        sql_dir = "./found_sql"
-        table_list_file = "./table_list.tsv"
-
-        if "--sql-dir" in sys.argv:
-            idx = sys.argv.index("--sql-dir")
-            if idx + 1 < len(sys.argv):
-                sql_dir = sys.argv[idx + 1]
-
-        if "--table-list" in sys.argv:
-            idx = sys.argv.index("--table-list")
-            if idx + 1 < len(sys.argv):
-                table_list_file = sys.argv[idx + 1]
-
-        visualizer.analyze_table_usage(sql_dir, table_list_file)
-
-    else:
-        print("オプションを指定してください。--help で使い方を確認できます")
+    # サブコマンドに応じた処理を実行
+    if args.command == "list":
+        handle_list(args, visualizer)
+    elif args.command == "search":
+        handle_search(args, visualizer)
+    elif args.command == "forward":
+        handle_forward(args, visualizer)
+    elif args.command == "reverse":
+        handle_reverse(args, visualizer)
+    elif args.command == "export":
+        handle_export(args, visualizer)
+    elif args.command == "export-excel":
+        handle_export_excel(args, visualizer)
+    elif args.command == "extract-sql":
+        handle_extract_sql(args, visualizer)
+    elif args.command == "analyze-tables":
+        handle_analyze_tables(args, visualizer)
 
 
 if __name__ == "__main__":

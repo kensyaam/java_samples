@@ -130,34 +130,30 @@ pyinstaller --onefile --noconsole --icon=app.ico -n CallTreeVisualizer call_tree
 ### 使い方
 
 ```bash
-$ python call_tree_visualizer.py
-使い方:
-  python call_tree_visualizer.py <TSVファイル> [オプション]
+$ python call_tree_visualizer.py --help
+usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE]
+                               tsv_file
+                               {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables} ...
 
-オプション:
-  --list [--no-strict]     エントリーポイント候補を表示
-                           デフォルトは厳密モード、--no-strictで緩和
-  --search <keyword>       キーワードでメソッドを検索
-  --forward <method>       指定メソッドからの呼び出しツリーを表示
-  --reverse <method>       指定メソッドへの呼び出し元ツリーを表示
-  --export <method> <output_file> [format]  
-                           ツリーをファイルにエクスポート
-                           format: text, markdown, html (default: text)
-  --export-excel <entry_points_file|-> <output_file>  
-                           ツリーをExcelにエクスポート
-  --depth <n>              ツリーの最大深度 (default: 50)
-  --min-calls <n>          エントリーポイントの最小呼び出し数 (default: 1)
-  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)
-  --no-follow-impl         順引き時に実装クラス候補を追跡しない
-  --no-follow-override     逆引き時にオーバーライド元/インターフェースメソッドを追跡しない
+呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーを生成します
 
-  --extract-sql [--sql-output-dir <dir>]  
-                           SQL文を抽出してファイル出力
-                           デフォルト出力先: ./found_sql
-  --analyze-tables [--sql-dir <dir>] [--table-list <file>]
-                           SQLファイルから使用テーブルを検出
-                           デフォルトSQLディレクトリ: ./found_sql
-                           デフォルトテーブルリスト: ./table_list.tsv
+positional arguments:
+  tsv_file              TSVファイルのパス
+  {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables}
+                        サブコマンド
+    list                エントリーポイント候補を表示
+    search              キーワードでメソッドを検索
+    forward             指定メソッドからの呼び出しツリーを表示
+    reverse             指定メソッドへの呼び出し元ツリーを表示
+    export              ツリーをファイルにエクスポート
+    export-excel        ツリーをExcelにエクスポート
+    extract-sql         SQL文を抽出してファイル出力
+    analyze-tables      SQLファイルから使用テーブルを検出
+
+options:
+  -h, --help            show this help message and exit
+  --exclusion-file EXCLUSION_FILE
+                        除外ルールファイルのパス (デフォルト: exclusion_rules.txt)
 
 除外ルールファイルのフォーマット:
   <クラス名 or メソッド名><TAB><I|E>
@@ -167,20 +163,15 @@ $ python call_tree_visualizer.py
 テーブルリストファイル (table_list.tsv) のフォーマット:
   <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 
-例:
-  python call_tree_visualizer.py call-tree.tsv --list
-  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'
-  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
-  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
-  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
-  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
-  python call_tree_visualizer.py call-tree.tsv --extract-sql
-  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls
-  python call_tree_visualizer.py call-tree.tsv --analyze-tables
-  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
+使用例:
+  python call_tree_visualizer.py call-tree.tsv list
+  python call_tree_visualizer.py call-tree.tsv list --no-strict --min-calls 5
+  python call_tree_visualizer.py call-tree.tsv forward 'com.example.Main#main(String[])'
+  python call_tree_visualizer.py call-tree.tsv reverse 'com.example.Service#process()'
+  python call_tree_visualizer.py call-tree.tsv export 'com.example.Main#main(String[])' tree.html --format html
+  python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
+  python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/sqls
+  python call_tree_visualizer.py call-tree.tsv analyze-tables --sql-dir ./output/sqls
 ```
 
 ### 基本的な使い方
@@ -188,41 +179,41 @@ $ python call_tree_visualizer.py
 ```bash
 # エントリーポイントを見つける
 #   厳密モード（デフォルト）
-python call_tree_visualizer.py call-tree.tsv --list
+python call_tree_visualizer.py call-tree.tsv list
 #   緩和モード（呼び出し数で絞り込み）
-python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
+python call_tree_visualizer.py call-tree.tsv list --no-strict --min-calls 5
 
 # キーワードでメソッドを検索
 KEYWORD="main"
-python call_tree_visualizer.py call-tree.tsv --search "$KEYWORD"
+python call_tree_visualizer.py call-tree.tsv search "$KEYWORD"
 
 # 呼び出しツリーを表示
 METHOD="com.example.Main#main(String[])"
 #   実装クラス候補も追跡（デフォルト）
-python call_tree_visualizer.py call-tree.tsv --forward "$METHOD"
+python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
 #   実装クラス候補を追跡しない
-python call_tree_visualizer.py call-tree.tsv --forward "$METHOD" --no-follow-impl
+python call_tree_visualizer.py call-tree.tsv forward "$METHOD" --no-follow-impl
 
 # 逆引きツリー（誰がこのメソッドを呼んでいるか）
 METHOD="com.example.UserDaoImpl#save(User)"
 #   オーバーライド元/インターフェースメソッドも追跡（デフォルト）
-python call_tree_visualizer.py call-tree.tsv --reverse "$METHOD"
+python call_tree_visualizer.py call-tree.tsv reverse "$METHOD"
 #   オーバーライド元/インターフェースメソッドを追跡しない
-python call_tree_visualizer.py call-tree.tsv --reverse "$METHOD" --no-follow-override
+python call_tree_visualizer.py call-tree.tsv reverse "$METHOD" --no-follow-override
 
 # ファイルにエクスポート
 #   テキスト形式
-python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.txt text
+python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.txt --format text
 #   Markdown形式
-python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.md markdown
+python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.md --format markdown
 #   HTML形式（ブラウザで開ける）
-python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.html html
+python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.html --format html
 
 # Excel形式で呼び出しツリーを一括出力
 #   エントリーポイントファイルを指定する場合
-python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
+python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
 #   エントリーポイントファイルを指定しない場合（厳密モードで検出されるすべてのエントリーポイントが対象）
-python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
+python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx
 
 ```
 
@@ -231,12 +222,12 @@ python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
 ```bash
 # エントリーポイントの一覧から呼び出しツリーを出力するメソッドを選択
 # (fzfのインストールが必要)
-TARGET=$(LIST=$(python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
-python call_tree_visualizer.py call-tree.tsv --forward "$TARGET"
+METHOD=$(LIST=$(python call_tree_visualizer.py call-tree.tsv list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
+python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
 
 # エントリーポイントのテキスト形式の呼び出しツリーを一括出力
-python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
-  python call_tree_visualizer.py call-tree.tsv --forward "$line";
+python call_tree_visualizer.py call-tree.tsv list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
+  python call_tree_visualizer.py call-tree.tsv forward "$line";
 done
 
 ```
@@ -281,10 +272,10 @@ java.util.ArrayList#add(Object)<TAB>E
 
 ```bash
 # デフォルトの除外ファイル(exclusion_rules.txt)を使用
-python call_tree_visualizer.py call-tree.tsv --forward "$METHOD"
+python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
 
 # カスタム除外ファイルを指定
-python call_tree_visualizer.py call-tree.tsv --forward "$METHOD" --exclusion-file my_exclusions.txt
+python call_tree_visualizer.py call-tree.tsv --exclusion-file my_exclusions.txt forward "$METHOD"
 ```
 
 #### SQL抽出・テーブル分析機能
@@ -295,10 +286,10 @@ TSVファイルから検出されたSQL文を個別のSQLファイルとして�
 
 ```bash
 # 基本的な使い方（デフォルトでは ./found_sql に出力）
-python call_tree_visualizer.py call-tree.tsv --extract-sql
+python call_tree_visualizer.py call-tree.tsv extract-sql
 
 # 出力先ディレクトリを指定
-python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls
+python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/sqls
 ```
 
 ###### 出力ファイル名の規則
@@ -318,10 +309,10 @@ python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./ou
 
 ```bash
 # 基本的な使い方
-python call_tree_visualizer.py call-tree.tsv --analyze-tables
+python call_tree_visualizer.py call-tree.tsv analyze-tables
 
 # SQLディレクトリとテーブルリストファイルを指定
-python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
+python call_tree_visualizer.py call-tree.tsv analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
 ```
 
 ##### テーブルリストファイル (`table_list.tsv`) のフォーマット
@@ -350,8 +341,8 @@ order_details<TAB>注文明細<TAB>注文の詳細情報
 
 ```bash
 # SQL抽出 → テーブル分析の一連の流れ
-python call_tree_visualizer.py call-tree.tsv --extract-sql
-python call_tree_visualizer.py call-tree.tsv --analyze-tables > table_usage.tsv
+python call_tree_visualizer.py call-tree.tsv extract-sql
+python call_tree_visualizer.py call-tree.tsv analyze-tables > table_usage.tsv
 ```
 
 #### Excel出力機能
@@ -362,13 +353,13 @@ python call_tree_visualizer.py call-tree.tsv --analyze-tables > table_usage.tsv
 
 ```bash
 # エントリーポイントをファイルで指定
-python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt output.xlsx
+python call_tree_visualizer.py call-tree.tsv export-excel output.xlsx --entry-points entry_points.txt
 
 # 厳密モードのすべてのエントリーポイントを出力（ファイル指定なし）
-python call_tree_visualizer.py call-tree.tsv --export-excel - output.xlsx
+python call_tree_visualizer.py call-tree.tsv export-excel output.xlsx
 
 # 深度を指定
-python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt output.xlsx --depth 15
+python call_tree_visualizer.py call-tree.tsv export-excel output.xlsx --entry-points entry_points.txt --depth 15
 ```
 
 ##### エントリーポイントファイルの形式
