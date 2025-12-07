@@ -244,6 +244,9 @@ python call_tree_visualizer.py call-tree.tsv forward "$METHOD" --no-follow-impl
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
 
+- 逆引きツリー（誰がこのメソッドを呼んでいるか）を表示
+- ツリー出力後、最終到達点のメソッド一覧（最上位の呼び元メソッド）を表示
+
 ```bash
 $ python call_tree_visualizer.py call-tree.tsv reverse --help
 usage: call_tree_visualizer.py tsv_file reverse [-h] [--depth DEPTH] [--no-class] [--no-follow-override] method

@@ -350,9 +350,19 @@ class CallTreeVisualizer:
         print(f"{'=' * 80}\n")
 
         visited: set[str] = set()
+        final_endpoints: set[str] = set()  # 最終到達点のメソッドを収集
         self._print_reverse_tree_recursive(
-            target_method, 0, max_depth, visited, show_class, follow_overrides
+            target_method, 0, max_depth, visited, show_class, follow_overrides, final_endpoints
         )
+        
+        # 最終到達点のメソッド一覧を表示
+        if final_endpoints:
+            print(f"\n{'=' * 80}")
+            print(f"最終到達点のメソッド一覧 (最上位の呼び元メソッド)")
+            print(f"{'=' * 80}\n")
+            for endpoint in sorted(final_endpoints):
+                print(f"  {endpoint}")
+            print()
 
     def _print_tree_recursive(
         self,
@@ -495,6 +505,7 @@ class CallTreeVisualizer:
         visited: Set[str],
         show_class: bool,
         follow_overrides: bool,
+        final_endpoints: Optional[Set[str]] = None,
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
@@ -528,7 +539,16 @@ class CallTreeVisualizer:
                         visited.copy(),
                         show_class,
                         follow_overrides,
+                        final_endpoints,
                     )
+            else:
+                # オーバーライド元もない場合は最終到達点
+                if final_endpoints is not None:
+                    final_endpoints.add(method)
+        elif not callers:
+            # 呼び出し元がない場合は最終到達点
+            if final_endpoints is not None:
+                final_endpoints.add(method)
         else:
             # 通常の呼び出し元を表示
             for caller in callers:
@@ -539,6 +559,7 @@ class CallTreeVisualizer:
                     visited.copy(),
                     show_class,
                     follow_overrides,
+                    final_endpoints,
                 )
 
     def _print_node(
