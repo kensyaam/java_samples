@@ -39,6 +39,8 @@ public class CallTreeAnalyzer {
     private Map<String, FieldInjectionInfo> fieldInjectionDetails = new HashMap<>(); // クラス.フィールド名 -> 詳細情報
     private Map<String, BeanDefinition> beanDefinitions = new HashMap<>(); // beanId -> Bean定義
     private boolean debugMode = false; // デバッグモードフラグ
+    private Set<String> searchWords = new HashSet<>(); // 検索ワード
+    private Map<String, Set<String>> methodHitWords = new HashMap<>(); // メソッド -> 検出ワード
 
     /**
      * Bean定義情報
@@ -93,6 +95,7 @@ public class CallTreeAnalyzer {
         String annotations;
         String classAnnotations;
         String calleeJavadoc;
+        String hitWords; // 検出ワード
 
         CallRelation() {
             this.callerMethod = "";
@@ -112,6 +115,7 @@ public class CallTreeAnalyzer {
             this.annotations = "";
             this.classAnnotations = "";
             this.calleeJavadoc = "";
+            this.hitWords = "";
         }
     }
 
@@ -790,6 +794,7 @@ public class CallTreeAnalyzer {
         options.addOption("d", "debug", false, "デバッグモードを有効化");
         options.addOption("cl", "complianceLevel", true, "Javaのコンプライアンスレベル（デフォルト: 21）");
         options.addOption("e", "encoding", true, "ソースコードの文字エンコーディング（デフォルト: UTF-8）");
+        options.addOption("w", "words", true, "リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）");
         options.addOption("h", "help", false, "ヘルプを表示");
 
         CommandLineParser parser = new DefaultParser();
@@ -812,10 +817,11 @@ public class CallTreeAnalyzer {
             boolean debug = cmd.hasOption("debug");
             int complianceLevel = Integer.parseInt(cmd.getOptionValue("complianceLevel", "21"));
             String encoding = cmd.getOptionValue("encoding", "UTF-8");
+            String wordsFile = cmd.getOptionValue("words", "search_words.txt");
 
             CallTreeAnalyzer analyzer = new CallTreeAnalyzer();
             analyzer.setDebugMode(debug);
-            analyzer.analyze(sourceDirs, classpath, xmlConfig, complianceLevel, encoding);
+            analyzer.analyze(sourceDirs, classpath, xmlConfig, complianceLevel, encoding, wordsFile);
             analyzer.export(outputPath, format);
 
             System.out.println("解析完了: " + outputPath);
@@ -832,7 +838,8 @@ public class CallTreeAnalyzer {
     /**
      * ソースコードを解析
      */
-    public void analyze(String sourceDirs, String classpath, String xmlConfig, int complianceLevel, String encoding) {
+    public void analyze(String sourceDirs, String classpath, String xmlConfig, int complianceLevel, String encoding,
+            String wordsFile) {
         System.out.println("解析開始...");
 
         Launcher launcher = new Launcher();
@@ -858,32 +865,39 @@ public class CallTreeAnalyzer {
         model = launcher.buildModel();
         System.out.println("モデル構築完了");
 
-        // 1. XML Bean定義の解析
+        // 1. 検索ワードの読み込み
+        loadSearchWords(wordsFile);
+
+        // 2. XML Bean定義の解析
         if (!xmlConfig.isEmpty()) {
             parseXmlBeanDefinitions(xmlConfig);
         }
 
-        // 2. メソッド情報の収集
+        // 3. メソッド情報の収集
         collectMethods();
 
-        // 3. クラス階層の収集
+        // 4. クラス階層の収集
         collectClassHierarchy();
 
-        // 4. アノテーションベースのBean定義を収集
+        // 5. アノテーションベースのBean定義を収集
         collectAnnotationBasedBeans();
 
-        // 5. 呼び出し関係の解析
+        // 6. 呼び出し関係の解析
         analyzeCallRelations();
 
-        // 6. フィールドインジェクションの解析
+        // 7. フィールドインジェクションの解析
         analyzeFieldInjections();
 
-        // 7. SQL文の検出
+        // 8. SQL文の検出
         detectSqlStatements();
+
+        // 9. リテラル文字列中の検索ワードを検出
+        detectHitWords();
 
         System.out.println("解析完了: " + methodMap.size() + "個のメソッドを検出");
         System.out.println("Bean定義: " + beanDefinitions.size() + "個");
         System.out.println("SQL文検出: " + sqlStatements.size() + "個のメソッドでSQL文を検出");
+        System.out.println("検索ワード検出: " + methodHitWords.size() + "個のメソッドでワードを検出");
     }
 
     /**
@@ -1465,6 +1479,83 @@ public class CallTreeAnalyzer {
     }
 
     /**
+     * 検索ワードファイルを読み込む
+     */
+    private void loadSearchWords(String wordsFilePath) {
+        Path path = Paths.get(wordsFilePath);
+        if (!Files.exists(path)) {
+            if (debugMode) {
+                System.out.println("検索ワードファイルが見つかりません: " + wordsFilePath);
+            }
+            return;
+        }
+
+        try {
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            for (String line : lines) {
+                String trimmed = line.trim();
+                // 空行とコメント行をスキップ
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    searchWords.add(trimmed);
+                }
+            }
+            System.out.println("検索ワード読み込み: " + searchWords.size() + "個");
+            if (debugMode) {
+                System.out.println("  検索ワード: " + String.join(", ", searchWords));
+            }
+        } catch (IOException e) {
+            System.err.println("検索ワードファイル読み込みエラー: " + e.getMessage());
+        }
+    }
+
+    /**
+     * リテラル文字列中の検索ワードを検出
+     */
+    private void detectHitWords() {
+        if (searchWords.isEmpty()) {
+            return;
+        }
+
+        // 検索ワードごとに正規表現パターンを作成
+        Map<String, java.util.regex.Pattern> patterns = new HashMap<>();
+        for (String word : searchWords) {
+            // 単語境界: 空白、句読点、文字列の開始/終了のみ
+            // (?<=^|[\s,.;:!?()[\]{}\"'])<word>(?=[\s,.;:!?()[\]{}\"']|$)
+            String escapedWord = java.util.regex.Pattern.quote(word);
+            String regex = "(?<=^|[\\s,.;:!?()\\[\\]{}\"'])" + escapedWord + "(?=[\\s,.;:!?()\\[\\]{}\"']|$)";
+            patterns.put(word, java.util.regex.Pattern.compile(regex, java.util.regex.Pattern.CASE_INSENSITIVE));
+        }
+
+        for (CtMethod<?> method : methodMap.values()) {
+            String methodSig = getMethodSignature(method);
+            Set<String> hitWords = new HashSet<>();
+
+            // リテラル文字列からワードを検出
+            List<CtLiteral<?>> literals = method.getElements(new TypeFilter<>(CtLiteral.class));
+            for (CtLiteral<?> literal : literals) {
+                if (literal.getValue() instanceof String) {
+                    String value = (String) literal.getValue();
+
+                    // 各検索ワードについてマッチング
+                    for (Map.Entry<String, java.util.regex.Pattern> entry : patterns.entrySet()) {
+                        java.util.regex.Matcher matcher = entry.getValue().matcher(value);
+                        if (matcher.find()) {
+                            hitWords.add(entry.getKey());
+                        }
+                    }
+                }
+            }
+
+            if (!hitWords.isEmpty()) {
+                methodHitWords.put(methodSig, hitWords);
+                if (debugMode) {
+                    System.out.println("  検出ワード in " + methodSig + ": " + String.join(", ", hitWords));
+                }
+            }
+        }
+    }
+
+    /**
      * メソッドシグネチャを取得（完全修飾名）
      */
     private String getMethodSignature(CtMethod<?> method) {
@@ -1589,14 +1680,14 @@ public class CallTreeAnalyzer {
         writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
         writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先の親クラス\t呼び出し先は親クラスのメソッド\t");
         writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
-        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\tメソッドJavadoc\n");
+        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\tメソッドJavadoc\t検出ワード\n");
     }
 
     /**
      * TSV行を出力
      */
     private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
-        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
                 escape(relation.callerMethod),
                 escape(relation.callerClass),
                 escape(relation.callerParentClasses),
@@ -1613,7 +1704,8 @@ public class CallTreeAnalyzer {
                 relation.entryType,
                 escape(relation.annotations),
                 escape(relation.classAnnotations),
-                escape(relation.calleeJavadoc)));
+                escape(relation.calleeJavadoc),
+                escape(relation.hitWords)));
     }
 
     /**
@@ -1646,6 +1738,12 @@ public class CallTreeAnalyzer {
         MethodMetadata calleeMeta = methodMetadata.get(callee);
         if (calleeMeta != null) {
             relation.calleeJavadoc = calleeMeta.javadocSummary != null ? calleeMeta.javadocSummary : "";
+        }
+
+        // 検出ワードを設定
+        Set<String> hitWords = methodHitWords.get(callee);
+        if (hitWords != null && !hitWords.isEmpty()) {
+            relation.hitWords = String.join(",", hitWords);
         }
 
         return relation;
@@ -1684,6 +1782,12 @@ public class CallTreeAnalyzer {
         if (callerMetaForRelation != null) {
             relation.calleeJavadoc = callerMetaForRelation.javadocSummary != null ? callerMetaForRelation.javadocSummary
                     : "";
+        }
+
+        // 検出ワードを設定
+        Set<String> hitWords = methodHitWords.get(caller);
+        if (hitWords != null && !hitWords.isEmpty()) {
+            relation.hitWords = String.join(",", hitWords);
         }
 
         return relation;
@@ -1772,6 +1876,20 @@ public class CallTreeAnalyzer {
                     json.append(", ");
                 json.append("\"").append(escapeJson(sql)).append("\"");
                 firstSql = false;
+            }
+            json.append("]");
+        }
+
+        // 検出ワードを追加
+        Set<String> hitWords = methodHitWords.get(method);
+        if (hitWords != null && !hitWords.isEmpty()) {
+            json.append(", \"hitWords\": [");
+            boolean firstWord = true;
+            for (String word : hitWords) {
+                if (!firstWord)
+                    json.append(", ");
+                json.append("\"").append(escapeJson(word)).append("\"");
+                firstWord = false;
             }
             json.append("]");
         }

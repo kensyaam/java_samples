@@ -53,6 +53,7 @@ usage: CallTreeAnalyzer
  -d,--debug                    デバッグモードを有効化
  -cl,--complianceLevel <arg>   Javaのコンプライアンスレベル（デフォルト: 21）
  -e,--encoding <arg>           ソースコードの文字エンコーディング（デフォルト: UTF-8）
+ -w,--words <arg>              リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）
  -h,--help                     ヘルプを表示
 ```
 
