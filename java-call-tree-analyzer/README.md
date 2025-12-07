@@ -1,37 +1,48 @@
 # call-tree-analyzer
 
-## ビルド
+<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=5 orderedList=false} -->
+
+<!-- code_chunk_output -->
+
+- [静的解析ツール](#静的解析ツール)
+  - [ビルド](#ビルド)
+  - [解析実行](#解析実行)
+  - [機能](#機能)
+  - [参考： 動作検証に使えそうなプロジェクト](#参考-動作検証に使えそうなプロジェクト)
+- [可視化ツール](#可視化ツール)
+  - [事前準備](#事前準備)
+  - [使い方](#使い方)
+  - [基本的な使い方](#基本的な使い方)
+    - [Tips](#tips)
+  - [機能説明](#機能説明)
+    - [除外機能](#除外機能)
+      - [除外ルールファイルのフォーマット](#除外ルールファイルのフォーマット)
+      - [除外ルールの例](#除外ルールの例)
+      - [除外機能の使用例](#除外機能の使用例)
+    - [SQL抽出・テーブル分析機能](#sql抽出テーブル分析機能)
+      - [SQL文の抽出](#sql文の抽出)
+      - [テーブル使用状況の分析](#テーブル使用状況の分析)
+      - [テーブルリストファイル (`table_list.tsv`) のフォーマット](#テーブルリストファイル-table_listtsv-のフォーマット)
+    - [Excel出力機能](#excel出力機能)
+      - [使用方法](#使用方法)
+      - [エントリーポイントファイルの形式](#エントリーポイントファイルの形式)
+      - [Excel出力フォーマット](#excel出力フォーマット)
+
+<!-- /code_chunk_output -->
+
+
+----
+
+## 静的解析ツール
+
+### ビルド
 
 ```bash
-./gradlew build
+# ビルド & 実行可能jar作成
+./gradlew build shadowJar
 ```
 
-```bash
-# 基本的な使い方
-./gradlew run --args="-s /path/to/your/source -o call-tree.tsv"
-
-# 複数のソースディレクトリを指定
-./gradlew run --args="-s /path/to/src1,/path/to/src2 -o call-tree.tsv"
-
-# 依存ライブラリのクラスパス、Spring設定XMLファイルのディレクトリを指定
-./gradlew run --args="-s /path/to/source -cp /path/to/lib1.jar,/path/to/lib2.jar -xml /path/to/xmldir -o call-tree.tsv"
-
-# JSON形式で出力
-./gradlew run --args="-s /path/to/source -o output.json -f json"
-
-# GraphML形式で出力（Gephi等で可視化）
-./gradlew run --args="-s /path/to/source -o output.graphml -f graphml"
-
-# 実行可能JAR作成、実行
-./gradlew shadowJar
-java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp /path/to/libdir -xml /path/to/xmldir -o call-tree.tsv -d
-
-# クラスパスが複数あり、かつ、Git Bashから実行する場合を考慮
-LIB_DIR="/path/to/libdir1,/path/to/libdir2"
-LIB_DIR=$([[ -n "$MSYSTEM" ]] && printf '%s' "$LIB_DIR" | tr ',' '\n' | cygpath -w -f - | paste -sd',' - || printf '%s' "$LIB_DIR")
-java -jar build/libs/call-tree-analyzer-1.0.0.jar -s /path/to/source -cp "$LIB_DIR" -xml /path/to/xmldir -o call-tree.tsv -d
-
-```
+### 解析実行
 
 ```bash
 $ java -jar call-tree-analyzer-1.0.0.jar -h                                                     
@@ -47,36 +58,37 @@ usage: CallTreeAnalyzer
  -h,--help                     ヘルプを表示
 ```
 
-## 機能
+```bash
+### 基本的な使い方
 
-### Javadoc の @inheritDoc サポート
+## 解析対象のパス設定
+# ソース
+SRC_DIR="/path/to/src"
+# 依存ライブラリのクラスパス
+LIB_DIR="/path/to/libdir1,/path/to/libdir2"
+# Spring設定XMLファイルのディレクトリ
+XML_DIR="/path/to/xmldir"
 
-メソッドのJavadocに `@inheritDoc` または `{@inheritDoc}` タグが含まれている場合、親クラスやインターフェースから自動的にJavadocを継承します。
+# クラスパスが複数あり、かつ、Git Bashから実行する場合を考慮
+LIB_DIR=$([[ -n "$MSYSTEM" ]] && printf '%s' "$LIB_DIR" | tr ',' '\n' | cygpath -w -f - | paste -sd',' - || printf '%s' "$LIB_DIR")
 
-- 親クラス → インターフェースの順で検索
-- 見つかった最初のJavadocを使用
-- 継承元も `@inheritDoc` を使用している場合は再帰的に解決
+# 解析実行
+java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -o call-tree.tsv -d
 
-これにより、TSV出力の「メソッドJavadoc」列やPython可視化ツールの出力で、継承されたJavadocが表示されます。
+# JSON形式で出力
+java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -o output.json -f json
 
-## 出力形式について
 
-### TSV出力（デフォルト）
+# gradlewで実行する例
+./gradlew run --args="-s /path/to/your/source -o call-tree.tsv"
+```
 
-Excelで開きやすく、タブ区切りで整形されています
-列：呼び出し元メソッド、呼び出し元クラス、呼び出し元の親クラス、呼び出し先メソッド、呼び出し先クラス、呼び出し先の親クラス、SQL文、方向（Forward/Reverse）など
+### 機能
 
-### JSON出力
+spoonを使って静的解析を行い、メソッドの呼び出し関係やjavadoc、アノテーションなどの情報を抽出する。
+呼び出しツリーなどの出力はPythonの可視化ツールで行う。
 
-Pythonなどでのプログラム処理に適しています
-メソッドごとに呼び出し・被呼び出し関係が構造化されています
-
-### GraphML出力
-
-Gephi、yEd、Cytoscapeなどのグラフ可視化ツールで開けます
-呼び出し関係を視覚的に確認できます
-
-## 動作検証に使えそうなプロジェクト
+### 参考： 動作検証に使えそうなプロジェクト
 
 ```bash
 git clone https://github.com/spring-petclinic/spring-framework-petclinic
@@ -94,7 +106,9 @@ java -jar call-tree-analyzer-1.0.0.jar
   -o dist/call-tree.tsv -d
 ```
 
-## ツリー可視化
+## 可視化ツール
+
+### 事前準備
 
 ```bash
 # ツリーをExcelにエクスポートする場合のみ
@@ -110,12 +124,172 @@ pip install sqlparse
 pip install pyinstaller pillow
 #   app.pngをapp.icoに変換
 python -c "from PIL import Image; Image.open('app.png').resize((256,256), Image.LANCZOS).save('app.ico')"
-pyinstaller --onefile --noconsole --icon=app.ico call_tree_visualizer.py
+pyinstaller --onefile --noconsole --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.py
 ```
 
-### SQL抽出・テーブル分析機能
+### 使い方
 
-#### SQL文の抽出
+```bash
+$ python call_tree_visualizer.py
+使い方:
+  python call_tree_visualizer.py <TSVファイル> [オプション]
+
+オプション:
+  --list [--no-strict]     エントリーポイント候補を表示
+                           デフォルトは厳密モード、--no-strictで緩和
+  --search <keyword>       キーワードでメソッドを検索
+  --forward <method>       指定メソッドからの呼び出しツリーを表示
+  --reverse <method>       指定メソッドへの呼び出し元ツリーを表示
+  --export <method> <output_file> [format]  
+                           ツリーをファイルにエクスポート
+                           format: text, markdown, html (default: text)
+  --export-excel <entry_points_file|-> <output_file>  
+                           ツリーをExcelにエクスポート
+  --depth <n>              ツリーの最大深度 (default: 50)
+  --min-calls <n>          エントリーポイントの最小呼び出し数 (default: 1)
+  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)
+  --no-follow-impl         順引き時に実装クラス候補を追跡しない
+  --no-follow-override     逆引き時にオーバーライド元/インターフェースメソッドを追跡しない
+
+  --extract-sql [--sql-output-dir <dir>]  
+                           SQL文を抽出してファイル出力
+                           デフォルト出力先: ./found_sql
+  --analyze-tables [--sql-dir <dir>] [--table-list <file>]
+                           SQLファイルから使用テーブルを検出
+                           デフォルトSQLディレクトリ: ./found_sql
+                           デフォルトテーブルリスト: ./table_list.tsv
+
+除外ルールファイルのフォーマット:
+  <クラス名 or メソッド名><TAB><I|E>
+  I: 対象自体を除外
+  E: 対象は表示するが、配下の呼び出しを除外
+
+テーブルリストファイル (table_list.tsv) のフォーマット:
+  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
+
+例:
+  python call_tree_visualizer.py call-tree.tsv --list
+  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'
+  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
+  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
+  python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
+  python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
+  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
+  python call_tree_visualizer.py call-tree.tsv --extract-sql
+  python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls
+  python call_tree_visualizer.py call-tree.tsv --analyze-tables
+  python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
+```
+
+### 基本的な使い方
+
+```bash
+# エントリーポイントを見つける
+#   厳密モード（デフォルト）
+python call_tree_visualizer.py call-tree.tsv --list
+#   緩和モード（呼び出し数で絞り込み）
+python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
+
+# キーワードでメソッドを検索
+KEYWORD="main"
+python call_tree_visualizer.py call-tree.tsv --search "$KEYWORD"
+
+# 呼び出しツリーを表示
+METHOD="com.example.Main#main(String[])"
+#   実装クラス候補も追跡（デフォルト）
+python call_tree_visualizer.py call-tree.tsv --forward "$METHOD"
+#   実装クラス候補を追跡しない
+python call_tree_visualizer.py call-tree.tsv --forward "$METHOD" --no-follow-impl
+
+# 逆引きツリー（誰がこのメソッドを呼んでいるか）
+METHOD="com.example.UserDaoImpl#save(User)"
+#   オーバーライド元/インターフェースメソッドも追跡（デフォルト）
+python call_tree_visualizer.py call-tree.tsv --reverse "$METHOD"
+#   オーバーライド元/インターフェースメソッドを追跡しない
+python call_tree_visualizer.py call-tree.tsv --reverse "$METHOD" --no-follow-override
+
+# ファイルにエクスポート
+#   テキスト形式
+python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.txt text
+#   Markdown形式
+python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.md markdown
+#   HTML形式（ブラウザで開ける）
+python call_tree_visualizer.py call-tree.tsv --export "$METHOD" tree.html html
+
+# Excel形式で呼び出しツリーを一括出力
+#   エントリーポイントファイルを指定する場合
+python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
+#   エントリーポイントファイルを指定しない場合（厳密モードで検出されるすべてのエントリーポイントが対象）
+python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
+
+```
+
+#### Tips
+
+```bash
+# エントリーポイントの一覧から呼び出しツリーを出力するメソッドを選択
+# (fzfのインストールが必要)
+TARGET=$(LIST=$(python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
+python call_tree_visualizer.py call-tree.tsv --forward "$TARGET"
+
+# エントリーポイントのテキスト形式の呼び出しツリーを一括出力
+python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
+  python call_tree_visualizer.py call-tree.tsv --forward "$line";
+done
+
+```
+
+### 機能説明
+
+#### 除外機能
+
+特定のクラスやメソッドをツリーから除外できます。
+
+##### 除外ルールファイルのフォーマット
+
+`exclusion_rules.txt`というファイル（デフォルト）を作成し、各行に以下の形式で記述します：
+
+```txt
+<クラス名 or メソッド名><TAB><I|E>
+```
+
+- **Iモード**: 対象自体を除外（そのメソッド/クラスおよび配下のツリー全体を除外）
+- **Eモード**: 対象は表示するが、配下の呼び出しを除外（そのメソッド/クラスまでは表示するが、それ以降の展開をスキップ）
+
+##### 除外ルールの例
+
+```txt
+# Iモード: INFOログ出力を除外
+org.slf4j.Logger#info(String)<TAB>I
+
+# Iモード: ログ出力関連を完全に除外
+org.slf4j.Logger<TAB>I
+
+# Iモード: クラスを問わず、debug(String)を除外
+debug(String)<TAB>I
+
+# Eモード: java.util.List は表示するが、その配下は展開しない
+java.util.List<TAB>E
+java.util.ArrayList#add(Object)<TAB>E
+```
+
+`<TAB>` : ハードタブ
+
+##### 除外機能の使用例
+
+```bash
+# デフォルトの除外ファイル(exclusion_rules.txt)を使用
+python call_tree_visualizer.py call-tree.tsv --forward "$METHOD"
+
+# カスタム除外ファイルを指定
+python call_tree_visualizer.py call-tree.tsv --forward "$METHOD" --exclusion-file my_exclusions.txt
+```
+
+#### SQL抽出・テーブル分析機能
+
+##### SQL文の抽出
 
 TSVファイルから検出されたSQL文を個別のSQLファイルとして出力します。
 
@@ -127,16 +301,18 @@ python call_tree_visualizer.py call-tree.tsv --extract-sql
 python call_tree_visualizer.py call-tree.tsv --extract-sql --sql-output-dir ./output/sqls
 ```
 
-**出力ファイル名の規則:**
+###### 出力ファイル名の規則
+
 - 同一メソッド内で検出されたSQL文が1つ: `<メソッド名>.sql`
 - 同一メソッド内で検出されたSQL文が複数: `<メソッド名>_<通番>.sql`
 
-**SQL整形:**
-- `sqlparse` ライブラリを使用してSQL文を自動整形
+###### SQL整形
+
+- `sqlparse` ライブラリなどを使用してSQL文をゆるく自動整形
 - キーワードの大文字化、適切なインデントと改行を適用
 - 構文エラーがあっても処理を継続（エラーで落ちない設計）
 
-#### テーブル使用状況の分析
+##### テーブル使用状況の分析
 
 出力されたSQLファイルから使用テーブルを検出し、標準出力に表示します。
 
@@ -148,35 +324,41 @@ python call_tree_visualizer.py call-tree.tsv --analyze-tables
 python call_tree_visualizer.py call-tree.tsv --analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
 ```
 
-**テーブルリストファイル (`table_list.tsv`) のフォーマット:**
-```
+##### テーブルリストファイル (`table_list.tsv`) のフォーマット
+
+```txt
 <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 ```
 
-**例:**
-```
-users	ユーザーマスタ	基本情報を管理
-orders	注文テーブル	注文情報
-order_details	注文明細	注文の詳細情報
+例:
+
+```txt
+users<TAB>ユーザーマスタ<TAB>基本情報を管理
+orders<TAB>注文テーブル<TAB>注文情報
+order_details<TAB>注文明細<TAB>注文の詳細情報
 ```
 
+`<TAB>`: ハードタブ
+
 **出力フォーマット:**
-```
+
+```txt
 <SQLファイル名><TAB><物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 ```
 
 **使用例:**
+
 ```bash
 # SQL抽出 → テーブル分析の一連の流れ
 python call_tree_visualizer.py call-tree.tsv --extract-sql
 python call_tree_visualizer.py call-tree.tsv --analyze-tables > table_usage.tsv
 ```
 
-### Excel出力機能
+#### Excel出力機能
 
 呼び出しツリーを構造化されたExcel形式で出力します。複数のエントリーポイントからの呼び出しツリーを1つのExcelファイルにまとめて出力できます。
 
-#### 使用方法
+##### 使用方法
 
 ```bash
 # エントリーポイントをファイルで指定
@@ -189,18 +371,18 @@ python call_tree_visualizer.py call-tree.tsv --export-excel - output.xlsx
 python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt output.xlsx --depth 15
 ```
 
-#### エントリーポイントファイルの形式
+##### エントリーポイントファイルの形式
 
 1行に1つのメソッドシグネチャを記載します。空行と`#`で始まるコメント行はスキップされます。
 
-```
+```txt
 # エントリーポイント例
 com.example.Main#main(String[])
 com.example.api.UserController#getUser(Long)
 com.example.service.OrderService#processOrder(Order)
 ```
 
-#### Excel出力フォーマット
+##### Excel出力フォーマット
 
 - **A列**: 呼び出しツリーの先頭メソッド（fully qualified name）
 - **B列**: 呼び出しメソッド（fully qualified name）
@@ -213,132 +395,10 @@ com.example.service.OrderService#processOrder(Order)
 - **L列以降**: 呼び出しツリー（メソッドからパッケージ名は除外、列のインデントで階層表現）
 - **AZ列**: SQL文
 
-**特徴:**
+その他:
 
 - フォント: Meiryo UI
 - L列以降の列幅: 5
 - 実装クラス候補がある場合は自動的に追跡・展開
 - 循環参照は `[循環参照]` として表示され、それ以上展開されない
 - 除外ルールファイルにも対応
-
-```bash
-# エントリーポイントを見つける - 厳密モード（デフォルト）
-python call_tree_visualizer.py call-tree.tsv --list
-
-# エントリーポイントを見つける - 厳密モード（デフォルト）
-# 呼び出し数で絞り込み
-python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
-
-# キーワードでメソッドを検索
-python call_tree_visualizer.py call-tree.tsv --search "main"
-
-# 呼び出しツリーを表示
-python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])"
-
-# 逆引きツリー（誰がこのメソッドを呼んでいるか） - オーバーライド元も追跡（デフォルト）
-python call_tree_visualizer.py call-tree.tsv --reverse "com.example.UserDaoImpl#save(User)"
-# 逆引きツリー（誰がこのメソッドを呼んでいるか） - オーバーライド元を追跡しない
-python call_tree_visualizer.py call-tree.tsv --reverse "com.example.UserDaoImpl#save(User)" --no-follow-override
-
-#ファイルにエクスポート
-# テキスト形式
-python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.txt text
-
-# Markdown形式
-python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.md markdown
-
-# HTML形式（ブラウザで開ける）
-python call_tree_visualizer.py call-tree.tsv --export "com.example.Main#main(String[])" tree.html html
-
-# Excel形式で呼び出しツリーを一括出力
-# エントリーポイントファイルを指定する場合
-python call_tree_visualizer.py call-tree.tsv --export-excel entry_points.txt call_trees.xlsx
-
-# エントリーポイントファイルを指定しない場合（厳密モードのすべてのエントリーポイントを出力）
-python call_tree_visualizer.py call-tree.tsv --export-excel - call_trees.xlsx
-
-# 深度を指定
-python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --depth 5
-
-# 除外ルールファイルを使用
-python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --exclusion-file my_exclusions.txt
-
-# エントリーポイントの呼び出しツリーを一括出力
-python call_tree_visualizer.py call-tree.tsv --list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
-  python call_tree_visualizer.py call-tree.tsv --forward "$line";
-done
-```
-
-### 除外機能
-
-特定のクラスやメソッドをツリーから除外できます。
-
-#### 除外ルールファイルのフォーマット
-
-`exclusion_rules.txt`というファイル（デフォルト）を作成し、各行に以下の形式で記述します：
-
-```txt
-<クラス名 or メソッド名><TAB><I|E>
-```
-
-- **Iモード**: 対象自体を除外（そのメソッド/クラスおよび配下のツリー全体を除外）
-- **Eモード**: 対象は表示するが、配下の呼び出しを除外（そのメソッド/クラスまでは表示するが、それ以降の展開をスキップ）
-
-#### 除外ルールの例
-
-```txt
-# Iモード: ログ出力関連を完全に除外
-org.slf4j.Logger<tab>I
-log<tab>I
-
-# Eモード: java.util.List は表示するが、その配下は展開しない
-java.util.List<tab>E
-java.util.ArrayList#add(Object)<tab>E
-```
-
-`<tab>` : ハードタブ
-
-#### 除外機能の使用例
-
-```bash
-# デフォルトの除外ファイル(exclusion_rules.txt)を使用
-python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])"
-
-# カスタム除外ファイルを指定
-python call_tree_visualizer.py call-tree.tsv --forward "com.example.Main#main(String[])" --exclusion-file my_exclusions.txt
-```
-
-```bash
-$ python call_tree_visualizer.py
-使い方:
-  python call_tree_visualizer.py <TSVファイル> [オプション]
-
-オプション:
-  --list [--no-strict]  エントリーポイント候補を表示
-                        デフォルトは厳密モード、--no-strictで緩和
-  --search <keyword>  キーワードでメソッドを検索
-  --forward <method>  指定メソッドからの呼び出しツリーを表示
-  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示
-  --export <method> <o> [format]  ツリーをファイルにエクスポート
-                      format: text, markdown, html (default: text)
-  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート
-  --depth <n>         ツリーの最大深度 (default: 50)
-  --min-calls <n>     エントリーポイントの最小呼び出し数 (default: 1)
-  --exclusion-file <file>  除外ルールファイルのパス (default: exclusion_rules.txt)
-  --no-follow-impl    実装クラス候補を追跡しない
-  --no-follow-override  逆引き時にオーバーライド元を追跡しない
-
-除外ルールファイルのフォーマット:
-  <クラス名 or メソッド名><TAB><I|E>
-  I: 対象自体を除外
-  E: 対象は表示するが、配下の呼び出しを除外
-
-例:
-  python call_tree_visualizer.py call-tree.tsv --list
-  python call_tree_visualizer.py call-tree.tsv --list --no-strict --min-calls 5
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])'
-  python call_tree_visualizer.py call-tree.tsv --reverse 'com.example.Service#process()'
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Service#process()' --no-follow-impl
-  python call_tree_visualizer.py call-tree.tsv --export 'com.example.Main#main(String[])' tree.html html
-  python call_tree_visualizer.py call-tree.tsv --forward 'com.example.Main#main(String[])' --exclusion-file my_exclusions.txt
-```

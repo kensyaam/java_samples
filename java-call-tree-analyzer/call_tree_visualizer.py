@@ -1839,7 +1839,7 @@ def print_usage():
     print("  --search <keyword>  キーワードでメソッドを検索")
     print("  --forward <method>  指定メソッドからの呼び出しツリーを表示")
     print("  --reverse <method>  指定メソッドへの呼び出し元ツリーを表示")
-    print("  --export <method> <o> [format]  ツリーをファイルにエクスポート")
+    print("  --export <method> <output_file> [format]  ツリーをファイルにエクスポート")
     print("                      format: text, markdown, html (default: text)")
     print(
         "  --export-excel <entry_points_file|- > <output_file>  ツリーをExcelにエクスポート"
