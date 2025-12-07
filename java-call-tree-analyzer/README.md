@@ -303,7 +303,8 @@ python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.html --format
 
 ```bash
 $ python call_tree_visualizer.py call-tree.tsv export-excel --help
-usage: call_tree_visualizer.py tsv_file export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] output_file
+usage: call_tree_visualizer.py tsv_file export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] [--no-tree] [--no-sql]
+                                                     output_file
 
 positional arguments:
   output_file           出力Excelファイル名
@@ -314,6 +315,8 @@ options:
                         エントリーポイントファイル（指定しない場合は厳密モードのエントリーポイントを使用）
   --depth DEPTH         ツリーの最大深度 (デフォルト: 20)
   --no-follow-impl      実装クラス候補を追跡しない
+  --no-tree             L列以降の呼び出しツリーを出力しない
+  --no-sql              AZ列のSQL文を出力しない
 ```
 
 ```bash

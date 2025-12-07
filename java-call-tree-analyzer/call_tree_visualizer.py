@@ -1891,6 +1891,8 @@ class CallTreeVisualizer:
         output_file: str,
         max_depth: int = 20,
         follow_implementations: bool = True,
+        include_tree: bool = True,
+        include_sql: bool = True,
     ) -> None:
         """
         Excel形式でツリーをエクスポート
@@ -1900,6 +1902,8 @@ class CallTreeVisualizer:
             output_file: 出力ファイル名
             max_depth: 最大深度
             follow_implementations: 実装クラス候補を追跡するか
+            include_tree: L列以降の呼び出しツリーを出力するか
+            include_sql: AZ列のSQL文を出力するか
         """
         # エントリーポイントの決定
         entry_points: List[str] = []
@@ -1965,10 +1969,12 @@ class CallTreeVisualizer:
         ws.cell(row=current_row, column=6, value="Javadoc").font = font
         ws.cell(row=current_row, column=7, value="親クラス / 実装クラスへの展開").font = font
         ws.cell(row=current_row, column=8, value="SQL有無").font = font
-        #   L列
-        ws.cell(row=current_row, column=tree_start_col, value="呼び出しツリー").font = font
-        #   AZ列
-        ws.cell(row=current_row, column=az_col, value="SQL文").font = font
+        #   L列（呼び出しツリーを出力する場合のみ）
+        if include_tree:
+            ws.cell(row=current_row, column=tree_start_col, value="呼び出しツリー").font = font
+        #   AZ列（SQL文を出力する場合のみ）
+        if include_sql:
+            ws.cell(row=current_row, column=az_col, value="SQL文").font = font
 
         current_row += 1
 
@@ -2011,15 +2017,16 @@ class CallTreeVisualizer:
                 sql_marker = "●" if node["sql"] else ""
                 ws.cell(row=current_row, column=8, value=sql_marker).font = font
 
-                # L列以降: 呼び出しツリー
-                tree_col = tree_start_col + node["depth"]
-                tree_text = node["tree_display"]
-                if node["is_circular"]:
-                    tree_text += " [循環参照]"
-                ws.cell(row=current_row, column=tree_col, value=tree_text).font = font
+                # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
+                if include_tree:
+                    tree_col = tree_start_col + node["depth"]
+                    tree_text = node["tree_display"]
+                    if node["is_circular"]:
+                        tree_text += " [循環参照]"
+                    ws.cell(row=current_row, column=tree_col, value=tree_text).font = font
 
-                # AZ列: SQL文
-                if node["sql"]:
+                # AZ列: SQL文（include_sqlがTrueの場合のみ）
+                if include_sql and node["sql"]:
                     ws.cell(row=current_row, column=az_col, value=node["sql"]).font = (
                         font
                     )
@@ -2090,6 +2097,8 @@ def handle_export_excel(args, visualizer: CallTreeVisualizer) -> None:
         args.output_file,
         args.depth,
         args.follow_impl,
+        args.include_tree,
+        args.include_sql,
     )
 
 
@@ -2254,6 +2263,18 @@ def main():
         action="store_false",
         dest="follow_impl",
         help="実装クラス候補を追跡しない",
+    )
+    parser_export_excel.add_argument(
+        "--no-tree",
+        action="store_false",
+        dest="include_tree",
+        help="L列以降の呼び出しツリーを出力しない",
+    )
+    parser_export_excel.add_argument(
+        "--no-sql",
+        action="store_false",
+        dest="include_sql",
+        help="AZ列のSQL文を出力しない",
     )
 
     # extract-sql サブコマンド
