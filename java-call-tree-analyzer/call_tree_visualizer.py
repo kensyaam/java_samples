@@ -18,6 +18,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 # Git Bash上でパイプを使うと、stdoutがCP932として扱われるのを防ぐ
 sys.stdout.reconfigure(encoding="utf-8")
 
+
 class ExclusionRuleManager:
     """除外ルールを管理するクラス"""
 
@@ -58,7 +59,10 @@ class ExclusionRuleManager:
 
                     parts = line.split("\t")
                     if len(parts) != 2:
-                        print(f"警告: 行 {line_num} のフォーマットが不正です: {line}", file=sys.stderr)
+                        print(
+                            f"警告: 行 {line_num} のフォーマットが不正です: {line}",
+                            file=sys.stderr,
+                        )
                         continue
 
                     target, mode = parts
@@ -76,8 +80,13 @@ class ExclusionRuleManager:
                         )
 
             print(f"除外ルールを読み込みました: {file_path}", file=sys.stderr)
-            print(f"  Iモード(対象除外): {len(self.include_exclusions)} 件", file=sys.stderr)
-            print(f"  Eモード(配下除外): {len(self.exclude_children)} 件", file=sys.stderr)
+            print(
+                f"  Iモード(対象除外): {len(self.include_exclusions)} 件",
+                file=sys.stderr,
+            )
+            print(
+                f"  Eモード(配下除外): {len(self.exclude_children)} 件", file=sys.stderr
+            )
 
         except Exception as e:
             print(f"除外ルールファイルの読み込みに失敗しました: {e}", file=sys.stderr)
@@ -170,7 +179,12 @@ class ExclusionRuleManager:
 
 
 class CallTreeVisualizer:
-    def __init__(self, tsv_file: str, exclusion_file: Optional[str] = None, output_tsv_encoding: str = "Shift_JIS"):
+    def __init__(
+        self,
+        tsv_file: str,
+        exclusion_file: Optional[str] = None,
+        output_tsv_encoding: str = "Shift_JIS",
+    ):
         """
         コンストラクタ
 
@@ -441,7 +455,9 @@ class CallTreeVisualizer:
                             )
                             if impl_method:
                                 # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
-                                if not self.exclusion_manager.should_include(impl_method):
+                                if not self.exclusion_manager.should_include(
+                                    impl_method
+                                ):
                                     continue
 
                                 indent = "    " * (depth + 1)
@@ -841,6 +857,11 @@ class CallTreeVisualizer:
         if callees:
             html += '<ul class="tree">'
             for callee_info in callees:
+
+                # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                if not self.exclusion_manager.should_include(callee_info["method"]):
+                    continue
+
                 html += self._generate_html_tree(
                     callee_info["method"],
                     depth + 1,
@@ -864,6 +885,10 @@ class CallTreeVisualizer:
                             callee_info["method"], impl_class
                         )
                         if impl_method:
+                            # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                            if not self.exclusion_manager.should_include(impl_method):
+                                continue
+
                             html += f'<li><span class="implementation">→ 実装: {impl_class}</span>'
                             html += self._generate_html_tree(
                                 impl_method,
@@ -1039,7 +1064,9 @@ class CallTreeVisualizer:
         entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
 
         # TSVヘッダーを出力
-        print("メソッド\tクラス\tメソッド名\tエンドポイント\tjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション")
+        print(
+            "メソッド\tクラス\tメソッド名\tエンドポイント\tjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション"
+        )
 
         # 結果をTSV形式で出力
         for (
@@ -1517,7 +1544,10 @@ class CallTreeVisualizer:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(formatted_sql)
         except Exception as e:
-            print(f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}", file=sys.stderr)
+            print(
+                f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}",
+                file=sys.stderr,
+            )
 
     def analyze_table_usage(
         self, sql_dir: str = "./found_sql", table_list_file: str = "./table_list.tsv"
@@ -1534,7 +1564,10 @@ class CallTreeVisualizer:
 
         # テーブル一覧を読み込み
         if not os.path.exists(table_list_file):
-            print(f"エラー: テーブル一覧ファイルが見つかりません: {table_list_file}", file=sys.stderr)
+            print(
+                f"エラー: テーブル一覧ファイルが見つかりません: {table_list_file}",
+                file=sys.stderr,
+            )
             return
 
         table_list = self._load_table_list(table_list_file)
@@ -1546,7 +1579,9 @@ class CallTreeVisualizer:
         # SQLファイルを走査
         sql_dir_path = Path(sql_dir)
         if not sql_dir_path.exists():
-            print(f"エラー: SQLディレクトリが見つかりません: {sql_dir}", file=sys.stderr)
+            print(
+                f"エラー: SQLディレクトリが見つかりません: {sql_dir}", file=sys.stderr
+            )
             return
 
         sql_files = sorted(sql_dir_path.glob("*.sql"))
@@ -1614,7 +1649,10 @@ class CallTreeVisualizer:
                         table_list.append((physical_name, logical_name, note))
 
         except Exception as e:
-            print(f"エラー: テーブル一覧ファイルの読み込みに失敗しました: {e}", file=sys.stderr)
+            print(
+                f"エラー: テーブル一覧ファイルの読み込みに失敗しました: {e}",
+                file=sys.stderr,
+            )
 
         return table_list
 
@@ -1779,6 +1817,10 @@ class CallTreeVisualizer:
         for callee_info in callees:
             callee = callee_info["method"]
 
+            # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+            if not self.exclusion_manager.should_include(callee):
+                continue
+
             # 親クラスメソッドかどうか
             relation = "親クラス" if callee_info["is_parent_method"] == "Yes" else ""
 
@@ -1805,6 +1847,10 @@ class CallTreeVisualizer:
                 for impl_class in implementations:
                     impl_method = self._find_implementation_method(callee, impl_class)
                     if impl_method:
+                        # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
+                        if not self.exclusion_manager.should_include(impl_method):
+                            continue
+
                         result.extend(
                             self._collect_tree_data(
                                 impl_method,
@@ -1887,6 +1933,23 @@ class CallTreeVisualizer:
 
         # 各エントリーポイントについてツリーを収集して出力
         current_row = 1
+
+        # ヘッダ行を出力
+        #   A～H列
+        ws.cell(row=current_row, column=1, value="エントリーポイント").font = font
+        ws.cell(row=current_row, column=2, value="呼び出しメソッド").font = font
+        ws.cell(row=current_row, column=3, value="パッケージ名").font = font
+        ws.cell(row=current_row, column=4, value="クラス名").font = font
+        ws.cell(row=current_row, column=5, value="メソッド名").font = font
+        ws.cell(row=current_row, column=6, value="Javadoc").font = font
+        ws.cell(row=current_row, column=7, value="親クラス / 実装クラスへの展開").font = font
+        ws.cell(row=current_row, column=8, value="SQL有無").font = font
+        #   L列
+        ws.cell(row=current_row, column=tree_start_col, value="呼び出しツリー").font = font
+        #   AZ列
+        ws.cell(row=current_row, column=az_col, value="SQL文").font = font
+
+        current_row += 1
 
         for entry_point in entry_points:
             print(f"処理中: {entry_point}")
@@ -2206,7 +2269,9 @@ def main():
         sys.exit(1)
 
     # Visualizerの初期化
-    visualizer = CallTreeVisualizer(args.tsv_file, args.exclusion_file, args.output_tsv_encoding)
+    visualizer = CallTreeVisualizer(
+        args.tsv_file, args.exclusion_file, args.output_tsv_encoding
+    )
 
     # サブコマンドに応じた処理を実行
     if args.command == "list":
