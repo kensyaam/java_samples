@@ -54,6 +54,8 @@ usage: CallTreeAnalyzer
  -cl,--complianceLevel <arg>   Javaのコンプライアンスレベル（デフォルト: 21）
  -e,--encoding <arg>           ソースコードの文字エンコーディング（デフォルト: UTF-8）
  -w,--words <arg>              リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）
+ --export-class-hierarchy <arg>  クラス階層情報をJSON形式で出力
+ --export-interface-impls <arg>  インターフェース実装情報をJSON形式で出力
  -h,--help                     ヘルプを表示
 ```
 
@@ -135,8 +137,8 @@ usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE] [--output-
 呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーなどを生成する
 
 positional arguments:
-  tsv_file              TSVファイル（静的解析ツールの出力）のパス
-  {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables}
+  tsv_file              TSVファイル（静的解析ツールの出力）またはJSONファイル（クラス階層/インターフェース実装）のパス
+  {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
                         サブコマンド
     list                エントリーポイント候補を表示
     search              キーワードでメソッドを検索
@@ -146,6 +148,8 @@ positional arguments:
     export-excel        ツリーをExcelにエクスポート
     extract-sql         SQL文を抽出してファイル出力
     analyze-tables      SQLファイルから使用テーブルを検出
+    class-tree          クラス階層ツリーを表示
+    interface-impls     インターフェース実装一覧を表示
 
 options:
   -h, --help            show this help message and exit
@@ -452,6 +456,73 @@ python call_tree_visualizer.py call-tree.tsv analyze-tables > table_usage.tsv
 
 # 出力結果をExcel貼り付け用にコピー (Windows)
 python call_tree_visualizer.py call-tree.tsv analyze-tables | clip
+```
+
+#### class-tree : クラス階層ツリーを表示
+
+クラス階層JSONファイルを読み込み、クラスの継承関係とインターフェース実装を表示します。
+
+```bash
+$ python call_tree_visualizer.py class-hierarchy.json class-tree --help
+usage: call_tree_visualizer.py tsv_file class-tree [-h] [--filter FILTER] [--class CLASS_NAME]
+
+options:
+  -h, --help           show this help message and exit
+  --filter FILTER      フィルタリングパターン（パッケージ名やクラス名の一部）
+  --class CLASS_NAME   特定のクラスのみ表示
+```
+
+```bash
+# 全体のクラス階層ツリーを表示
+python call_tree_visualizer.py class-hierarchy.json class-tree
+
+# 特定のパッケージでフィルタリング
+python call_tree_visualizer.py class-hierarchy.json class-tree --filter "com.example.service"
+
+# 特定のクラスのみ表示
+python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.example.UserServiceImpl"
+```
+
+#### interface-impls : インターフェース実装一覧を表示
+
+インターフェース実装JSONファイルを読み込み、各インターフェースの実装クラスを表示します。
+
+```bash
+$ python call_tree_visualizer.py interface-implementations.json interface-impls --help
+usage: call_tree_visualizer.py tsv_file interface-impls [-h] [--interface INTERFACE] [--direct-only]
+
+options:
+  -h, --help             show this help message and exit
+  --interface INTERFACE  特定のインターフェースでフィルタリング
+  --direct-only          直接実装のみ表示
+```
+
+```bash
+# 全体のインターフェース実装一覧を表示
+python call_tree_visualizer.py interface-implementations.json interface-impls
+
+# 特定のインターフェースでフィルタリング
+python call_tree_visualizer.py interface-implementations.json interface-impls --interface "com.example.UserRepository"
+
+# 直接実装のみ表示
+python call_tree_visualizer.py interface-implementations.json interface-impls --direct-only
+```
+
+###### 使用例
+
+```bash
+# 1. クラス階層とインターフェース実装を出力
+java -jar call-tree-analyzer-1.0.0.jar \
+  -s /path/to/src \
+  -o call-tree.tsv \
+  --export-class-hierarchy class-hierarchy.json \
+  --export-interface-impls interface-implementations.json
+
+# 2. クラス階層ツリーを表示
+python call_tree_visualizer.py class-hierarchy.json class-tree
+
+# 3. インターフェース実装一覧を表示
+python call_tree_visualizer.py interface-implementations.json interface-impls
 ```
 
 

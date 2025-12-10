@@ -2155,6 +2155,107 @@ def handle_analyze_tables(args, visualizer: CallTreeVisualizer) -> None:
     visualizer.analyze_table_usage(args.sql_dir, args.table_list)
 
 
+def handle_class_tree(args) -> None:
+    """class-treeサブコマンドの処理"""
+    import json
+    
+    # JSONファイルを読み込む
+    try:
+        with open(args.tsv_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"エラー: ファイルが見つかりません: {args.tsv_file}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"エラー: JSONの解析に失敗しました: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    classes = data.get("classes", [])
+    
+    # フィルタリング
+    if args.class_name:
+        classes = [c for c in classes if c["className"] == args.class_name]
+    elif args.filter:
+        classes = [c for c in classes if args.filter in c["className"]]
+    
+    # クラス階層ツリーを表示
+    print(f"\n{'=' * 80}")
+    print(f"クラス階層ツリー")
+    print(f"{'=' * 80}\n")
+    
+    for cls in classes:
+        print(f"クラス: {cls['className']}")
+        
+        if cls.get("superClass"):
+            print(f"  └─ スーパークラス: {cls['superClass']}")
+        
+        if cls.get("directInterfaces"):
+            print(f"  └─ 直接実装インターフェース:")
+            for iface in cls["directInterfaces"]:
+                print(f"      - {iface}")
+        
+        if cls.get("allInterfaces"):
+            indirect_interfaces = set(cls["allInterfaces"]) - set(cls.get("directInterfaces", []))
+            if indirect_interfaces:
+                print(f"  └─ 間接実装インターフェース:")
+                for iface in sorted(indirect_interfaces):
+                    print(f"      - {iface}")
+        
+        print()
+
+
+def handle_interface_impls(args) -> None:
+    """interface-implsサブコマンドの処理"""
+    import json
+    
+    # JSONファイルを読み込む
+    try:
+        with open(args.tsv_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"エラー: ファイルが見つかりません: {args.tsv_file}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"エラー: JSONの解析に失敗しました: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    interfaces = data.get("interfaces", [])
+    
+    # フィルタリング
+    if args.interface:
+        interfaces = [i for i in interfaces if i["interfaceName"] == args.interface]
+    
+    # インターフェース実装一覧を表示
+    print(f"\n{'=' * 80}")
+    print(f"インターフェース実装一覧")
+    print(f"{'=' * 80}\n")
+    
+    for iface in interfaces:
+        print(f"インターフェース: {iface['interfaceName']}")
+        
+        implementations = iface.get("implementations", [])
+        
+        # 直接実装のみフィルタリング
+        if args.direct_only:
+            implementations = [impl for impl in implementations if impl["type"] == "direct"]
+        
+        # 実装タイプごとに分類
+        direct_impls = [impl for impl in implementations if impl["type"] == "direct"]
+        indirect_impls = [impl for impl in implementations if impl["type"] == "indirect"]
+        
+        if direct_impls:
+            print(f"  └─ 直接実装:")
+            for impl in direct_impls:
+                print(f"      - {impl['className']}")
+        
+        if indirect_impls and not args.direct_only:
+            print(f"  └─ 間接実装:")
+            for impl in indirect_impls:
+                print(f"      - {impl['className']}")
+        
+        print()
+
+
 def main():
     """メイン関数"""
     import argparse
@@ -2345,6 +2446,34 @@ def main():
         help="テーブルリストファイル (デフォルト: ./table_list.tsv)",
     )
 
+    # class-tree サブコマンド
+    parser_class_tree = subparsers.add_parser(
+        "class-tree", help="クラス階層ツリーを表示"
+    )
+    parser_class_tree.add_argument(
+        "--filter",
+        help="フィルタリングパターン（パッケージ名やクラス名の一部）",
+    )
+    parser_class_tree.add_argument(
+        "--class",
+        dest="class_name",
+        help="特定のクラスのみ表示",
+    )
+
+    # interface-impls サブコマンド
+    parser_interface_impls = subparsers.add_parser(
+        "interface-impls", help="インターフェース実装一覧を表示"
+    )
+    parser_interface_impls.add_argument(
+        "--interface",
+        help="特定のインターフェースでフィルタリング",
+    )
+    parser_interface_impls.add_argument(
+        "--direct-only",
+        action="store_true",
+        help="直接実装のみ表示",
+    )
+
     # 引数を解析
     args = parser.parse_args()
 
@@ -2352,6 +2481,14 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # class-tree と interface-impls サブコマンドは CallTreeVisualizer を使わない
+    if args.command in ["class-tree", "interface-impls"]:
+        if args.command == "class-tree":
+            handle_class_tree(args)
+        elif args.command == "interface-impls":
+            handle_interface_impls(args)
+        return
 
     # Visualizerの初期化
     visualizer = CallTreeVisualizer(

@@ -795,6 +795,8 @@ public class CallTreeAnalyzer {
         options.addOption("cl", "complianceLevel", true, "Javaのコンプライアンスレベル（デフォルト: 21）");
         options.addOption("e", "encoding", true, "ソースコードの文字エンコーディング（デフォルト: UTF-8）");
         options.addOption("w", "words", true, "リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）");
+        options.addOption(null, "export-class-hierarchy", true, "クラス階層情報をJSON形式で出力");
+        options.addOption(null, "export-interface-impls", true, "インターフェース実装情報をJSON形式で出力");
         options.addOption("h", "help", false, "ヘルプを表示");
 
         CommandLineParser parser = new DefaultParser();
@@ -818,6 +820,8 @@ public class CallTreeAnalyzer {
             int complianceLevel = Integer.parseInt(cmd.getOptionValue("complianceLevel", "21"));
             String encoding = cmd.getOptionValue("encoding", "UTF-8");
             String wordsFile = cmd.getOptionValue("words", "search_words.txt");
+            String classHierarchyOutput = cmd.getOptionValue("export-class-hierarchy", "");
+            String interfaceImplsOutput = cmd.getOptionValue("export-interface-impls", "");
 
             CallTreeAnalyzer analyzer = new CallTreeAnalyzer();
             analyzer.setDebugMode(debug);
@@ -825,6 +829,18 @@ public class CallTreeAnalyzer {
             analyzer.export(outputPath, format);
 
             System.out.println("解析完了: " + outputPath);
+
+            // クラス階層情報の出力
+            if (!classHierarchyOutput.isEmpty()) {
+                analyzer.exportClassHierarchyJson(classHierarchyOutput);
+                System.out.println("クラス階層情報出力完了: " + classHierarchyOutput);
+            }
+
+            // インターフェース実装情報の出力
+            if (!interfaceImplsOutput.isEmpty()) {
+                analyzer.exportInterfaceImplementationsJson(interfaceImplsOutput);
+                System.out.println("インターフェース実装情報出力完了: " + interfaceImplsOutput);
+            }
 
         } catch (ParseException e) {
             System.err.println("引数解析エラー: " + e.getMessage());
@@ -2114,5 +2130,171 @@ public class CallTreeAnalyzer {
         if (str == null)
             return "";
         return str.replace("\t", " ").replace("\n", " ").replace("\r", "");
+    }
+
+    /**
+     * クラス階層情報をJSON形式でエクスポート
+     */
+    private void exportClassHierarchyJson(String outputPath) throws IOException {
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
+            writer.write("{\n");
+            writer.write("  \"classes\": [\n");
+
+            List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+            boolean first = true;
+
+            for (CtType<?> type : types) {
+                String className = type.getQualifiedName();
+
+                // Java標準ライブラリは除外
+                if (isJavaStandardLibrary(className)) {
+                    continue;
+                }
+
+                if (!first) {
+                    writer.write(",\n");
+                }
+                first = false;
+
+                writer.write("    {\n");
+                writer.write("      \"className\": \"" + escapeJson(className) + "\",\n");
+
+                // スーパークラス
+                String superClass = "";
+                if (type instanceof CtClass) {
+                    CtClass<?> ctClass = (CtClass<?>) type;
+                    CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                    if (superClassRef != null && !isJavaStandardLibrary(superClassRef.getQualifiedName())) {
+                        superClass = superClassRef.getQualifiedName();
+                    }
+                }
+                writer.write("      \"superClass\": \"" + escapeJson(superClass) + "\",\n");
+
+                // 直接実装インターフェース
+                Set<String> directInterfaces = new HashSet<>();
+                for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
+                    String ifaceName = ifaceRef.getQualifiedName();
+                    if (!isJavaStandardLibrary(ifaceName)) {
+                        directInterfaces.add(ifaceName);
+                    }
+                }
+                writer.write("      \"directInterfaces\": [");
+                boolean firstInterface = true;
+                for (String iface : directInterfaces) {
+                    if (!firstInterface) {
+                        writer.write(", ");
+                    }
+                    writer.write("\"" + escapeJson(iface) + "\"");
+                    firstInterface = false;
+                }
+                writer.write("],\n");
+
+                // 全実装インターフェース（直接+間接）
+                Set<String> allInterfaces = getAllInterfaces(type);
+                Set<String> filteredAllInterfaces = new HashSet<>();
+                for (String iface : allInterfaces) {
+                    if (!isJavaStandardLibrary(iface)) {
+                        filteredAllInterfaces.add(iface);
+                    }
+                }
+                writer.write("      \"allInterfaces\": [");
+                firstInterface = true;
+                for (String iface : filteredAllInterfaces) {
+                    if (!firstInterface) {
+                        writer.write(", ");
+                    }
+                    writer.write("\"" + escapeJson(iface) + "\"");
+                    firstInterface = false;
+                }
+                writer.write("]\n");
+
+                writer.write("    }");
+            }
+
+            writer.write("\n  ]\n");
+            writer.write("}\n");
+        }
+    }
+
+    /**
+     * インターフェース実装情報をJSON形式でエクスポート
+     */
+    private void exportInterfaceImplementationsJson(String outputPath) throws IOException {
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
+            writer.write("{\n");
+            writer.write("  \"interfaces\": [\n");
+
+            // インターフェースごとに実装クラスをまとめる
+            Map<String, List<Map<String, String>>> interfaceMap = new HashMap<>();
+
+            List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+            for (CtType<?> type : types) {
+                String className = type.getQualifiedName();
+
+                // Java標準ライブラリは除外
+                if (isJavaStandardLibrary(className)) {
+                    continue;
+                }
+
+                // 直接実装インターフェース
+                Set<String> directInterfaces = new HashSet<>();
+                for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
+                    String ifaceName = ifaceRef.getQualifiedName();
+                    if (!isJavaStandardLibrary(ifaceName)) {
+                        directInterfaces.add(ifaceName);
+                    }
+                }
+
+                // 全実装インターフェース
+                Set<String> allInterfaces = getAllInterfaces(type);
+
+                // 各インターフェースについて、直接/間接を判定
+                for (String iface : allInterfaces) {
+                    if (isJavaStandardLibrary(iface)) {
+                        continue;
+                    }
+
+                    String implType = directInterfaces.contains(iface) ? "direct" : "indirect";
+
+                    interfaceMap.computeIfAbsent(iface, k -> new ArrayList<>());
+                    Map<String, String> impl = new HashMap<>();
+                    impl.put("className", className);
+                    impl.put("type", implType);
+                    interfaceMap.get(iface).add(impl);
+                }
+            }
+
+            // JSON出力
+            boolean firstInterface = true;
+            for (Map.Entry<String, List<Map<String, String>>> entry : interfaceMap.entrySet()) {
+                if (!firstInterface) {
+                    writer.write(",\n");
+                }
+                firstInterface = false;
+
+                writer.write("    {\n");
+                writer.write("      \"interfaceName\": \"" + escapeJson(entry.getKey()) + "\",\n");
+                writer.write("      \"implementations\": [\n");
+
+                boolean firstImpl = true;
+                for (Map<String, String> impl : entry.getValue()) {
+                    if (!firstImpl) {
+                        writer.write(",\n");
+                    }
+                    firstImpl = false;
+
+                    writer.write("        {\n");
+                    writer.write("          \"className\": \"" + escapeJson(impl.get("className")) + "\",\n");
+                    writer.write("          \"type\": \"" + escapeJson(impl.get("type")) + "\"\n");
+                    writer.write("        }");
+                }
+
+                writer.write("\n      ]\n");
+                writer.write("    }");
+            }
+
+            writer.write("\n  ]\n");
+            writer.write("}\n");
+        }
     }
 }
