@@ -1418,6 +1418,52 @@ class CallTreeVisualizer:
         name = name.strip("_")
         return name[:200]  # ファイル名の長さを制限
 
+    def _split_by_comma_outside_parens(self, text: str) -> list[str]:
+        """
+        括弧の外側にあるカンマのみで文字列を分割する。
+        関数内のカンマ(例: COALESCE(a, b))では分割しない。
+
+        Args:
+            text: 分割対象の文字列
+
+        Returns:
+            分割された文字列のリスト
+        """
+        parts = []
+        current_part = []
+        paren_depth = 0
+
+        i = 0
+        while i < len(text):
+            char = text[i]
+
+            if char == "(":
+                paren_depth += 1
+                current_part.append(char)
+            elif char == ")":
+                paren_depth -= 1
+                current_part.append(char)
+            elif char == "," and paren_depth == 0:
+                # 括弧の外側のカンマを発見
+                # カンマの後のスペースもスキップ
+                parts.append("".join(current_part))
+                current_part = []
+                # カンマの後のスペースをスキップ
+                i += 1
+                while i < len(text) and text[i] == " ":
+                    i += 1
+                continue
+            else:
+                current_part.append(char)
+
+            i += 1
+
+        # 最後の部分を追加
+        if current_part:
+            parts.append("".join(current_part))
+
+        return parts
+
     def _format_sql(self, sql_text: str) -> str:
         """
         SQL文を整形（カスタムルール適用）
@@ -1475,8 +1521,8 @@ class CallTreeVisualizer:
                     if line.startswith(current_alignment_indent):
                         content = line[len(current_alignment_indent) :]
 
-                        # コンテンツをカンマで分割して1行1つにする
-                        parts = content.split(", ")
+                        # 括弧の外側のカンマのみで分割して1行1つにする
+                        parts = self._split_by_comma_outside_parens(content)
                         for i, part in enumerate(parts):
                             if i < len(parts) - 1:
                                 new_lines.append(replacement_indent + part + ",")
@@ -1514,11 +1560,8 @@ class CallTreeVisualizer:
                         # キーワード行を出力
                         new_lines.append(base_indent + prefix + matched_keyword)
 
-                        # コンテンツをカンマで分割して1行1つにする
-                        # 注意: 関数内のカンマなどで誤爆する可能性があるが、
-                        # sqlparseが既に整形しているため、ある程度は安全。
-                        # ただし、完全ではない。簡易的な実装とする。
-                        parts = content.split(", ")
+                        # 括弧の外側のカンマのみで分割して1行1つにする
+                        parts = self._split_by_comma_outside_parens(content)
 
                         # 新しいインデントはベース + 2スペース
                         new_indent = base_indent + "  "

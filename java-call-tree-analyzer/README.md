@@ -107,9 +107,10 @@ java -jar call-tree-analyzer-1.0.0.jar
 ### 事前準備
 
 ```bash
-# ツリーをExcelにエクスポートする場合のみ
 python -m venv .venv
 source .venv/Scripts/activate
+
+# ツリーをExcelにエクスポートする場合のみ
 pip install openpyxl
 pip install types-openpyxl
 
