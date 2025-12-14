@@ -1,9 +1,17 @@
 package com.example.test;
 
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 /**
  * SQL文字列連結のテストケース
  */
 public class SqlConcatenationTest {
+
+    @Test
+    public void sampleTest() {
+        assertEquals(2, 1 + 1);
+    }
 
     /**
      * シンプルな文字列連結
