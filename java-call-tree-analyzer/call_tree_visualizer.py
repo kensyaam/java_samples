@@ -6,6 +6,7 @@ TSVファイルから呼び出しツリーを生成します
 """
 
 import csv
+import json
 import re
 import sys
 from collections import defaultdict
@@ -352,9 +353,15 @@ class CallTreeVisualizer:
         visited: set[str] = set()
         final_endpoints: set[str] = set()  # 最終到達点のメソッドを収集
         self._print_reverse_tree_recursive(
-            target_method, 0, max_depth, visited, show_class, follow_overrides, final_endpoints
+            target_method,
+            0,
+            max_depth,
+            visited,
+            show_class,
+            follow_overrides,
+            final_endpoints,
         )
-        
+
         # 最終到達点のメソッド一覧を表示
         if final_endpoints:
             print(f"\n{'=' * 80}")
@@ -2010,11 +2017,15 @@ class CallTreeVisualizer:
         ws.cell(row=current_row, column=4, value="クラス名").font = font
         ws.cell(row=current_row, column=5, value="メソッド名").font = font
         ws.cell(row=current_row, column=6, value="Javadoc").font = font
-        ws.cell(row=current_row, column=7, value="親クラス / 実装クラスへの展開").font = font
+        ws.cell(
+            row=current_row, column=7, value="親クラス / 実装クラスへの展開"
+        ).font = font
         ws.cell(row=current_row, column=8, value="SQL有無").font = font
         #   L列（呼び出しツリーを出力する場合のみ）
         if include_tree:
-            ws.cell(row=current_row, column=tree_start_col, value="呼び出しツリー").font = font
+            ws.cell(
+                row=current_row, column=tree_start_col, value="呼び出しツリー"
+            ).font = font
         #   AZ列（SQL文を出力する場合のみ）
         if include_sql:
             ws.cell(row=current_row, column=az_col, value="SQL文").font = font
@@ -2063,10 +2074,12 @@ class CallTreeVisualizer:
                 # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
                 if include_tree:
                     tree_col = tree_start_col + node["depth"]
-                    tree_text = node["tree_display"]
-                    if node["is_circular"]:
-                        tree_text += " [循環参照]"
-                    ws.cell(row=current_row, column=tree_col, value=tree_text).font = font
+                    tree_text = str(node["tree_display"] or "")
+                    if node["is_circular"] and tree_text:
+                        tree_text = tree_text + " [循環参照]"
+                    ws.cell(row=current_row, column=tree_col, value=tree_text).font = (
+                        font
+                    )
 
                 # AZ列: SQL文（include_sqlがTrueの場合のみ）
                 if include_sql and node["sql"]:
@@ -2155,105 +2168,217 @@ def handle_analyze_tables(args, visualizer: CallTreeVisualizer) -> None:
     visualizer.analyze_table_usage(args.sql_dir, args.table_list)
 
 
+class StructureVisualizer:
+    """構造情報（クラス階層、インターフェース実装）を可視化するクラス"""
+
+    def __init__(self, json_file: str):
+        self.json_file = json_file
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                self.data = json.load(f)
+        except Exception as e:
+            print(f"JSONファイルの読み込みに失敗しました: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def print_class_tree(
+        self,
+        root_filter: Optional[str] = None,
+        max_depth: int = 50,
+        verbose: bool = False,
+    ):
+        """クラス階層ツリーを表示"""
+        classes = self.data.get("classes", [])
+
+        # データの構築
+        class_map = {c["className"]: c for c in classes}
+        children_map = defaultdict(list)
+        roots = set()
+
+        # 全クラス名をセットに（存在チェック用）
+        all_class_names = set(c["className"] for c in classes)
+
+        # 親子関係の構築とルートの特定
+        for c in classes:
+            class_name = c["className"]
+            super_class = c.get("superClass")
+
+            if super_class:
+                children_map[super_class].append(class_name)
+                # 親クラスがデータセットに含まれていない場合、その親クラスもルート候補とする
+                if super_class not in all_class_names:
+                    roots.add(super_class)
+            else:
+                # 親クラスがない場合はルート
+                roots.add(class_name)
+
+        # フィルタリング適用
+        if root_filter:
+            target_roots = [r for r in roots if root_filter in r]
+            # ルートそのものでなくても、ツリーの途中にあるクラスも指定できるようにする
+            if not target_roots and root_filter in all_class_names:
+                target_roots = [root_filter]
+
+            if not target_roots:
+                # 部分一致で探す
+                target_roots = [c for c in all_class_names if root_filter in c]
+        else:
+            target_roots = sorted(list(roots))
+
+        if not target_roots:
+            print(f"該当するクラスが見つかりませんでした: {root_filter}")
+            return
+
+        print(f"\n{'=' * 80}")
+        print(f"クラス継承ツリー (JSON: {self.json_file})")
+        print(f"{'=' * 80}\n")
+
+        for root in target_roots:
+            self._print_class_node_recursive(
+                root, 0, max_depth, verbose, class_map, children_map, set()
+            )
+            print()  # ツリー間の改行
+
+    def _print_class_node_recursive(
+        self,
+        class_name: str,
+        depth: int,
+        max_depth: int,
+        verbose: bool,
+        class_map: Dict[str, Dict],
+        children_map: Dict[str, List[str]],
+        visited: Set[str],
+    ):
+        if depth > max_depth:
+            return
+
+        if class_name in visited:
+            indent = "    " * depth
+            print(f"{indent}|-- {class_name} [循環参照]")
+            return
+
+        visited.add(class_name)
+
+        indent = "    " * depth
+        prefix = "|-- " if depth > 0 else ""
+
+        # 表示情報の構築
+        display = f"{indent}{prefix}{class_name}"
+
+        # 詳細情報の表示
+        info = class_map.get(class_name)
+        if verbose and info:
+            extras = []
+            if info.get("javadoc"):
+                extras.append(f"Javadoc: {info.get('javadoc')}")
+            else:
+                extras.append("Javadoc: (なし)")
+
+            annotations = info.get("annotations", [])
+            if annotations:
+                anns_str = ", ".join([f"@{a.split('.')[-1]}" for a in annotations])
+                extras.append(f"Annotations: [{anns_str}]")
+            else:
+                extras.append("Annotations: (なし)")
+
+            if extras:
+                # クラス名の右側にタブ区切りで表示
+                # javadocとアノテーションの間もタブ区切りで表示
+                display += f"\t{'\t'.join(extras)}"
+
+        # 外部親クラスの場合の表示
+        if not info and depth == 0:
+            display += " [外部親クラス]"
+
+        print(display)
+
+        # 子クラスの表示
+        children = sorted(children_map.get(class_name, []))
+        for child in children:
+            self._print_class_node_recursive(
+                child,
+                depth + 1,
+                max_depth,
+                verbose,
+                class_map,
+                children_map,
+                visited.copy(),
+            )
+
+    def print_interface_impls(
+        self, filter_str: Optional[str] = None, verbose: bool = False
+    ):
+        """インターフェース実装一覧を表示"""
+        interfaces = self.data.get("interfaces", [])
+
+        print(f"\n{'=' * 80}")
+        print(f"インターフェース実装一覧 (JSON: {self.json_file})")
+        print(f"{'=' * 80}\n")
+
+        count = 0
+        for iface in interfaces:
+            interface_name = iface["interfaceName"]
+
+            # フィルタリング
+            if filter_str and filter_str not in interface_name:
+                continue
+
+            implementations = iface.get("implementations", [])
+            if not implementations:
+                continue
+
+            count += 1
+            print(f"Interface: {interface_name}")
+
+            # 実装クラスをタイプ（direct/indirect）とクラス名でソート
+            sorted_impls = sorted(
+                implementations, key=lambda x: (x["type"] != "direct", x["className"])
+            )  # directが先
+
+            for impl in sorted_impls:
+                class_name = impl["className"]
+                impl_type = impl["type"]
+                type_mark = "[Direct]  " if impl_type == "direct" else "[Indirect]"
+
+                display = f"    {type_mark} {class_name}"
+
+                if verbose:
+                    extras = []
+                    if impl.get("javadoc"):
+                        extras.append(f"Javadoc: {impl.get('javadoc')}")
+                    else:
+                        extras.append("Javadoc: (なし)")
+
+                    annotations = impl.get("annotations", [])
+                    if annotations:
+                        anns_str = ", ".join(
+                            [f"@{a.split('.')[-1]}" for a in annotations]
+                        )
+                        extras.append(f"Annotations: [{anns_str}]")
+                    else:
+                        extras.append("Annotations: (なし)")
+
+                    if extras:
+                        display += f"\t{'\t'.join(extras)}"
+
+                print(display)
+            print()  # インターフェースごとの空行
+
+        if count == 0 and filter_str:
+            print(f"該当するインターフェースが見つかりませんでした: {filter_str}")
+
+
 def handle_class_tree(args) -> None:
     """class-treeサブコマンドの処理"""
-    import json
-    
-    # JSONファイルを読み込む
-    try:
-        with open(args.tsv_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print(f"エラー: ファイルが見つかりません: {args.tsv_file}", file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"エラー: JSONの解析に失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
-    
-    classes = data.get("classes", [])
-    
-    # フィルタリング
-    if args.class_name:
-        classes = [c for c in classes if c["className"] == args.class_name]
-    elif args.filter:
-        classes = [c for c in classes if args.filter in c["className"]]
-    
-    # クラス階層ツリーを表示
-    print(f"\n{'=' * 80}")
-    print(f"クラス階層ツリー")
-    print(f"{'=' * 80}\n")
-    
-    for cls in classes:
-        print(f"クラス: {cls['className']}")
-        
-        if cls.get("superClass"):
-            print(f"  └─ スーパークラス: {cls['superClass']}")
-        
-        if cls.get("directInterfaces"):
-            print(f"  └─ 直接実装インターフェース:")
-            for iface in cls["directInterfaces"]:
-                print(f"      - {iface}")
-        
-        if cls.get("allInterfaces"):
-            indirect_interfaces = set(cls["allInterfaces"]) - set(cls.get("directInterfaces", []))
-            if indirect_interfaces:
-                print(f"  └─ 間接実装インターフェース:")
-                for iface in sorted(indirect_interfaces):
-                    print(f"      - {iface}")
-        
-        print()
+    visualizer = StructureVisualizer(args.input_file)
+    # root_filterかfilterのどちらかを使用
+    f = args.root_filter if args.root_filter else args.filter
+    visualizer.print_class_tree(root_filter=f, verbose=args.verbose)
 
 
 def handle_interface_impls(args) -> None:
     """interface-implsサブコマンドの処理"""
-    import json
-    
-    # JSONファイルを読み込む
-    try:
-        with open(args.tsv_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print(f"エラー: ファイルが見つかりません: {args.tsv_file}", file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"エラー: JSONの解析に失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
-    
-    interfaces = data.get("interfaces", [])
-    
-    # フィルタリング
-    if args.interface:
-        interfaces = [i for i in interfaces if i["interfaceName"] == args.interface]
-    
-    # インターフェース実装一覧を表示
-    print(f"\n{'=' * 80}")
-    print(f"インターフェース実装一覧")
-    print(f"{'=' * 80}\n")
-    
-    for iface in interfaces:
-        print(f"インターフェース: {iface['interfaceName']}")
-        
-        implementations = iface.get("implementations", [])
-        
-        # 直接実装のみフィルタリング
-        if args.direct_only:
-            implementations = [impl for impl in implementations if impl["type"] == "direct"]
-        
-        # 実装タイプごとに分類
-        direct_impls = [impl for impl in implementations if impl["type"] == "direct"]
-        indirect_impls = [impl for impl in implementations if impl["type"] == "indirect"]
-        
-        if direct_impls:
-            print(f"  └─ 直接実装:")
-            for impl in direct_impls:
-                print(f"      - {impl['className']}")
-        
-        if indirect_impls and not args.direct_only:
-            print(f"  └─ 間接実装:")
-            for impl in indirect_impls:
-                print(f"      - {impl['className']}")
-        
-        print()
+    visualizer = StructureVisualizer(args.input_file)
+    visualizer.print_interface_impls(filter_str=args.filter_str, verbose=args.verbose)
 
 
 def main():
@@ -2262,7 +2387,7 @@ def main():
 
     # メインパーサーの作成
     parser = argparse.ArgumentParser(
-        description="呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーを生成します",
+        description="呼び出しツリー可視化スクリプト - TSV/JSONファイルから可視化を行います",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 除外ルールファイルのフォーマット:
@@ -2282,10 +2407,12 @@ def main():
   %(prog)s call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
   %(prog)s call-tree.tsv extract-sql --output-dir ./output/sqls
   %(prog)s call-tree.tsv analyze-tables --sql-dir ./output/sqls
+  %(prog)s class-hierarchy.json class-tree --filter 'com.example'
+  %(prog)s interface-implementations.json interface-impls --interface 'MyService'
         """,
     )
 
-    parser.add_argument("tsv_file", help="TSVファイルのパス")
+    parser.add_argument("input_file", help="入力ファイル（TSV または JSON）のパス")
     parser.add_argument(
         "--exclusion-file",
         help="除外ルールファイルのパス (デフォルト: exclusion_rules.txt)",
@@ -2455,9 +2582,14 @@ def main():
         help="フィルタリングパターン（パッケージ名やクラス名の一部）",
     )
     parser_class_tree.add_argument(
-        "--class",
-        dest="class_name",
-        help="特定のクラスのみ表示",
+        "--root",
+        dest="root_filter",
+        help="ルートクラス指定（--filterのエイリアス）",
+    )
+    parser_class_tree.add_argument(
+        "--verbose",
+        action="store_true",
+        help="詳細表示（Javadocやアノテーションを表示）",
     )
 
     # interface-impls サブコマンド
@@ -2466,12 +2598,13 @@ def main():
     )
     parser_interface_impls.add_argument(
         "--interface",
+        dest="filter_str",
         help="特定のインターフェースでフィルタリング",
     )
     parser_interface_impls.add_argument(
-        "--direct-only",
+        "--verbose",
         action="store_true",
-        help="直接実装のみ表示",
+        help="詳細表示（Javadocやアノテーションを表示）",
     )
 
     # 引数を解析
@@ -2483,16 +2616,16 @@ def main():
         sys.exit(1)
 
     # class-tree と interface-impls サブコマンドは CallTreeVisualizer を使わない
-    if args.command in ["class-tree", "interface-impls"]:
-        if args.command == "class-tree":
-            handle_class_tree(args)
-        elif args.command == "interface-impls":
-            handle_interface_impls(args)
+    if args.command == "class-tree":
+        handle_class_tree(args)
+        return
+    elif args.command == "interface-impls":
+        handle_interface_impls(args)
         return
 
-    # Visualizerの初期化
+    # Visualizerの初期化 (TSV処理)
     visualizer = CallTreeVisualizer(
-        args.tsv_file, args.exclusion_file, args.output_tsv_encoding
+        args.input_file, args.exclusion_file, args.output_tsv_encoding
     )
 
     # サブコマンドに応じた処理を実行

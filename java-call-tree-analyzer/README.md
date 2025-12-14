@@ -4,24 +4,38 @@
 
 <!-- code_chunk_output -->
 
-- [静的解析ツール](#静的解析ツール)
-  - [ビルド](#ビルド)
-  - [解析実行](#解析実行)
-  - [参考： 動作検証に使えそうなプロジェクト](#参考-動作検証に使えそうなプロジェクト)
-- [可視化ツール](#可視化ツール)
-  - [事前準備](#事前準備)
-  - [使い方](#使い方)
-  - [サブコマンド](#サブコマンド)
-    - [list : エントリーポイントの一覧出力](#list--エントリーポイントの一覧出力)
-    - [search : キーワードでメソッドを検索](#search--キーワードでメソッドを検索)
-    - [forward : 呼び出しツリー出力](#forward--呼び出しツリー出力)
-    - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
-    - [export : 呼び出しツリーを指定形式のファイルにエクスポート](#export--呼び出しツリーを指定形式のファイルにエクスポート)
-    - [export-excel : 一括で呼び出しツリーをExcelファイルに出力](#export-excel--一括で呼び出しツリーをexcelファイルに出力)
-    - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
-    - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
-    - [Tips](#tips)
-  - [除外ルールファイルについて](#除外ルールファイルについて)
+- [call-tree-analyzer](#call-tree-analyzer)
+  - [静的解析ツール](#静的解析ツール)
+    - [ビルド](#ビルド)
+    - [解析実行](#解析実行)
+    - [参考： 動作検証に使えそうなプロジェクト](#参考-動作検証に使えそうなプロジェクト)
+  - [可視化ツール](#可視化ツール)
+    - [事前準備](#事前準備)
+    - [使い方](#使い方)
+    - [サブコマンド](#サブコマンド)
+      - [list : エントリーポイントの一覧出力](#list--エントリーポイントの一覧出力)
+      - [search : キーワードでメソッドを検索](#search--キーワードでメソッドを検索)
+      - [forward : 呼び出しツリー出力](#forward--呼び出しツリー出力)
+      - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
+      - [export : 呼び出しツリーを指定形式のファイルにエクスポート](#export--呼び出しツリーを指定形式のファイルにエクスポート)
+      - [export-excel : 一括で呼び出しツリーをExcelファイルに出力](#export-excel--一括で呼び出しツリーをexcelファイルに出力)
+          - [エントリーポイントファイルの形式](#エントリーポイントファイルの形式)
+          - [Excel出力フォーマット](#excel出力フォーマット)
+      - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
+          - [出力ファイル名の規則](#出力ファイル名の規則)
+          - [SQL整形](#sql整形)
+      - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
+          - [テーブルリストファイルのフォーマット](#テーブルリストファイルのフォーマット)
+          - [出力フォーマット](#出力フォーマット)
+          - [使用例](#使用例)
+      - [class-tree : クラス階層ツリーを表示](#class-tree--クラス階層ツリーを表示)
+      - [interface-impls : インターフェース実装一覧を表示](#interface-impls--インターフェース実装一覧を表示)
+          - [使用例](#使用例-1)
+      - [Tips](#tips)
+    - [除外ルールファイルについて](#除外ルールファイルについて)
+          - [除外ルールファイルのフォーマット](#除外ルールファイルのフォーマット)
+          - [除外ルールの設定例](#除外ルールの設定例)
+          - [除外ルールファイルの使用例](#除外ルールファイルの使用例)
 
 <!-- /code_chunk_output -->
 
@@ -137,7 +151,7 @@ usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE] [--output-
 呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーなどを生成する
 
 positional arguments:
-  tsv_file              TSVファイル（静的解析ツールの出力）またはJSONファイル（クラス階層/インターフェース実装）のパス
+  input_file            入力ファイル（静的解析ツールの出力. TSV または JSON）のパス
   {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
                         サブコマンド
     list                エントリーポイント候補を表示
@@ -175,6 +189,8 @@ options:
   python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
   python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/sqls
   python call_tree_visualizer.py call-tree.tsv analyze-tables --sql-dir ./output/sqls
+  python call_tree_visualizer.py class-hierarchy.json class-tree --filter 'com.example'
+  python call_tree_visualizer.py interface-implementations.json interface-impls --interface 'MyService'
 
 サブコマンドのヘルプを表示する例:
   python call_tree_visualizer.py list --help
@@ -464,12 +480,13 @@ python call_tree_visualizer.py call-tree.tsv analyze-tables | clip
 
 ```bash
 $ python call_tree_visualizer.py class-hierarchy.json class-tree --help
-usage: call_tree_visualizer.py tsv_file class-tree [-h] [--filter FILTER] [--class CLASS_NAME]
+usage: call_tree_visualizer.py input_file class-tree [-h] [--filter FILTER] [--root ROOT_FILTER] [--verbose]
 
 options:
-  -h, --help           show this help message and exit
-  --filter FILTER      フィルタリングパターン（パッケージ名やクラス名の一部）
-  --class CLASS_NAME   特定のクラスのみ表示
+  -h, --help            show this help message and exit
+  --filter FILTER       フィルタリングパターン（パッケージ名やクラス名の一部）
+  --root ROOT_FILTER    ルートクラス指定（--filterのエイリアス）
+  --verbose             詳細表示（Javadocやアノテーションを表示）
 ```
 
 ```bash
@@ -489,12 +506,13 @@ python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.exam
 
 ```bash
 $ python call_tree_visualizer.py interface-implementations.json interface-impls --help
-usage: call_tree_visualizer.py tsv_file interface-impls [-h] [--interface INTERFACE] [--direct-only]
+usage: call_tree_visualizer.py input_file interface-impls [-h] [--interface FILTER_STR] [--verbose]
 
 options:
-  -h, --help             show this help message and exit
-  --interface INTERFACE  特定のインターフェースでフィルタリング
-  --direct-only          直接実装のみ表示
+  -h, --help            show this help message and exit
+  --interface FILTER_STR
+                        特定のインターフェースでフィルタリング
+  --verbose             詳細表示（Javadocやアノテーションを表示）
 ```
 
 ```bash

@@ -2133,6 +2133,34 @@ public class CallTreeAnalyzer {
     }
 
     /**
+     * Javadoc文字列から要約（最初の文）を抽出
+     */
+    private String extractJavadocSummary(String doc) {
+        if (doc == null || doc.isEmpty()) {
+            return "";
+        }
+
+        // Javadocの開始・終了タグを除去
+        String cleaned = doc.replaceAll("(?s)/\\*\\*|\\*/", "");
+        String[] lines = cleaned.split("\\r?\\n");
+
+        for (String l : lines) {
+            String s = l.trim();
+            // 行頭のアスタリスクを除去
+            s = s.replaceFirst("^\\*+\\s?", "").trim();
+
+            if (!s.isEmpty()) {
+                // @タグの行はスキップ（説明文を探す）
+                if (s.startsWith("@")) {
+                    continue;
+                }
+                return s;
+            }
+        }
+        return "";
+    }
+
+    /**
      * クラス階層情報をJSON形式でエクスポート
      */
     private void exportClassHierarchyJson(String outputPath) throws IOException {
@@ -2144,12 +2172,12 @@ public class CallTreeAnalyzer {
             boolean first = true;
 
             for (CtType<?> type : types) {
-                String className = type.getQualifiedName();
-
-                // Java標準ライブラリは除外
-                if (isJavaStandardLibrary(className)) {
+                // フィルタリング
+                if (shouldExcludeType(type)) {
                     continue;
                 }
+
+                String className = type.getQualifiedName();
 
                 if (!first) {
                     writer.write(",\n");
@@ -2158,6 +2186,25 @@ public class CallTreeAnalyzer {
 
                 writer.write("    {\n");
                 writer.write("      \"className\": \"" + escapeJson(className) + "\",\n");
+
+                // Javadoc (最初の文のみ取得して簡潔にする)
+                String javadocRaw = type.getDocComment();
+                String javadoc = extractJavadocSummary(javadocRaw);
+                writer.write("      \"javadoc\": \"" + escapeJson(javadoc) + "\",\n");
+
+                // アノテーション
+                List<String> annotations = type.getAnnotations().stream()
+                        .map(a -> a.getAnnotationType().getQualifiedName())
+                        .collect(Collectors.toList());
+                writer.write("      \"annotations\": [");
+                boolean firstAnn = true;
+                for (String ann : annotations) {
+                    if (!firstAnn)
+                        writer.write(", ");
+                    writer.write("\"" + escapeJson(ann) + "\"");
+                    firstAnn = false;
+                }
+                writer.write("],\n");
 
                 // スーパークラス
                 String superClass = "";
@@ -2225,16 +2272,16 @@ public class CallTreeAnalyzer {
             writer.write("  \"interfaces\": [\n");
 
             // インターフェースごとに実装クラスをまとめる
-            Map<String, List<Map<String, String>>> interfaceMap = new HashMap<>();
+            Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
 
             List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
             for (CtType<?> type : types) {
-                String className = type.getQualifiedName();
-
-                // Java標準ライブラリは除外
-                if (isJavaStandardLibrary(className)) {
+                // フィルタリング
+                if (shouldExcludeType(type)) {
                     continue;
                 }
+
+                String className = type.getQualifiedName();
 
                 // 直接実装インターフェース
                 Set<String> directInterfaces = new HashSet<>();
@@ -2248,6 +2295,13 @@ public class CallTreeAnalyzer {
                 // 全実装インターフェース
                 Set<String> allInterfaces = getAllInterfaces(type);
 
+                // 付加情報取得
+                String javadocRaw = type.getDocComment();
+                String javadoc = extractJavadocSummary(javadocRaw);
+                List<String> annotations = type.getAnnotations().stream()
+                        .map(a -> a.getAnnotationType().getQualifiedName())
+                        .collect(Collectors.toList());
+
                 // 各インターフェースについて、直接/間接を判定
                 for (String iface : allInterfaces) {
                     if (isJavaStandardLibrary(iface)) {
@@ -2257,16 +2311,18 @@ public class CallTreeAnalyzer {
                     String implType = directInterfaces.contains(iface) ? "direct" : "indirect";
 
                     interfaceMap.computeIfAbsent(iface, k -> new ArrayList<>());
-                    Map<String, String> impl = new HashMap<>();
+                    Map<String, Object> impl = new HashMap<>();
                     impl.put("className", className);
                     impl.put("type", implType);
+                    impl.put("javadoc", javadoc);
+                    impl.put("annotations", annotations);
                     interfaceMap.get(iface).add(impl);
                 }
             }
 
             // JSON出力
             boolean firstInterface = true;
-            for (Map.Entry<String, List<Map<String, String>>> entry : interfaceMap.entrySet()) {
+            for (Map.Entry<String, List<Map<String, Object>>> entry : interfaceMap.entrySet()) {
                 if (!firstInterface) {
                     writer.write(",\n");
                 }
@@ -2277,15 +2333,29 @@ public class CallTreeAnalyzer {
                 writer.write("      \"implementations\": [\n");
 
                 boolean firstImpl = true;
-                for (Map<String, String> impl : entry.getValue()) {
+                for (Map<String, Object> impl : entry.getValue()) {
                     if (!firstImpl) {
                         writer.write(",\n");
                     }
                     firstImpl = false;
 
                     writer.write("        {\n");
-                    writer.write("          \"className\": \"" + escapeJson(impl.get("className")) + "\",\n");
-                    writer.write("          \"type\": \"" + escapeJson(impl.get("type")) + "\"\n");
+                    writer.write("          \"className\": \"" + escapeJson((String) impl.get("className")) + "\",\n");
+                    writer.write("          \"type\": \"" + escapeJson((String) impl.get("type")) + "\",\n");
+                    writer.write("          \"javadoc\": \"" + escapeJson((String) impl.get("javadoc")) + "\",\n");
+
+                    writer.write("          \"annotations\": [");
+                    @SuppressWarnings("unchecked")
+                    List<String> anns = (List<String>) impl.get("annotations");
+                    boolean firstAnn = true;
+                    for (String ann : anns) {
+                        if (!firstAnn)
+                            writer.write(", ");
+                        writer.write("\"" + escapeJson(ann) + "\"");
+                        firstAnn = false;
+                    }
+                    writer.write("]\n");
+
                     writer.write("        }");
                 }
 
@@ -2296,5 +2366,37 @@ public class CallTreeAnalyzer {
             writer.write("\n  ]\n");
             writer.write("}\n");
         }
+    }
+
+    /**
+     * 解析対象から除外すべき型かどうかを判定
+     */
+    private boolean shouldExcludeType(CtType<?> type) {
+        String className = type.getQualifiedName();
+
+        // Java標準ライブラリは除外
+        if (isJavaStandardLibrary(className)) {
+            return true;
+        }
+
+        // 無名クラス
+        if (type.isAnonymous()) {
+            return true;
+        }
+
+        // Lambda (SpoonではCtLambdaだが、念のためクラス名チェック)
+        // クラス名が数字のみ、あるいは空の場合は除外
+        String simpleName = type.getSimpleName();
+        if (simpleName.isEmpty() || simpleName.matches("\\d+")) {
+            return true;
+        }
+
+        // 難読化クラス（1文字のクラス名）
+        // パッケージ名を除いた単純名で判定
+        if (simpleName.length() == 1) {
+            return true;
+        }
+
+        return false;
     }
 }
