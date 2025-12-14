@@ -2273,8 +2273,24 @@ public class CallTreeAnalyzer {
 
             // インターフェースごとに実装クラスをまとめる
             Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
+            // インターフェース自体のJavadocを格納
+            Map<String, String> interfaceJavadocs = new HashMap<>();
 
             List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+
+            // まず、インターフェース自体のJavadocを収集
+            for (CtType<?> type : types) {
+                if (shouldExcludeType(type)) {
+                    continue;
+                }
+                if (type.isInterface()) {
+                    String ifaceName = type.getQualifiedName();
+                    String javadocRaw = type.getDocComment();
+                    String javadoc = extractJavadocSummary(javadocRaw);
+                    interfaceJavadocs.put(ifaceName, javadoc);
+                }
+            }
+
             for (CtType<?> type : types) {
                 // フィルタリング
                 if (shouldExcludeType(type)) {
@@ -2328,8 +2344,12 @@ public class CallTreeAnalyzer {
                 }
                 firstInterface = false;
 
+                String ifaceName = entry.getKey();
+                String ifaceJavadoc = interfaceJavadocs.getOrDefault(ifaceName, "");
+
                 writer.write("    {\n");
-                writer.write("      \"interfaceName\": \"" + escapeJson(entry.getKey()) + "\",\n");
+                writer.write("      \"interfaceName\": \"" + escapeJson(ifaceName) + "\",\n");
+                writer.write("      \"javadoc\": \"" + escapeJson(ifaceJavadoc) + "\",\n");
                 writer.write("      \"implementations\": [\n");
 
                 boolean firstImpl = true;

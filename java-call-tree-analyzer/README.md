@@ -36,6 +36,10 @@
           - [除外ルールファイルのフォーマット](#除外ルールファイルのフォーマット)
           - [除外ルールの設定例](#除外ルールの設定例)
           - [除外ルールファイルの使用例](#除外ルールファイルの使用例)
+  - [ヘルパースクリプト](#ヘルパースクリプト)
+    - [json\_to\_func\_list\_csv.sh : JSONをCSV/TSVに変換](#json_to_func_list_csvsh--jsonをcsvtsvに変換)
+    - [select\_method.sh : fzfでメソッドを選択](#select_methodsh--fzfでメソッドを選択)
+    - [class\_list\_to\_csv.sh : クラス/インターフェース一覧をCSV/TSVに変換](#class_list_to_csvsh--クラスインターフェース一覧をcsvtsvに変換)
 
 <!-- /code_chunk_output -->
 
@@ -607,3 +611,109 @@ python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
 # カスタム除外ファイルを指定
 python call_tree_visualizer.py call-tree.tsv --exclusion-file my_exclusions.txt forward "$METHOD"
 ```
+
+---
+
+## ヘルパースクリプト
+
+`helper/`ディレクトリには便利なシェルスクリプトが含まれています。
+
+### json_to_func_list_csv.sh : JSONをCSV/TSVに変換
+
+CallTreeAnalyzerで出力したJSONファイルをCSV/TSV形式に変換します。
+
+```bash
+$ ./helper/json_to_func_list_csv.sh --help
+# 使用方法: ./json_to_func_list_csv.sh <input.json> [output_basename]
+```
+
+**前提条件**: `jq` コマンドが必要です。
+
+```bash
+# Windowsではscoopを使ってインストール可能です。
+# scoopがインストールされていない場合は、https://scoop.sh/ を参照してインストールしてください。
+# その後、以下を実行してください。
+scoop install jq
+```
+
+**使用例**:
+
+```bash
+# 基本的な使い方（func_list.csv と func_list.tsv が出力される）
+./helper/json_to_func_list_csv.sh call-tree.json
+
+# 出力ファイル名を指定
+./helper/json_to_func_list_csv.sh call-tree.json output
+# -> output.csv と output.tsv が出力される
+```
+
+**出力項目**:
+
+| 項目 | 説明 |
+|------|------|
+| method | メソッドシグネチャ（fully qualified name） |
+| visibility | 可視性（public/protected/private） |
+| isEntryPoint | エントリーポイント候補かどうか（true/false） |
+| javadoc | メソッドのJavadoc要約 |
+| sqlStatements | SQL文（複数ある場合は ` \|\|\| ` 区切り） |
+| hitWords | 検出ワード（複数ある場合はカンマ区切り） |
+
+### select_method.sh : fzfでメソッドを選択
+
+call-tree.json からメソッド一覧を取得し、fzf でインタラクティブに選択します。
+
+```bash
+$ ./helper/select_method.sh --help
+# 使用方法: ./select_method.sh [input.json]
+```
+
+**前提条件**: `jq` と `fzf` コマンドが必要です。
+
+```bash
+# scoopでインストール
+scoop install jq fzf
+```
+
+**使用例**:
+
+```bash
+# 基本的な使い方（call-tree.json を使用）
+./helper/select_method.sh
+
+# 別のJSONファイルを指定
+./helper/select_method.sh custom.json
+
+# 可視化ツールと組み合わせる例
+METHOD=$(./helper/select_method.sh)
+python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+```
+
+### class_list_to_csv.sh : クラス/インターフェース一覧をCSV/TSVに変換
+
+class-hierarchy.json または interface-implementations.json をCSV/TSV形式に変換します。
+
+```bash
+$ ./helper/class_list_to_csv.sh --help
+# 使用方法: ./class_list_to_csv.sh <input.json> [output_basename]
+```
+
+**使用例**:
+
+```bash
+# class-hierarchy.json の変換（class-hierarchy.csv と class-hierarchy.tsv が出力される）
+./helper/class_list_to_csv.sh class-hierarchy.json
+
+# interface-implementations.json の変換
+./helper/class_list_to_csv.sh interface-implementations.json
+
+# 出力ファイル名を指定
+./helper/class_list_to_csv.sh class-hierarchy.json class_list
+# -> class_list.csv と class_list.tsv が出力される
+```
+
+**出力項目**:
+
+| 項目 | 説明 |
+|------|------|
+| name | クラス名またはインターフェース名（fully qualified name） |
+| javadoc | Javadoc要約 |
