@@ -2275,10 +2275,12 @@ public class CallTreeAnalyzer {
             Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
             // インターフェース自体のJavadocを格納
             Map<String, String> interfaceJavadocs = new HashMap<>();
+            // インターフェース自体のアノテーションを格納
+            Map<String, List<String>> interfaceAnnotations = new HashMap<>();
 
             List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
 
-            // まず、インターフェース自体のJavadocを収集
+            // まず、インターフェース自体のJavadocとアノテーションを収集
             for (CtType<?> type : types) {
                 if (shouldExcludeType(type)) {
                     continue;
@@ -2288,6 +2290,10 @@ public class CallTreeAnalyzer {
                     String javadocRaw = type.getDocComment();
                     String javadoc = extractJavadocSummary(javadocRaw);
                     interfaceJavadocs.put(ifaceName, javadoc);
+                    List<String> anns = type.getAnnotations().stream()
+                            .map(a -> a.getAnnotationType().getQualifiedName())
+                            .collect(Collectors.toList());
+                    interfaceAnnotations.put(ifaceName, anns);
                 }
             }
 
@@ -2350,6 +2356,16 @@ public class CallTreeAnalyzer {
                 writer.write("    {\n");
                 writer.write("      \"interfaceName\": \"" + escapeJson(ifaceName) + "\",\n");
                 writer.write("      \"javadoc\": \"" + escapeJson(ifaceJavadoc) + "\",\n");
+                List<String> ifaceAnns = interfaceAnnotations.getOrDefault(ifaceName, Collections.emptyList());
+                writer.write("      \"annotations\": [");
+                boolean firstIfaceAnn = true;
+                for (String ann : ifaceAnns) {
+                    if (!firstIfaceAnn)
+                        writer.write(", ");
+                    writer.write("\"" + escapeJson(ann) + "\"");
+                    firstIfaceAnn = false;
+                }
+                writer.write("],\n");
                 writer.write("      \"implementations\": [\n");
 
                 boolean firstImpl = true;

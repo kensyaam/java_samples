@@ -2327,7 +2327,22 @@ class StructureVisualizer:
                 continue
 
             count += 1
-            print(f"Interface: {interface_name}")
+            if verbose:
+                # verboseモードではインターフェースの詳細情報も表示
+                extras = []
+                if iface.get("javadoc"):
+                    extras.append(f"Javadoc: {iface.get('javadoc')}")
+                else:
+                    extras.append("Javadoc: (なし)")
+                annotations = iface.get("annotations", [])
+                if annotations:
+                    anns_str = ", ".join([f"@{a.split('.')[-1]}" for a in annotations])
+                    extras.append(f"Annotations: [{anns_str}]")
+                else:
+                    extras.append("Annotations: (なし)")
+                print(f"Interface: {interface_name}\t{'\t'.join(extras)}")
+            else:
+                print(f"Interface: {interface_name}")
 
             # 実装クラスをタイプ（direct/indirect）とクラス名でソート
             sorted_impls = sorted(
