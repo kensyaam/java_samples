@@ -38,6 +38,12 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# iconvコマンドの存在チェック
+if ! command -v iconv &> /dev/null; then
+    echo "エラー: iconv コマンドが必要です。" >&2
+    exit 1
+fi
+
 echo "処理中: $INPUT_FILE"
 
 # CSV形式で出力（カンマ区切り）
@@ -55,6 +61,9 @@ jq -r '.interfaces[] | [
     ((.hitWords // []) | join(","))
 ] | @csv' "$INPUT_FILE" >> "$OUTPUT_CSV"
 
+# Shift-JISに変換
+iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_CSV" > "${OUTPUT_CSV}.tmp" && mv "${OUTPUT_CSV}.tmp" "$OUTPUT_CSV"
+
 # TSV形式で出力（タブ区切り）
 OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
 echo "TSV出力: $OUTPUT_TSV"
@@ -69,6 +78,9 @@ jq -r '.interfaces[] | [
     ((.superInterfaces // []) | join(",")),
     ((.hitWords // []) | join(","))
 ] | @tsv' "$INPUT_FILE" >> "$OUTPUT_TSV"
+
+# Shift-JISに変換
+iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}.tmp" "$OUTPUT_TSV"
 
 echo "完了!"
 echo "  CSV: $OUTPUT_CSV"
