@@ -1,13 +1,12 @@
 #!/bin/bash
 # ============================================================
-# call-tree.json を CSV/TSV に変換するスクリプト
-# CallTreeAnalyzerで出力したJSONファイルを指定項目でCSV/TSVに変換
+# analyzed_result.json の methods セクションを CSV/TSV に変換するスクリプト
 # ============================================================
 # 使用方法:
-#   ./json_to_func_list_csv.sh <input.json> [output_basename]
+#   ./methods_to_csv.sh [input.json] [output_basename]
 #
 # 引数:
-#   input.json       : CallTreeAnalyzerで出力したJSONファイル
+#   input.json       : CallTreeAnalyzerで出力したJSONファイル (デフォルト: analyzed_result.json)
 #   output_basename  : 出力ファイルのベース名（省略時はfunc_listを使用）
 #
 # 出力:
@@ -19,20 +18,15 @@
 #   - visibility    : 可視性 (public/protected/private)
 #   - isEntryPoint  : エントリーポイント候補かどうか
 #   - javadoc       : メソッドのJavadoc要約
+#   - annotations   : メソッドアノテーション（カンマ区切り）
 #   - sqlStatements : SQL文（複数ある場合は " ||| " 区切り）
 #   - hitWords      : 検出ワード（複数ある場合はカンマ区切り）
 # ============================================================
 
 set -e
 
-# 引数チェック
-if [ $# -lt 1 ]; then
-    echo "使用方法: $0 <input.json> [output_basename]"
-    echo "例: $0 call-tree.json output"
-    exit 1
-fi
-
-INPUT_FILE="$1"
+# 引数処理（両方オプショナル）
+INPUT_FILE="${1:-analyzed_result.json}"
 OUTPUT_BASENAME="${2:-func_list}"
 
 # 入力ファイルの存在チェック
@@ -56,7 +50,7 @@ OUTPUT_CSV="${OUTPUT_BASENAME}.csv"
 echo "CSV出力: $OUTPUT_CSV"
 
 # ヘッダー行
-echo '"method","visibility","isEntryPoint","javadoc","sqlStatements","hitWords"' > "$OUTPUT_CSV"
+echo '"method","visibility","isEntryPoint","javadoc","annotations","sqlStatements","hitWords"' > "$OUTPUT_CSV"
 
 # jq でデータを抽出してCSVに変換
 jq -r '.methods[] | [
@@ -64,6 +58,7 @@ jq -r '.methods[] | [
     .visibility // "",
     (.isEntryPoint // false | tostring),
     .javadoc // "",
+    ((.annotations // []) | join(",")),
     (if .sqlStatements then (.sqlStatements | join(" ||| ")) else "" end),
     (if .hitWords then (.hitWords | join(",")) else "" end)
 ] | @csv' "$INPUT_FILE" >> "$OUTPUT_CSV"
@@ -73,7 +68,7 @@ OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
 echo "TSV出力: $OUTPUT_TSV"
 
 # ヘッダー行
-echo -e "method\tvisibility\tisEntryPoint\tjavadoc\tsqlStatements\thitWords" > "$OUTPUT_TSV"
+echo -e "method\tvisibility\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords" > "$OUTPUT_TSV"
 
 # jq でデータを抽出してTSVに変換
 jq -r '.methods[] | [
@@ -81,6 +76,7 @@ jq -r '.methods[] | [
     .visibility // "",
     (.isEntryPoint // false | tostring),
     (.javadoc // "" | gsub("\t"; " ") | gsub("\n"; " ")),
+    ((.annotations // []) | join(",") | gsub("\t"; " ")),
     (if .sqlStatements then (.sqlStatements | join(" ||| ") | gsub("\t"; " ") | gsub("\n"; " ")) else "" end),
     (if .hitWords then (.hitWords | join(",")) else "" end)
 ] | @tsv' "$INPUT_FILE" >> "$OUTPUT_TSV"

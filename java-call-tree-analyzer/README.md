@@ -4,42 +4,30 @@
 
 <!-- code_chunk_output -->
 
-- [call-tree-analyzer](#call-tree-analyzer)
-  - [静的解析ツール](#静的解析ツール)
-    - [ビルド](#ビルド)
-    - [解析実行](#解析実行)
-    - [参考： 動作検証に使えそうなプロジェクト](#参考-動作検証に使えそうなプロジェクト)
-  - [可視化ツール](#可視化ツール)
-    - [事前準備](#事前準備)
-    - [使い方](#使い方)
-    - [サブコマンド](#サブコマンド)
-      - [list : エントリーポイントの一覧出力](#list--エントリーポイントの一覧出力)
-      - [search : キーワードでメソッドを検索](#search--キーワードでメソッドを検索)
-      - [forward : 呼び出しツリー出力](#forward--呼び出しツリー出力)
-      - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
-      - [export : 呼び出しツリーを指定形式のファイルにエクスポート](#export--呼び出しツリーを指定形式のファイルにエクスポート)
-      - [export-excel : 一括で呼び出しツリーをExcelファイルに出力](#export-excel--一括で呼び出しツリーをexcelファイルに出力)
-          - [エントリーポイントファイルの形式](#エントリーポイントファイルの形式)
-          - [Excel出力フォーマット](#excel出力フォーマット)
-      - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
-          - [出力ファイル名の規則](#出力ファイル名の規則)
-          - [SQL整形](#sql整形)
-      - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
-          - [テーブルリストファイルのフォーマット](#テーブルリストファイルのフォーマット)
-          - [出力フォーマット](#出力フォーマット)
-          - [使用例](#使用例)
-      - [class-tree : クラス階層ツリーを表示](#class-tree--クラス階層ツリーを表示)
-      - [interface-impls : インターフェース実装一覧を表示](#interface-impls--インターフェース実装一覧を表示)
-          - [使用例](#使用例-1)
-      - [Tips](#tips)
-    - [除外ルールファイルについて](#除外ルールファイルについて)
-          - [除外ルールファイルのフォーマット](#除外ルールファイルのフォーマット)
-          - [除外ルールの設定例](#除外ルールの設定例)
-          - [除外ルールファイルの使用例](#除外ルールファイルの使用例)
-  - [ヘルパースクリプト](#ヘルパースクリプト)
-    - [json\_to\_func\_list\_csv.sh : JSONをCSV/TSVに変換](#json_to_func_list_csvsh--jsonをcsvtsvに変換)
-    - [select\_method.sh : fzfでメソッドを選択](#select_methodsh--fzfでメソッドを選択)
-    - [class\_list\_to\_csv.sh : クラス/インターフェース一覧をCSV/TSVに変換](#class_list_to_csvsh--クラスインターフェース一覧をcsvtsvに変換)
+- [静的解析ツール](#静的解析ツール)
+  - [ビルド](#ビルド)
+  - [解析実行](#解析実行)
+- [可視化ツール](#可視化ツール)
+  - [事前準備](#事前準備)
+  - [使い方](#使い方)
+  - [サブコマンド](#サブコマンド)
+    - [list : エントリーポイントの一覧出力](#list--エントリーポイントの一覧出力)
+    - [search : キーワードでメソッドを検索](#search--キーワードでメソッドを検索)
+    - [forward : 呼び出しツリー出力](#forward--呼び出しツリー出力)
+    - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
+    - [export : 呼び出しツリーを指定形式のファイルにエクスポート](#export--呼び出しツリーを指定形式のファイルにエクスポート)
+    - [export-excel : 一括で呼び出しツリーをExcelファイルに出力](#export-excel--一括で呼び出しツリーをexcelファイルに出力)
+    - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
+    - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
+    - [class-tree : クラス階層ツリーを表示](#class-tree--クラス階層ツリーを表示)
+    - [interface-impls : インターフェース実装一覧を表示](#interface-impls--インターフェース実装一覧を表示)
+    - [Tips](#tips)
+  - [除外ルールファイルについて](#除外ルールファイルについて)
+- [ヘルパースクリプト](#ヘルパースクリプト)
+  - [methods_to_csv.sh : メソッド一覧をCSV/TSVに変換](#methods_to_csvsh--メソッド一覧をcsvtsvに変換)
+  - [select_method.sh : fzfでメソッドを選択](#select_methodsh--fzfでメソッドを選択)
+  - [classes_to_csv.sh : クラス一覧をCSV/TSVに変換](#classes_to_csvsh--クラス一覧をcsvtsvに変換)
+  - [interfaces_to_csv.sh : インターフェース一覧をCSV/TSVに変換](#interfaces_to_csvsh--インターフェース一覧をcsvtsvに変換)
 
 <!-- /code_chunk_output -->
 
@@ -66,14 +54,12 @@ usage: CallTreeAnalyzer
  -s,--source <arg>             解析対象のソースディレクトリ（複数指定可、カンマ区切り）
  -cp,--classpath <arg>         依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）
  -xml,--xml-config <arg>       Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）
- -o,--output <arg>             出力ファイルパス（デフォルト: call-tree.tsv）
- -f,--format <arg>             出力フォーマット（tsv/json/graphml、デフォルト: tsv）
+ -o,--output <arg>             出力ファイルパス（デフォルト: analyzed_result.json）
+ -f,--format <arg>             出力フォーマット（json/graphml、デフォルト: json）
  -d,--debug                    デバッグモードを有効化
  -cl,--complianceLevel <arg>   Javaのコンプライアンスレベル（デフォルト: 21）
  -e,--encoding <arg>           ソースコードの文字エンコーディング（デフォルト: UTF-8）
  -w,--words <arg>              リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）
- --export-class-hierarchy <arg>  クラス階層情報をJSON形式で出力
- --export-interface-impls <arg>  インターフェース実装情報をJSON形式で出力
  -h,--help                     ヘルプを表示
 ```
 
@@ -91,18 +77,18 @@ XML_DIR="/path/to/xmldir"
 # クラスパスが複数あり、かつ、Git Bashから実行する場合を考慮
 LIB_DIR=$([[ -n "$MSYSTEM" ]] && printf '%s' "$LIB_DIR" | tr ',' '\n' | cygpath -w -f - | paste -sd',' - || printf '%s' "$LIB_DIR")
 
-# 解析実行
-java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -o call-tree.tsv -d
+# 解析実行（デフォルト: analyzed_result.json）
+java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -d
 
-# JSON形式で出力
-java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -o output.json -f json
+# カスタム出力ファイル名を指定
+java -jar call-tree-analyzer-1.0.0.jar -s "$SRC_DIR" -cp "$LIB_DIR" -xml "$XML_DIR" -cl 21 -e UTF-8 -o output.json
 
 
 # gradlewで実行する例
-./gradlew run --args="-s /path/to/your/source -o call-tree.tsv"
+./gradlew run --args="-s /path/to/your/source"
 ```
 
-### 参考： 動作検証に使えそうなプロジェクト
+###### 参考： 動作検証に使えそうなプロジェクト
 
 ```bash
 git clone https://github.com/spring-petclinic/spring-framework-petclinic
@@ -117,7 +103,7 @@ java -jar call-tree-analyzer-1.0.0.jar
   -s ../../ext/spring-framework-petclinic/src/main 
   -cp ../../ext/spring-framework-petclinic/target/dependency 
   -xml ../../ext/spring-framework-petclinic/src/main/resources/spring 
-  -o dist/call-tree.tsv -d
+  -d
 ```
 
 ## 可視化ツール
@@ -148,16 +134,22 @@ pyinstaller --onefile --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.
 
 ```bash
 $ python call_tree_visualizer.py --help
-usage: call_tree_visualizer.py [-h] [--exclusion-file EXCLUSION_FILE] [--output-tsv-encoding OUTPUT_TSV_ENCODING]
-                               tsv_file
-                               {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables} ...
+usage: call_tree_visualizer.py [-h] [-i INPUT_FILE] [--exclusion-file EXCLUSION_FILE] [--output-tsv-encoding OUTPUT_TSV_ENCODING]
+                               {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls} ...
 
-呼び出しツリー可視化スクリプト - TSVファイルから呼び出しツリーなどを生成する
+呼び出しツリー可視化スクリプト - JSONファイルから可視化を行います
 
-positional arguments:
-  input_file            入力ファイル（静的解析ツールの出力. TSV または JSON）のパス
+options:
+  -h, --help            show this help message and exit
+  -i INPUT_FILE, --input INPUT_FILE
+                        入力ファイル（JSONまたはTSV）のパス (デフォルト: analyzed_result.json)
+  --exclusion-file EXCLUSION_FILE
+                        除外ルールファイルのパス (デフォルト: exclusion_rules.txt)
+  --output-tsv-encoding OUTPUT_TSV_ENCODING
+                        出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))
+
+サブコマンド:
   {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
-                        サブコマンド
     list                エントリーポイント候補を表示
     search              キーワードでメソッドを検索
     forward             指定メソッドからの呼び出しツリーを表示
@@ -169,32 +161,25 @@ positional arguments:
     class-tree          クラス階層ツリーを表示
     interface-impls     インターフェース実装一覧を表示
 
-options:
-  -h, --help            show this help message and exit
-  --exclusion-file EXCLUSION_FILE
-                        除外ルールファイルのパス (デフォルト: exclusion_rules.txt)
-  --output-tsv-encoding OUTPUT_TSV_ENCODING
-                        出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))
-
 除外ルールファイルのフォーマット:
   <クラス名 or メソッド名><TAB><I|E>
   I: 対象自体を除外
   E: 対象は表示するが、配下の呼び出しを除外
 
-テーブルリストファイル (table_list.tsv) のフォーマット:
-  <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
-
 使用例:
-  python call_tree_visualizer.py call-tree.tsv list
-  python call_tree_visualizer.py call-tree.tsv list --no-strict --min-calls 5
-  python call_tree_visualizer.py call-tree.tsv forward 'com.example.Main#main(String[])'
-  python call_tree_visualizer.py call-tree.tsv reverse 'com.example.Service#process()'
-  python call_tree_visualizer.py call-tree.tsv export 'com.example.Main#main(String[])' tree.html --format html
-  python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
-  python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/sqls
-  python call_tree_visualizer.py call-tree.tsv analyze-tables --sql-dir ./output/sqls
-  python call_tree_visualizer.py class-hierarchy.json class-tree --filter 'com.example'
-  python call_tree_visualizer.py interface-implementations.json interface-impls --interface 'MyService'
+  python call_tree_visualizer.py list
+  python call_tree_visualizer.py list --no-strict --min-calls 5
+  python call_tree_visualizer.py forward 'com.example.Main#main(String[])'
+  python call_tree_visualizer.py reverse 'com.example.Service#process()'
+  python call_tree_visualizer.py export 'com.example.Main#main(String[])' tree.html --format html
+  python call_tree_visualizer.py export-excel call_trees.xlsx --entry-points entry_points.txt
+  python call_tree_visualizer.py extract-sql --output-dir ./output/sqls
+  python call_tree_visualizer.py analyze-tables --sql-dir ./output/sqls
+  python call_tree_visualizer.py class-tree --filter 'com.example'
+  python call_tree_visualizer.py interface-impls --interface 'MyService'
+  
+  # カスタム入力ファイルを指定
+  python call_tree_visualizer.py -i custom.json list
 
 サブコマンドのヘルプを表示する例:
   python call_tree_visualizer.py list --help
@@ -207,8 +192,8 @@ options:
 #### list : エントリーポイントの一覧出力
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv list --help
-usage: call_tree_visualizer.py tsv_file list [-h] [--no-strict] [--min-calls MIN_CALLS] [--tsv]
+$ python call_tree_visualizer.py list --help
+usage: call_tree_visualizer.py list [-h] [--no-strict] [--min-calls MIN_CALLS] [--tsv]
 
 options:
   -h, --help            show this help message and exit
@@ -220,16 +205,16 @@ options:
 
 ```bash
 # 厳密モード（デフォルト）
-python call_tree_visualizer.py call-tree.tsv list
+python call_tree_visualizer.py list
 # 緩和モード（呼び出し数で絞り込み）
-python call_tree_visualizer.py call-tree.tsv list --no-strict --min-calls 5
+python call_tree_visualizer.py list --no-strict --min-calls 5
 ```
 
 #### search : キーワードでメソッドを検索
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv search --help
-usage: call_tree_visualizer.py tsv_file search [-h] keyword
+$ python call_tree_visualizer.py search --help
+usage: call_tree_visualizer.py search [-h] keyword
 
 positional arguments:
   keyword               検索キーワード
@@ -240,14 +225,14 @@ options:
 
 ```bash
 KEYWORD="main"
-python call_tree_visualizer.py call-tree.tsv search "$KEYWORD"
+python call_tree_visualizer.py search "$KEYWORD"
 ```
 
 #### forward : 呼び出しツリー出力
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv forward --help
-usage: call_tree_visualizer.py tsv_file forward [-h] [--depth DEPTH] [--no-class] [--no-sql] [--no-follow-impl] method
+$ python call_tree_visualizer.py forward --help
+usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--no-class] [--no-sql] [--no-follow-impl] method
 
 positional arguments:
   method                起点メソッド
@@ -263,9 +248,9 @@ options:
 ```bash
 METHOD="com.example.Main#main(String[])"
 # 実装クラス候補も追跡（デフォルト）
-python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+python call_tree_visualizer.py forward "$METHOD"
 # 実装クラス候補を追跡しない
-python call_tree_visualizer.py call-tree.tsv forward "$METHOD" --no-follow-impl
+python call_tree_visualizer.py forward "$METHOD" --no-follow-impl
 ```
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
@@ -274,8 +259,8 @@ python call_tree_visualizer.py call-tree.tsv forward "$METHOD" --no-follow-impl
 - ツリー出力後、最終到達点のメソッド一覧（最上位の呼び元メソッド）を表示
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv reverse --help
-usage: call_tree_visualizer.py tsv_file reverse [-h] [--depth DEPTH] [--no-class] [--no-follow-override] method
+$ python call_tree_visualizer.py reverse --help
+usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--no-class] [--no-follow-override] method
 
 positional arguments:
   method                対象メソッド
@@ -290,16 +275,16 @@ options:
 ```bash
 METHOD="com.example.UserDaoImpl#save(User)"
 # オーバーライド元/インターフェースメソッドも追跡（デフォルト）
-python call_tree_visualizer.py call-tree.tsv reverse "$METHOD"
+python call_tree_visualizer.py reverse "$METHOD"
 # オーバーライド元/インターフェースメソッドを追跡しない
-python call_tree_visualizer.py call-tree.tsv reverse "$METHOD" --no-follow-override
+python call_tree_visualizer.py reverse "$METHOD" --no-follow-override
 ```
 
 #### export : 呼び出しツリーを指定形式のファイルにエクスポート
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv export --help
-usage: call_tree_visualizer.py tsv_file export [-h] [--format {text,markdown,html}] [--depth DEPTH] [--no-follow-impl] method output_file
+$ python call_tree_visualizer.py export --help
+usage: call_tree_visualizer.py export [-h] [--format {text,markdown,html}] [--depth DEPTH] [--no-follow-impl] method output_file
 
 positional arguments:
   method                起点メソッド
@@ -315,11 +300,11 @@ options:
 
 ```bash
 # テキスト形式
-python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.txt --format text
+python call_tree_visualizer.py export "$METHOD" tree.txt --format text
 # Markdown形式
-python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.md --format markdown
+python call_tree_visualizer.py export "$METHOD" tree.md --format markdown
 # HTML形式
-python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.html --format html
+python call_tree_visualizer.py export "$METHOD" tree.html --format html
 ```
 
 #### export-excel : 一括で呼び出しツリーをExcelファイルに出力
@@ -328,8 +313,8 @@ python call_tree_visualizer.py call-tree.tsv export "$METHOD" tree.html --format
 複数のエントリーポイントからの呼び出しツリーを1つのExcelファイルにまとめて出力できる。
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv export-excel --help
-usage: call_tree_visualizer.py tsv_file export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] [--no-tree] [--no-sql]
+$ python call_tree_visualizer.py export-excel --help
+usage: call_tree_visualizer.py export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] [--no-tree] [--no-sql]
                                                      output_file
 
 positional arguments:
@@ -347,10 +332,10 @@ options:
 
 ```bash
 # エントリーポイントファイルを指定する場合
-python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
+python call_tree_visualizer.py export-excel call_trees.xlsx --entry-points entry_points.txt
 
 # エントリーポイントファイルを指定しない場合（厳密モードで検出されるすべてのエントリーポイントが対象）
-python call_tree_visualizer.py call-tree.tsv export-excel call_trees.xlsx
+python call_tree_visualizer.py export-excel call_trees.xlsx
 ```
 
 ###### エントリーポイントファイルの形式
@@ -390,8 +375,8 @@ com.example.service.OrderService#processOrder(Order)
 静的解析ツールで検出されたSQL文をSQLファイルとして出力する。
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv extract-sql --help
-usage: call_tree_visualizer.py tsv_file extract-sql [-h] [--output-dir OUTPUT_DIR]
+$ python call_tree_visualizer.py extract-sql --help
+usage: call_tree_visualizer.py extract-sql [-h] [--output-dir OUTPUT_DIR]
 
 options:
   -h, --help            show this help message and exit
@@ -401,10 +386,10 @@ options:
 
 ```bash
 # 基本的な使い方（デフォルトでは ./found_sql に出力）
-python call_tree_visualizer.py call-tree.tsv extract-sql
+python call_tree_visualizer.py extract-sql
 
 # 出力先ディレクトリを指定
-python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/sqls
+python call_tree_visualizer.py extract-sql --output-dir ./output/sqls
 ```
 
 ###### 出力ファイル名の規則
@@ -423,11 +408,11 @@ python call_tree_visualizer.py call-tree.tsv extract-sql --output-dir ./output/s
 
 SQLファイルから使用テーブルを検出し、標準出力にTSV形式で表示する。
 
-このサブコマンドはextract-sqlサブコマンドで出力したSQLファイルを使用することを想定している。便宜上、引数に`call-tree.tsv`を指定するが、実際には使用しない。
+このサブコマンドはextract-sqlサブコマンドで出力したSQLファイルを使用することを想定している。
 
 ```bash
-$ python call_tree_visualizer.py call-tree.tsv analyze-tables --help
-usage: call_tree_visualizer.py tsv_file analyze-tables [-h] [--sql-dir SQL_DIR] [--table-list TABLE_LIST]
+$ python call_tree_visualizer.py analyze-tables --help
+usage: call_tree_visualizer.py analyze-tables [-h] [--sql-dir SQL_DIR] [--table-list TABLE_LIST]
 
 options:
   -h, --help            show this help message and exit
@@ -437,10 +422,10 @@ options:
 ```
 
 ```bash
-python call_tree_visualizer.py call-tree.tsv analyze-tables
+python call_tree_visualizer.py analyze-tables
 
 # SQLディレクトリとテーブルリストファイルを指定
-python call_tree_visualizer.py call-tree.tsv analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
+python call_tree_visualizer.py analyze-tables --sql-dir ./output/sqls --table-list ./my_tables.tsv
 ```
 
 ###### テーブルリストファイルのフォーマット
@@ -471,11 +456,11 @@ order_details<TAB>注文明細<TAB>注文の詳細情報
 
 ```bash
 # SQL抽出 → テーブル分析の一連の流れ
-python call_tree_visualizer.py call-tree.tsv extract-sql
-python call_tree_visualizer.py call-tree.tsv analyze-tables > table_usage.tsv
+python call_tree_visualizer.py extract-sql
+python call_tree_visualizer.py analyze-tables > table_usage.tsv
 
 # 出力結果をExcel貼り付け用にコピー (Windows)
-python call_tree_visualizer.py call-tree.tsv analyze-tables | clip
+python call_tree_visualizer.py analyze-tables | clip
 ```
 
 #### class-tree : クラス階層ツリーを表示
@@ -533,18 +518,15 @@ python call_tree_visualizer.py interface-implementations.json interface-impls --
 ###### 使用例
 
 ```bash
-# 1. クラス階層とインターフェース実装を出力
+# 1. 解析実行（classes, interfaces情報も含む統合JSON出力）
 java -jar call-tree-analyzer-1.0.0.jar \
-  -s /path/to/src \
-  -o call-tree.tsv \
-  --export-class-hierarchy class-hierarchy.json \
-  --export-interface-impls interface-implementations.json
+  -s /path/to/src
 
 # 2. クラス階層ツリーを表示
-python call_tree_visualizer.py class-hierarchy.json class-tree
+python call_tree_visualizer.py class-tree
 
 # 3. インターフェース実装一覧を表示
-python call_tree_visualizer.py interface-implementations.json interface-impls
+python call_tree_visualizer.py interface-impls
 ```
 
 
@@ -558,12 +540,12 @@ python call_tree_visualizer.py interface-implementations.json interface-impls
 ```bash
 # エントリーポイントの一覧から呼び出しツリーを出力するメソッドを選択
 # (fzfのインストールが必要)
-METHOD=$(LIST=$(python call_tree_visualizer.py call-tree.tsv list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
-python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+METHOD=$(LIST=$(python call_tree_visualizer.py list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
+python call_tree_visualizer.py forward "$METHOD"
 
 # エントリーポイントのテキスト形式の呼び出しツリーを一括出力
-python call_tree_visualizer.py call-tree.tsv list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
-  python call_tree_visualizer.py call-tree.tsv forward "$line";
+python call_tree_visualizer.py list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
+  python call_tree_visualizer.py forward "$line";
 done
 
 ```
@@ -606,10 +588,10 @@ com.example.Bar#method(Object)<TAB>E
 
 ```bash
 # デフォルトの除外ファイル(exclusion_rules.txt)を使用
-python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+python call_tree_visualizer.py forward "$METHOD"
 
 # カスタム除外ファイルを指定
-python call_tree_visualizer.py call-tree.tsv --exclusion-file my_exclusions.txt forward "$METHOD"
+python call_tree_visualizer.py --exclusion-file my_exclusions.txt forward "$METHOD"
 ```
 
 ---
@@ -618,13 +600,13 @@ python call_tree_visualizer.py call-tree.tsv --exclusion-file my_exclusions.txt 
 
 `helper/`ディレクトリには便利なシェルスクリプトが含まれています。
 
-### json_to_func_list_csv.sh : JSONをCSV/TSVに変換
+### methods_to_csv.sh : メソッド一覧をCSV/TSVに変換
 
-CallTreeAnalyzerで出力したJSONファイルをCSV/TSV形式に変換します。
+CallTreeAnalyzerで出力したJSONファイルのmethodsセクションをCSV/TSV形式に変換します。
 
 ```bash
-$ ./helper/json_to_func_list_csv.sh --help
-# 使用方法: ./json_to_func_list_csv.sh <input.json> [output_basename]
+$ ./helper/methods_to_csv.sh --help
+# 使用方法: ./methods_to_csv.sh [input.json] [output_basename]
 ```
 
 **前提条件**: `jq` コマンドが必要です。
@@ -639,11 +621,14 @@ scoop install jq
 **使用例**:
 
 ```bash
-# 基本的な使い方（func_list.csv と func_list.tsv が出力される）
-./helper/json_to_func_list_csv.sh call-tree.json
+# 引数なしで実行（analyzed_result.json を使用、func_list.csv/func_list.tsv が出力される）
+./helper/methods_to_csv.sh
 
-# 出力ファイル名を指定
-./helper/json_to_func_list_csv.sh call-tree.json output
+# 入力ファイルを指定
+./helper/methods_to_csv.sh custom.json
+
+# 入力ファイルと出力ファイル名を指定
+./helper/methods_to_csv.sh analyzed_result.json output
 # -> output.csv と output.tsv が出力される
 ```
 
@@ -655,16 +640,18 @@ scoop install jq
 | visibility | 可視性（public/protected/private） |
 | isEntryPoint | エントリーポイント候補かどうか（true/false） |
 | javadoc | メソッドのJavadoc要約 |
+| annotations | メソッドアノテーション（カンマ区切り） |
 | sqlStatements | SQL文（複数ある場合は ` \|\|\| ` 区切り） |
 | hitWords | 検出ワード（複数ある場合はカンマ区切り） |
 
 ### select_method.sh : fzfでメソッドを選択
 
-call-tree.json からメソッド一覧を取得し、fzf でインタラクティブに選択します。
+analyzed_result.json からメソッド一覧を取得し、fzf でインタラクティブに選択します。
 
 ```bash
 $ ./helper/select_method.sh --help
 # 使用方法: ./select_method.sh [input.json]
+# デフォルト: analyzed_result.json
 ```
 
 **前提条件**: `jq` と `fzf` コマンドが必要です。
@@ -677,7 +664,7 @@ scoop install jq fzf
 **使用例**:
 
 ```bash
-# 基本的な使い方（call-tree.json を使用）
+# 基本的な使い方（analyzed_result.json を使用）
 ./helper/select_method.sh
 
 # 別のJSONファイルを指定
@@ -685,35 +672,67 @@ scoop install jq fzf
 
 # 可視化ツールと組み合わせる例
 METHOD=$(./helper/select_method.sh)
-python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+python call_tree_visualizer.py forward "$METHOD"
 ```
 
-### class_list_to_csv.sh : クラス/インターフェース一覧をCSV/TSVに変換
+### classes_to_csv.sh : クラス一覧をCSV/TSVに変換
 
-class-hierarchy.json または interface-implementations.json をCSV/TSV形式に変換します。
+analyzed_result.json の classes セクションをCSV/TSV形式に変換します。
 
 ```bash
-$ ./helper/class_list_to_csv.sh --help
-# 使用方法: ./class_list_to_csv.sh <input.json> [output_basename]
+$ ./helper/classes_to_csv.sh --help
+# 使用方法: ./classes_to_csv.sh [input.json] [output_basename]
 ```
 
 **使用例**:
 
 ```bash
-# class-hierarchy.json の変換（class-hierarchy.csv と class-hierarchy.tsv が出力される）
-./helper/class_list_to_csv.sh class-hierarchy.json
-
-# interface-implementations.json の変換
-./helper/class_list_to_csv.sh interface-implementations.json
-
-# 出力ファイル名を指定
-./helper/class_list_to_csv.sh class-hierarchy.json class_list
+# クラス一覧を出力（デフォルト）
+./helper/classes_to_csv.sh
 # -> class_list.csv と class_list.tsv が出力される
+
+# 入力ファイルと出力ファイル名を指定
+./helper/classes_to_csv.sh custom.json output
+# -> output.csv と output.tsv が出力される
 ```
 
 **出力項目**:
 
 | 項目 | 説明 |
 |------|------|
-| name | クラス名またはインターフェース名（fully qualified name） |
+| className | クラス名（fully qualified name） |
 | javadoc | Javadoc要約 |
+| annotations | クラスアノテーション（カンマ区切り） |
+| superClass | 親クラス |
+| hitWords | 検出ワード（カンマ区切り） |
+
+### interfaces_to_csv.sh : インターフェース一覧をCSV/TSVに変換
+
+analyzed_result.json の interfaces セクションをCSV/TSV形式に変換します。
+
+```bash
+$ ./helper/interfaces_to_csv.sh --help
+# 使用方法: ./interfaces_to_csv.sh [input.json] [output_basename]
+```
+
+**使用例**:
+
+```bash
+# インターフェース一覧を出力（デフォルト）
+./helper/interfaces_to_csv.sh
+# -> interface_list.csv と interface_list.tsv が出力される
+
+# 入力ファイルと出力ファイル名を指定
+./helper/interfaces_to_csv.sh custom.json output
+# -> output.csv と output.tsv が出力される
+```
+
+**出力項目**:
+
+| 項目 | 説明 |
+|------|------|
+| interfaceName | インターフェース名（fully qualified name） |
+| javadoc | Javadoc要約 |
+| annotations | インターフェースアノテーション（カンマ区切り） |
+| superInterfaces | 親インターフェース（カンマ区切り） |
+| hitWords | 検出ワード（カンマ区切り） |

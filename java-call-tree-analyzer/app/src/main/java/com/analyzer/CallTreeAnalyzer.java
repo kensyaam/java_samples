@@ -32,7 +32,6 @@ public class CallTreeAnalyzer {
     private Map<String, Set<String>> classHierarchy = new HashMap<>(); // クラス -> 親クラス群
     private Map<String, Set<String>> interfaceImplementations = new HashMap<>();
     private Map<String, List<String>> sqlStatements = new HashMap<>();
-    private Set<String> visitedMethods = new HashSet<>();
     private Map<String, MethodMetadata> methodMetadata = new HashMap<>();
     private Map<String, ClassMetadata> classMetadata = new HashMap<>();
     private Map<String, Map<String, String>> fieldInjections = new HashMap<>(); // クラス -> (フィールド名 -> 型)
@@ -71,51 +70,6 @@ public class CallTreeAnalyzer {
             this.fieldName = fieldName;
             this.fieldType = fieldType;
             this.qualifierId = qualifierId;
-        }
-    }
-
-    /**
-     * 呼び出し関係のデータクラス
-     */
-    static class CallRelation {
-        String callerMethod;
-        String callerClass;
-        String callerParentClasses;
-        String calleeMethod;
-        String calleeClass;
-        String calleeParentClasses; // Added
-        boolean isParentMethod;
-        String implementations;
-        String sqlStatements;
-        String direction; // "Forward" or "Reverse"
-        String visibility;
-        boolean isStatic;
-        boolean isEntryPoint;
-        String entryType;
-        String annotations;
-        String classAnnotations;
-        String calleeJavadoc;
-        String hitWords; // 検出ワード
-
-        CallRelation() {
-            this.callerMethod = "";
-            this.callerClass = "";
-            this.callerParentClasses = "";
-            this.calleeMethod = "";
-            this.calleeClass = "";
-            this.calleeParentClasses = ""; // Added
-            this.isParentMethod = false;
-            this.implementations = "";
-            this.sqlStatements = "";
-            this.direction = "";
-            this.visibility = "";
-            this.isStatic = false;
-            this.isEntryPoint = false;
-            this.entryType = "";
-            this.annotations = "";
-            this.classAnnotations = "";
-            this.calleeJavadoc = "";
-            this.hitWords = "";
         }
     }
 
@@ -789,14 +743,12 @@ public class CallTreeAnalyzer {
         options.addOption("s", "source", true, "解析対象のソースディレクトリ（複数指定可、カンマ区切り）");
         options.addOption("cp", "classpath", true, "依存ライブラリのJARファイルまたはディレクトリ（複数指定可、カンマ区切り）");
         options.addOption("xml", "xml-config", true, "Spring設定XMLファイルのディレクトリ（複数指定可、カンマ区切り）");
-        options.addOption("o", "output", true, "出力ファイルパス（デフォルト: call-tree.tsv）");
-        options.addOption("f", "format", true, "出力フォーマット（tsv/json/graphml、デフォルト: tsv）");
+        options.addOption("o", "output", true, "出力ファイルパス（デフォルト: analyzed_result.json）");
+        options.addOption("f", "format", true, "出力フォーマット（json/graphml、デフォルト: json）");
         options.addOption("d", "debug", false, "デバッグモードを有効化");
         options.addOption("cl", "complianceLevel", true, "Javaのコンプライアンスレベル（デフォルト: 21）");
         options.addOption("e", "encoding", true, "ソースコードの文字エンコーディング（デフォルト: UTF-8）");
         options.addOption("w", "words", true, "リテラル文字列の検索ワードファイルのパス（デフォルト: search_words.txt）");
-        options.addOption(null, "export-class-hierarchy", true, "クラス階層情報をJSON形式で出力");
-        options.addOption(null, "export-interface-impls", true, "インターフェース実装情報をJSON形式で出力");
         options.addOption("h", "help", false, "ヘルプを表示");
 
         CommandLineParser parser = new DefaultParser();
@@ -814,14 +766,12 @@ public class CallTreeAnalyzer {
             String sourceDirs = cmd.getOptionValue("source", "src/main/java");
             String classpath = cmd.getOptionValue("classpath", "");
             String xmlConfig = cmd.getOptionValue("xml-config", "");
-            String outputPath = cmd.getOptionValue("output", "call-tree.tsv");
-            String format = cmd.getOptionValue("format", "tsv");
+            String outputPath = cmd.getOptionValue("output", "analyzed_result.json");
+            String format = cmd.getOptionValue("format", "json");
             boolean debug = cmd.hasOption("debug");
             int complianceLevel = Integer.parseInt(cmd.getOptionValue("complianceLevel", "21"));
             String encoding = cmd.getOptionValue("encoding", "UTF-8");
             String wordsFile = cmd.getOptionValue("words", "search_words.txt");
-            String classHierarchyOutput = cmd.getOptionValue("export-class-hierarchy", "");
-            String interfaceImplsOutput = cmd.getOptionValue("export-interface-impls", "");
 
             CallTreeAnalyzer analyzer = new CallTreeAnalyzer();
             analyzer.setDebugMode(debug);
@@ -829,18 +779,6 @@ public class CallTreeAnalyzer {
             analyzer.export(outputPath, format);
 
             System.out.println("解析完了: " + outputPath);
-
-            // クラス階層情報の出力
-            if (!classHierarchyOutput.isEmpty()) {
-                analyzer.exportClassHierarchyJson(classHierarchyOutput);
-                System.out.println("クラス階層情報出力完了: " + classHierarchyOutput);
-            }
-
-            // インターフェース実装情報の出力
-            if (!interfaceImplsOutput.isEmpty()) {
-                analyzer.exportInterfaceImplementationsJson(interfaceImplsOutput);
-                System.out.println("インターフェース実装情報出力完了: " + interfaceImplsOutput);
-            }
 
         } catch (ParseException e) {
             System.err.println("引数解析エラー: " + e.getMessage());
@@ -1051,13 +989,10 @@ public class CallTreeAnalyzer {
             String typeName = type.getQualifiedName();
             Set<String> parents = new HashSet<>();
 
-            // スーパークラス
+            // スーパークラス（再帰的に収集）
             if (type instanceof CtClass) {
                 CtClass<?> ctClass = (CtClass<?>) type;
-                CtTypeReference<?> superClass = ctClass.getSuperclass();
-                if (superClass != null && !isJavaStandardLibrary(superClass.getQualifiedName())) {
-                    parents.add(superClass.getQualifiedName());
-                }
+                collectSuperClassesRecursive(ctClass, parents);
             }
 
             // インターフェース（再帰的に収集）
@@ -1117,6 +1052,30 @@ public class CallTreeAnalyzer {
                 } catch (Exception e) {
                     // 型解決できない場合は無視
                 }
+            }
+        }
+    }
+
+    /**
+     * スーパークラスを再帰的に収集
+     */
+    private void collectSuperClassesRecursive(CtClass<?> ctClass, Set<String> collected) {
+        CtTypeReference<?> superRef = ctClass.getSuperclass();
+        if (superRef == null)
+            return;
+
+        String superName = superRef.getQualifiedName();
+        if (isJavaStandardLibrary(superName))
+            return;
+
+        if (collected.add(superName)) {
+            try {
+                CtType<?> superDecl = superRef.getTypeDeclaration();
+                if (superDecl instanceof CtClass) {
+                    collectSuperClassesRecursive((CtClass<?>) superDecl, collected);
+                }
+            } catch (Exception e) {
+                // 型解決できない場合は無視
             }
         }
     }
@@ -1647,188 +1606,359 @@ public class CallTreeAnalyzer {
      */
     public void export(String outputPath, String format) throws IOException {
         switch (format.toLowerCase()) {
-            case "json":
-                exportJson(outputPath);
-                break;
             case "graphml":
                 exportGraphML(outputPath);
                 break;
-            case "tsv":
+            case "json":
             default:
-                exportTsv(outputPath);
+                exportJson(outputPath);
                 break;
         }
     }
 
     /**
-     * TSV形式でエクスポート
-     */
-    private void exportTsv(String outputPath) throws IOException {
-        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
-            writeTsvHeader(writer);
-
-            // 呼び出し元からのツリー（Forward）
-            for (Map.Entry<String, Set<String>> entry : callGraph.entrySet()) {
-                String caller = entry.getKey();
-
-                for (String callee : entry.getValue()) {
-                    CallRelation relation = createForwardCallRelation(caller, callee);
-                    writeTsvRow(writer, relation);
-                }
-            }
-
-            // 呼び出し先からのツリー（Reverse）
-            for (Map.Entry<String, Set<String>> entry : reverseCallGraph.entrySet()) {
-                String callee = entry.getKey();
-
-                for (String caller : entry.getValue()) {
-                    CallRelation relation = createReverseCallRelation(callee, caller);
-                    writeTsvRow(writer, relation);
-                }
-            }
-        }
-    }
-
-    /**
-     * TSVヘッダーを出力
-     */
-    private void writeTsvHeader(BufferedWriter writer) throws IOException {
-        writer.write("呼び出し元メソッド\t呼び出し元クラス\t呼び出し元の親クラス\t");
-        writer.write("呼び出し先メソッド\t呼び出し先クラス\t呼び出し先の親クラス\t呼び出し先は親クラスのメソッド\t");
-        writer.write("呼び出し先の実装クラス候補\tSQL文\t方向\t");
-        writer.write("可視性\tStatic\tエントリーポイント候補\tエントリータイプ\tアノテーション\tクラスアノテーション\tメソッドJavadoc\t検出ワード\n");
-    }
-
-    /**
-     * TSV行を出力
-     */
-    private void writeTsvRow(BufferedWriter writer, CallRelation relation) throws IOException {
-        writer.write(String.format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                escape(relation.callerMethod),
-                escape(relation.callerClass),
-                escape(relation.callerParentClasses),
-                escape(relation.calleeMethod),
-                escape(relation.calleeClass),
-                escape(relation.calleeParentClasses),
-                relation.isParentMethod ? "Yes" : "No",
-                escape(relation.implementations),
-                escape(relation.sqlStatements),
-                relation.direction,
-                relation.visibility,
-                relation.isStatic ? "Yes" : "No",
-                relation.isEntryPoint ? "Yes" : "No",
-                relation.entryType,
-                escape(relation.annotations),
-                escape(relation.classAnnotations),
-                escape(relation.calleeJavadoc),
-                escape(relation.hitWords)));
-    }
-
-    /**
-     * 前方向の呼び出し関係を作成
-     */
-    private CallRelation createForwardCallRelation(String caller, String callee) {
-        CallRelation relation = new CallRelation();
-
-        relation.callerMethod = caller;
-        relation.callerClass = methodToClassMap.getOrDefault(caller, "");
-        relation.callerParentClasses = getParentClasses(relation.callerClass);
-        relation.calleeMethod = callee;
-        relation.calleeClass = methodToClassMap.getOrDefault(callee, "");
-        relation.calleeParentClasses = getParentClasses(relation.calleeClass);
-        relation.isParentMethod = isParentClassMethod(caller, callee);
-        relation.implementations = getImplementations(caller, callee);
-        relation.sqlStatements = sqlStatements.containsKey(callee) ? String.join(" ||| ", sqlStatements.get(callee))
-                : "";
-        relation.direction = "Forward";
-
-        MethodMetadata callerMeta = methodMetadata.get(caller);
-        if (callerMeta != null) {
-            relation.visibility = callerMeta.isPublic ? "public" : (callerMeta.isProtected ? "protected" : "private");
-            relation.isStatic = callerMeta.isStatic;
-            relation.isEntryPoint = callerMeta.isEntryPointCandidate();
-            relation.entryType = callerMeta.getEntryPointType();
-            relation.annotations = String.join(",", callerMeta.annotationRaws);
-            relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
-        }
-        MethodMetadata calleeMeta = methodMetadata.get(callee);
-        if (calleeMeta != null) {
-            relation.calleeJavadoc = calleeMeta.javadocSummary != null ? calleeMeta.javadocSummary : "";
-        }
-
-        // 検出ワードを設定
-        Set<String> hitWords = methodHitWords.get(callee);
-        if (hitWords != null && !hitWords.isEmpty()) {
-            relation.hitWords = String.join(",", hitWords);
-        }
-
-        return relation;
-    }
-
-    /**
-     * 逆方向の呼び出し関係を作成
-     */
-    private CallRelation createReverseCallRelation(String callee, String caller) {
-        CallRelation relation = new CallRelation();
-
-        relation.callerMethod = callee;
-        relation.callerClass = methodToClassMap.getOrDefault(callee, "");
-        relation.callerParentClasses = "";
-        relation.calleeMethod = caller;
-        relation.calleeClass = methodToClassMap.getOrDefault(caller, "");
-        relation.isParentMethod = false;
-        relation.implementations = "";
-        relation.sqlStatements = sqlStatements.containsKey(caller) ? String.join(" ||| ", sqlStatements.get(caller))
-                : "";
-        relation.direction = "Reverse";
-
-        MethodMetadata callerMeta = methodMetadata.get(caller);
-        if (callerMeta != null) {
-            relation.visibility = callerMeta.isPublic ? "public" : (callerMeta.isProtected ? "protected" : "private");
-            relation.isStatic = callerMeta.isStatic;
-            relation.isEntryPoint = callerMeta.isEntryPointCandidate();
-            relation.entryType = callerMeta.getEntryPointType();
-            relation.annotations = String.join(",", callerMeta.annotationRaws);
-            relation.classAnnotations = String.join(",", callerMeta.classAnnotations);
-        }
-
-        // Reverse の場合、relation.callerMethod は 呼び出し元 を指すため
-        // そちらの Javadoc を設定する
-        MethodMetadata callerMetaForRelation = methodMetadata.get(caller);
-        if (callerMetaForRelation != null) {
-            relation.calleeJavadoc = callerMetaForRelation.javadocSummary != null ? callerMetaForRelation.javadocSummary
-                    : "";
-        }
-
-        // 検出ワードを設定
-        Set<String> hitWords = methodHitWords.get(caller);
-        if (hitWords != null && !hitWords.isEmpty()) {
-            relation.hitWords = String.join(",", hitWords);
-        }
-
-        return relation;
-    }
-
-    /**
-     * JSON形式でエクスポート
+     * JSON形式でエクスポート（methods, classes, interfacesを統合）
      */
     private void exportJson(String outputPath) throws IOException {
         try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
             writer.write("{\n");
-            writer.write("  \"methods\": [\n");
 
+            // 1. methods セクション
+            writer.write("  \"methods\": [\n");
             boolean first = true;
             for (String method : methodMap.keySet()) {
                 if (!first)
                     writer.write(",\n");
                 first = false;
-
                 writer.write(createJsonMethodEntry(method));
             }
+            writer.write("\n  ],\n");
 
-            writer.write("\n  ]\n");
+            // 2. classes セクション
+            writer.write("  \"classes\": [\n");
+            writeClassesJson(writer);
+            writer.write("  ],\n");
+
+            // 3. interfaces セクション
+            writer.write("  \"interfaces\": [\n");
+            writeInterfacesJson(writer);
+            writer.write("  ]\n");
+
             writer.write("}\n");
         }
+    }
+
+    /**
+     * クラス情報をJSON形式で出力
+     */
+    private void writeClassesJson(BufferedWriter writer) throws IOException {
+        List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+        boolean first = true;
+
+        for (CtType<?> type : types) {
+            if (shouldExcludeType(type) || type.isInterface()) {
+                continue;
+            }
+
+            String className = type.getQualifiedName();
+
+            if (!first) {
+                writer.write(",\n");
+            }
+            first = false;
+
+            writer.write("    {\n");
+            writer.write("      \"className\": \"" + escapeJson(className) + "\",\n");
+
+            // Javadoc
+            String javadocRaw = type.getDocComment();
+            String javadoc = extractJavadocSummary(javadocRaw);
+            writer.write("      \"javadoc\": \"" + escapeJson(javadoc) + "\",\n");
+
+            // アノテーション
+            List<String> annotations = type.getAnnotations().stream()
+                    .map(a -> a.getAnnotationType().getQualifiedName())
+                    .collect(Collectors.toList());
+            writer.write("      \"annotations\": [");
+            boolean firstAnn = true;
+            for (String ann : annotations) {
+                if (!firstAnn)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(ann) + "\"");
+                firstAnn = false;
+            }
+            writer.write("],\n");
+
+            // スーパークラス
+            String superClass = "";
+            if (type instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) type;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                if (superClassRef != null && !isJavaStandardLibrary(superClassRef.getQualifiedName())) {
+                    superClass = superClassRef.getQualifiedName();
+                }
+            }
+            writer.write("      \"superClass\": \"" + escapeJson(superClass) + "\",\n");
+
+            // 直接実装インターフェース
+            Set<String> directInterfaces = new HashSet<>();
+            for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
+                String ifaceName = ifaceRef.getQualifiedName();
+                if (!isJavaStandardLibrary(ifaceName)) {
+                    directInterfaces.add(ifaceName);
+                }
+            }
+            writer.write("      \"directInterfaces\": [");
+            boolean firstInterface = true;
+            for (String iface : directInterfaces) {
+                if (!firstInterface) {
+                    writer.write(", ");
+                }
+                writer.write("\"" + escapeJson(iface) + "\"");
+                firstInterface = false;
+            }
+            writer.write("],\n");
+
+            // 全実装インターフェース
+            Set<String> allInterfaces = getAllInterfaces(type);
+            Set<String> filteredAllInterfaces = new HashSet<>();
+            for (String iface : allInterfaces) {
+                if (!isJavaStandardLibrary(iface)) {
+                    filteredAllInterfaces.add(iface);
+                }
+            }
+            writer.write("      \"allInterfaces\": [");
+            firstInterface = true;
+            for (String iface : filteredAllInterfaces) {
+                if (!firstInterface) {
+                    writer.write(", ");
+                }
+                writer.write("\"" + escapeJson(iface) + "\"");
+                firstInterface = false;
+            }
+            writer.write("],\n");
+
+            // hitWords（クラス本体のリテラル文字列から検出）
+            Set<String> classHitWords = detectHitWordsInType(type);
+            writer.write("      \"hitWords\": [");
+            boolean firstWord = true;
+            for (String word : classHitWords) {
+                if (!firstWord)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(word) + "\"");
+                firstWord = false;
+            }
+            writer.write("]\n");
+
+            writer.write("    }");
+        }
+        writer.write("\n");
+    }
+
+    /**
+     * インターフェース情報をJSON形式で出力
+     */
+    private void writeInterfacesJson(BufferedWriter writer) throws IOException {
+        // インターフェースごとに実装クラスをまとめる
+        Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
+        Map<String, String> interfaceJavadocs = new HashMap<>();
+        Map<String, List<String>> interfaceAnnotations = new HashMap<>();
+        Map<String, Set<String>> interfaceSuperInterfaces = new HashMap<>();
+        Map<String, Set<String>> interfaceHitWordsMap = new HashMap<>();
+
+        List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+
+        // まず、インターフェース自体の情報を収集
+        for (CtType<?> type : types) {
+            if (shouldExcludeType(type)) {
+                continue;
+            }
+            if (type.isInterface()) {
+                String ifaceName = type.getQualifiedName();
+                String javadocRaw = type.getDocComment();
+                String javadoc = extractJavadocSummary(javadocRaw);
+                interfaceJavadocs.put(ifaceName, javadoc);
+                // System.out.println("Interface: " + ifaceName);
+
+                List<String> anns = type.getAnnotations().stream()
+                        .map(a -> a.getAnnotationType().getQualifiedName())
+                        .collect(Collectors.toList());
+                interfaceAnnotations.put(ifaceName, anns);
+
+                // 親インターフェースを収集
+                Set<String> superIfaces = new HashSet<>();
+                for (CtTypeReference<?> superIfaceRef : type.getSuperInterfaces()) {
+                    String superIfaceName = superIfaceRef.getQualifiedName();
+                    if (!isJavaStandardLibrary(superIfaceName)) {
+                        superIfaces.add(superIfaceName);
+                    }
+                }
+                interfaceSuperInterfaces.put(ifaceName, superIfaces);
+
+                // hitWords検出
+                Set<String> ifaceHitWords = detectHitWordsInType(type);
+                interfaceHitWordsMap.put(ifaceName, ifaceHitWords);
+            }
+        }
+
+        // 実装クラスを収集
+        for (CtType<?> type : types) {
+            if (shouldExcludeType(type) || type.isInterface()) {
+                continue;
+            }
+
+            String className = type.getQualifiedName();
+            Set<String> directInterfaces = new HashSet<>();
+            for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
+                String ifaceName = ifaceRef.getQualifiedName();
+                if (!isJavaStandardLibrary(ifaceName)) {
+                    directInterfaces.add(ifaceName);
+                }
+            }
+
+            Set<String> allInterfaces = getAllInterfaces(type);
+            String javadocRaw = type.getDocComment();
+            String javadoc = extractJavadocSummary(javadocRaw);
+            List<String> annotations = type.getAnnotations().stream()
+                    .map(a -> a.getAnnotationType().getQualifiedName())
+                    .collect(Collectors.toList());
+
+            for (String iface : allInterfaces) {
+                if (isJavaStandardLibrary(iface)) {
+                    continue;
+                }
+
+                String implType = directInterfaces.contains(iface) ? "direct" : "indirect";
+
+                interfaceMap.computeIfAbsent(iface, k -> new ArrayList<>());
+                Map<String, Object> impl = new HashMap<>();
+                impl.put("className", className);
+                impl.put("type", implType);
+                impl.put("javadoc", javadoc);
+                impl.put("annotations", annotations);
+                interfaceMap.get(iface).add(impl);
+            }
+        }
+
+        // JSON出力（すべてのインターフェースを出力）
+        boolean firstInterface = true;
+        for (String ifaceName : interfaceJavadocs.keySet()) {
+            if (!firstInterface) {
+                writer.write(",\n");
+            }
+            firstInterface = false;
+
+            String ifaceJavadoc = interfaceJavadocs.getOrDefault(ifaceName, "");
+
+            writer.write("    {\n");
+            writer.write("      \"interfaceName\": \"" + escapeJson(ifaceName) + "\",\n");
+            writer.write("      \"javadoc\": \"" + escapeJson(ifaceJavadoc) + "\",\n");
+
+            // アノテーション
+            List<String> ifaceAnns = interfaceAnnotations.getOrDefault(ifaceName, Collections.emptyList());
+            writer.write("      \"annotations\": [");
+            boolean firstIfaceAnn = true;
+            for (String ann : ifaceAnns) {
+                if (!firstIfaceAnn)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(ann) + "\"");
+                firstIfaceAnn = false;
+            }
+            writer.write("],\n");
+
+            // 親インターフェース
+            Set<String> superIfaces = interfaceSuperInterfaces.getOrDefault(ifaceName, Collections.emptySet());
+            writer.write("      \"superInterfaces\": [");
+            boolean firstSuperIface = true;
+            for (String superIface : superIfaces) {
+                if (!firstSuperIface)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(superIface) + "\"");
+                firstSuperIface = false;
+            }
+            writer.write("],\n");
+
+            // hitWords
+            Set<String> ifaceHitWords = interfaceHitWordsMap.getOrDefault(ifaceName, Collections.emptySet());
+            writer.write("      \"hitWords\": [");
+            boolean firstWord = true;
+            for (String word : ifaceHitWords) {
+                if (!firstWord)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(word) + "\"");
+                firstWord = false;
+            }
+            writer.write("],\n");
+
+            // 実装クラス
+            List<Map<String, Object>> implementations = interfaceMap.getOrDefault(ifaceName, Collections.emptyList());
+            writer.write("      \"implementations\": [\n");
+            boolean firstImpl = true;
+            for (Map<String, Object> impl : implementations) {
+                if (!firstImpl) {
+                    writer.write(",\n");
+                }
+                firstImpl = false;
+
+                writer.write("        {\n");
+                writer.write("          \"className\": \"" + escapeJson((String) impl.get("className")) + "\",\n");
+                writer.write("          \"type\": \"" + escapeJson((String) impl.get("type")) + "\",\n");
+                writer.write("          \"javadoc\": \"" + escapeJson((String) impl.get("javadoc")) + "\",\n");
+
+                writer.write("          \"annotations\": [");
+                @SuppressWarnings("unchecked")
+                List<String> anns = (List<String>) impl.get("annotations");
+                boolean firstAnn = true;
+                for (String ann : anns) {
+                    if (!firstAnn)
+                        writer.write(", ");
+                    writer.write("\"" + escapeJson(ann) + "\"");
+                    firstAnn = false;
+                }
+                writer.write("]\n");
+
+                writer.write("        }");
+            }
+
+            writer.write("\n      ]\n");
+            writer.write("    }");
+        }
+        writer.write("\n");
+    }
+
+    /**
+     * 型に含まれるリテラル文字列から検索ワードを検出
+     */
+    private Set<String> detectHitWordsInType(CtType<?> type) {
+        Set<String> hitWords = new HashSet<>();
+        if (searchWords.isEmpty()) {
+            return hitWords;
+        }
+
+        List<CtLiteral<?>> literals = type.getElements(new TypeFilter<>(CtLiteral.class));
+        for (CtLiteral<?> literal : literals) {
+            Object value = literal.getValue();
+            if (value instanceof String) {
+                String strValue = (String) value;
+                for (String word : searchWords) {
+                    if (matchesWordBoundary(strValue, word)) {
+                        hitWords.add(word);
+                    }
+                }
+            }
+        }
+        return hitWords;
+    }
+
+    /**
+     * 文字列が検索ワードを単語境界で含むかチェック
+     */
+    private boolean matchesWordBoundary(String text, String word) {
+        if (text == null || word == null || word.isEmpty()) {
+            return false;
+        }
+        String regex = "(?i)(?<=[\\s\\p{Punct}]|^)" + java.util.regex.Pattern.quote(word) + "(?=[\\s\\p{Punct}]|$)";
+        return java.util.regex.Pattern.compile(regex).matcher(text).find();
     }
 
     /**
@@ -1841,17 +1971,21 @@ public class CallTreeAnalyzer {
         MethodMetadata meta = methodMetadata.get(method);
 
         StringBuilder json = new StringBuilder();
-        json.append("    {");
-        json.append("\"method\": \"").append(escapeJson(method)).append("\", ");
-        json.append("\"class\": \"").append(escapeJson(className)).append("\", ");
+        json.append("    {\n");
+        json.append("      \"method\": \"").append(escapeJson(method)).append("\",\n");
+        json.append("      \"class\": \"").append(escapeJson(className)).append("\",\n");
+
+        // 呼び出し元の親クラス情報（すべての親クラス・インターフェース）
+        String parentClasses = getParentClasses(className);
+        json.append("      \"parentClasses\": \"").append(escapeJson(parentClasses)).append("\",\n");
 
         if (meta != null) {
-            json.append("\"visibility\": \"")
-                    .append(meta.isPublic ? "public" : (meta.isProtected ? "protected" : "private")).append("\", ");
-            json.append("\"isStatic\": ").append(meta.isStatic).append(", ");
-            json.append("\"isEntryPoint\": ").append(meta.isEntryPointCandidate()).append(", ");
-            json.append("\"entryType\": \"").append(escapeJson(meta.getEntryPointType())).append("\", ");
-            json.append("\"annotations\": [");
+            json.append("      \"visibility\": \"")
+                    .append(meta.isPublic ? "public" : (meta.isProtected ? "protected" : "private")).append("\",\n");
+            json.append("      \"isStatic\": ").append(meta.isStatic).append(",\n");
+            json.append("      \"isEntryPoint\": ").append(meta.isEntryPointCandidate()).append(",\n");
+            json.append("      \"entryType\": \"").append(escapeJson(meta.getEntryPointType())).append("\",\n");
+            json.append("      \"annotations\": [");
             boolean firstAnn = true;
             for (String ann : meta.annotationRaws) {
                 if (!firstAnn)
@@ -1859,22 +1993,37 @@ public class CallTreeAnalyzer {
                 json.append("\"").append(escapeJson(ann)).append("\"");
                 firstAnn = false;
             }
-            json.append("], ");
-            json.append("\"javadoc\": \"").append(escapeJson(meta.javadocSummary != null ? meta.javadocSummary : ""))
-                    .append("\", ");
+            json.append("],\n");
+            json.append("      \"javadoc\": \"")
+                    .append(escapeJson(meta.javadocSummary != null ? meta.javadocSummary : ""))
+                    .append("\",\n");
         }
 
-        json.append("\"calls\": [");
+        // 呼び出し先詳細情報（キー名: calls）
+        json.append("      \"calls\": [\n");
         boolean firstCall = true;
         for (String callee : calls) {
             if (!firstCall)
-                json.append(", ");
-            json.append("\"").append(escapeJson(callee)).append("\"");
+                json.append(",\n");
             firstCall = false;
-        }
-        json.append("], ");
 
-        json.append("\"calledBy\": [");
+            String calleeClass = methodToClassMap.getOrDefault(callee, "");
+            boolean isParentMethod = isParentClassMethod(method, callee);
+            String implementations = getImplementations(method, callee);
+
+            json.append("        {\n");
+            json.append("          \"method\": \"").append(escapeJson(callee)).append("\",\n");
+            json.append("          \"class\": \"").append(escapeJson(calleeClass)).append("\",\n");
+            json.append("          \"isParentMethod\": ").append(isParentMethod);
+            if (implementations != null && !implementations.isEmpty()) {
+                json.append(",\n          \"implementations\": \"").append(escapeJson(implementations)).append("\"");
+            }
+            json.append("\n        }");
+        }
+        json.append("\n      ],\n");
+
+        // 呼び出し元一覧
+        json.append("      \"calledBy\": [");
         boolean firstCaller = true;
         for (String caller : calledBy) {
             if (!firstCaller)
@@ -1885,7 +2034,7 @@ public class CallTreeAnalyzer {
         json.append("]");
 
         if (sqlStatements.containsKey(method)) {
-            json.append(", \"sqlStatements\": [");
+            json.append(",\n      \"sqlStatements\": [");
             boolean firstSql = true;
             for (String sql : sqlStatements.get(method)) {
                 if (!firstSql)
@@ -1899,7 +2048,7 @@ public class CallTreeAnalyzer {
         // 検出ワードを追加
         Set<String> hitWords = methodHitWords.get(method);
         if (hitWords != null && !hitWords.isEmpty()) {
-            json.append(", \"hitWords\": [");
+            json.append(",\n      \"hitWords\": [");
             boolean firstWord = true;
             for (String word : hitWords) {
                 if (!firstWord)
@@ -1910,7 +2059,7 @@ public class CallTreeAnalyzer {
             json.append("]");
         }
 
-        json.append("}");
+        json.append("\n    }");
         return json.toString();
     }
 
@@ -2158,250 +2307,6 @@ public class CallTreeAnalyzer {
             }
         }
         return "";
-    }
-
-    /**
-     * クラス階層情報をJSON形式でエクスポート
-     */
-    private void exportClassHierarchyJson(String outputPath) throws IOException {
-        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
-            writer.write("{\n");
-            writer.write("  \"classes\": [\n");
-
-            List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
-            boolean first = true;
-
-            for (CtType<?> type : types) {
-                // フィルタリング
-                if (shouldExcludeType(type)) {
-                    continue;
-                }
-
-                String className = type.getQualifiedName();
-
-                if (!first) {
-                    writer.write(",\n");
-                }
-                first = false;
-
-                writer.write("    {\n");
-                writer.write("      \"className\": \"" + escapeJson(className) + "\",\n");
-
-                // Javadoc (最初の文のみ取得して簡潔にする)
-                String javadocRaw = type.getDocComment();
-                String javadoc = extractJavadocSummary(javadocRaw);
-                writer.write("      \"javadoc\": \"" + escapeJson(javadoc) + "\",\n");
-
-                // アノテーション
-                List<String> annotations = type.getAnnotations().stream()
-                        .map(a -> a.getAnnotationType().getQualifiedName())
-                        .collect(Collectors.toList());
-                writer.write("      \"annotations\": [");
-                boolean firstAnn = true;
-                for (String ann : annotations) {
-                    if (!firstAnn)
-                        writer.write(", ");
-                    writer.write("\"" + escapeJson(ann) + "\"");
-                    firstAnn = false;
-                }
-                writer.write("],\n");
-
-                // スーパークラス
-                String superClass = "";
-                if (type instanceof CtClass) {
-                    CtClass<?> ctClass = (CtClass<?>) type;
-                    CtTypeReference<?> superClassRef = ctClass.getSuperclass();
-                    if (superClassRef != null && !isJavaStandardLibrary(superClassRef.getQualifiedName())) {
-                        superClass = superClassRef.getQualifiedName();
-                    }
-                }
-                writer.write("      \"superClass\": \"" + escapeJson(superClass) + "\",\n");
-
-                // 直接実装インターフェース
-                Set<String> directInterfaces = new HashSet<>();
-                for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
-                    String ifaceName = ifaceRef.getQualifiedName();
-                    if (!isJavaStandardLibrary(ifaceName)) {
-                        directInterfaces.add(ifaceName);
-                    }
-                }
-                writer.write("      \"directInterfaces\": [");
-                boolean firstInterface = true;
-                for (String iface : directInterfaces) {
-                    if (!firstInterface) {
-                        writer.write(", ");
-                    }
-                    writer.write("\"" + escapeJson(iface) + "\"");
-                    firstInterface = false;
-                }
-                writer.write("],\n");
-
-                // 全実装インターフェース（直接+間接）
-                Set<String> allInterfaces = getAllInterfaces(type);
-                Set<String> filteredAllInterfaces = new HashSet<>();
-                for (String iface : allInterfaces) {
-                    if (!isJavaStandardLibrary(iface)) {
-                        filteredAllInterfaces.add(iface);
-                    }
-                }
-                writer.write("      \"allInterfaces\": [");
-                firstInterface = true;
-                for (String iface : filteredAllInterfaces) {
-                    if (!firstInterface) {
-                        writer.write(", ");
-                    }
-                    writer.write("\"" + escapeJson(iface) + "\"");
-                    firstInterface = false;
-                }
-                writer.write("]\n");
-
-                writer.write("    }");
-            }
-
-            writer.write("\n  ]\n");
-            writer.write("}\n");
-        }
-    }
-
-    /**
-     * インターフェース実装情報をJSON形式でエクスポート
-     */
-    private void exportInterfaceImplementationsJson(String outputPath) throws IOException {
-        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputPath), StandardCharsets.UTF_8)) {
-            writer.write("{\n");
-            writer.write("  \"interfaces\": [\n");
-
-            // インターフェースごとに実装クラスをまとめる
-            Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
-            // インターフェース自体のJavadocを格納
-            Map<String, String> interfaceJavadocs = new HashMap<>();
-            // インターフェース自体のアノテーションを格納
-            Map<String, List<String>> interfaceAnnotations = new HashMap<>();
-
-            List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
-
-            // まず、インターフェース自体のJavadocとアノテーションを収集
-            for (CtType<?> type : types) {
-                if (shouldExcludeType(type)) {
-                    continue;
-                }
-                if (type.isInterface()) {
-                    String ifaceName = type.getQualifiedName();
-                    String javadocRaw = type.getDocComment();
-                    String javadoc = extractJavadocSummary(javadocRaw);
-                    interfaceJavadocs.put(ifaceName, javadoc);
-                    List<String> anns = type.getAnnotations().stream()
-                            .map(a -> a.getAnnotationType().getQualifiedName())
-                            .collect(Collectors.toList());
-                    interfaceAnnotations.put(ifaceName, anns);
-                }
-            }
-
-            for (CtType<?> type : types) {
-                // フィルタリング
-                if (shouldExcludeType(type)) {
-                    continue;
-                }
-
-                String className = type.getQualifiedName();
-
-                // 直接実装インターフェース
-                Set<String> directInterfaces = new HashSet<>();
-                for (CtTypeReference<?> ifaceRef : type.getSuperInterfaces()) {
-                    String ifaceName = ifaceRef.getQualifiedName();
-                    if (!isJavaStandardLibrary(ifaceName)) {
-                        directInterfaces.add(ifaceName);
-                    }
-                }
-
-                // 全実装インターフェース
-                Set<String> allInterfaces = getAllInterfaces(type);
-
-                // 付加情報取得
-                String javadocRaw = type.getDocComment();
-                String javadoc = extractJavadocSummary(javadocRaw);
-                List<String> annotations = type.getAnnotations().stream()
-                        .map(a -> a.getAnnotationType().getQualifiedName())
-                        .collect(Collectors.toList());
-
-                // 各インターフェースについて、直接/間接を判定
-                for (String iface : allInterfaces) {
-                    if (isJavaStandardLibrary(iface)) {
-                        continue;
-                    }
-
-                    String implType = directInterfaces.contains(iface) ? "direct" : "indirect";
-
-                    interfaceMap.computeIfAbsent(iface, k -> new ArrayList<>());
-                    Map<String, Object> impl = new HashMap<>();
-                    impl.put("className", className);
-                    impl.put("type", implType);
-                    impl.put("javadoc", javadoc);
-                    impl.put("annotations", annotations);
-                    interfaceMap.get(iface).add(impl);
-                }
-            }
-
-            // JSON出力
-            boolean firstInterface = true;
-            for (Map.Entry<String, List<Map<String, Object>>> entry : interfaceMap.entrySet()) {
-                if (!firstInterface) {
-                    writer.write(",\n");
-                }
-                firstInterface = false;
-
-                String ifaceName = entry.getKey();
-                String ifaceJavadoc = interfaceJavadocs.getOrDefault(ifaceName, "");
-
-                writer.write("    {\n");
-                writer.write("      \"interfaceName\": \"" + escapeJson(ifaceName) + "\",\n");
-                writer.write("      \"javadoc\": \"" + escapeJson(ifaceJavadoc) + "\",\n");
-                List<String> ifaceAnns = interfaceAnnotations.getOrDefault(ifaceName, Collections.emptyList());
-                writer.write("      \"annotations\": [");
-                boolean firstIfaceAnn = true;
-                for (String ann : ifaceAnns) {
-                    if (!firstIfaceAnn)
-                        writer.write(", ");
-                    writer.write("\"" + escapeJson(ann) + "\"");
-                    firstIfaceAnn = false;
-                }
-                writer.write("],\n");
-                writer.write("      \"implementations\": [\n");
-
-                boolean firstImpl = true;
-                for (Map<String, Object> impl : entry.getValue()) {
-                    if (!firstImpl) {
-                        writer.write(",\n");
-                    }
-                    firstImpl = false;
-
-                    writer.write("        {\n");
-                    writer.write("          \"className\": \"" + escapeJson((String) impl.get("className")) + "\",\n");
-                    writer.write("          \"type\": \"" + escapeJson((String) impl.get("type")) + "\",\n");
-                    writer.write("          \"javadoc\": \"" + escapeJson((String) impl.get("javadoc")) + "\",\n");
-
-                    writer.write("          \"annotations\": [");
-                    @SuppressWarnings("unchecked")
-                    List<String> anns = (List<String>) impl.get("annotations");
-                    boolean firstAnn = true;
-                    for (String ann : anns) {
-                        if (!firstAnn)
-                            writer.write(", ");
-                        writer.write("\"" + escapeJson(ann) + "\"");
-                        firstAnn = false;
-                    }
-                    writer.write("]\n");
-
-                    writer.write("        }");
-                }
-
-                writer.write("\n      ]\n");
-                writer.write("    }");
-            }
-
-            writer.write("\n  ]\n");
-            writer.write("}\n");
-        }
     }
 
     /**

@@ -182,7 +182,7 @@ class ExclusionRuleManager:
 class CallTreeVisualizer:
     def __init__(
         self,
-        tsv_file: str,
+        input_file: str,
         exclusion_file: Optional[str] = None,
         output_tsv_encoding: str = "Shift_JIS",
     ):
@@ -190,11 +190,11 @@ class CallTreeVisualizer:
         コンストラクタ
 
         Args:
-            tsv_file: TSVファイルのパス
+            input_file: 入力ファイルのパス（JSONまたはTSV）
             exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルト）
             output_tsv_encoding: 出力TSVファイルのエンコーディング
         """
-        self.tsv_file: str = tsv_file
+        self.input_file: str = input_file
         self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
         self.reverse_calls: Dict[str, List[str]] = defaultdict(list)
         self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
@@ -206,15 +206,89 @@ class CallTreeVisualizer:
         self.load_data()
 
     def load_data(self):
-        """TSVファイルを読み込む"""
-        with open(self.tsv_file, "r", encoding="utf-8") as f:
+        """入力ファイルを読み込む（JSON/TSV自動判定）"""
+        if self.input_file.lower().endswith(".json"):
+            self._load_json_data()
+        else:
+            self._load_tsv_data()
+
+    def _load_json_data(self):
+        """JSON形式（統合形式）からデータを読み込む"""
+        with open(self.input_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        methods = data.get("methods", [])
+        for method in methods:
+            method_sig = method.get("method", "")
+            if not method_sig:
+                continue
+
+            class_name = method.get("class", "")
+            parent_classes_str = method.get("parentClasses", "")
+
+            # メソッド情報を保存
+            self.method_info[method_sig] = {
+                "class": class_name,
+                "parent": parent_classes_str,  # 親クラス情報（カンマ区切り文字列）
+                "visibility": method.get("visibility", ""),
+                "is_static": method.get("isStatic", False),
+                "is_entry_point": method.get("isEntryPoint", False),
+                "entry_type": method.get("entryType", ""),
+                "annotations": ",".join(method.get("annotations", [])),
+                "class_annotations": ",".join(method.get("classAnnotations", [])),
+                "sql": " ||| ".join(method.get("sqlStatements", [])),
+                "javadoc": method.get("javadoc", ""),
+                "hit_words": ",".join(method.get("hitWords", [])),
+            }
+
+            # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
+            if class_name and parent_classes_str:
+                parents = [p.strip() for p in parent_classes_str.split(",") if p.strip()]
+                # 既存の情報がない場合、または新しい情報がある場合は更新
+                if class_name not in self.class_info or not self.class_info[class_name]:
+                    self.class_info[class_name] = parents
+                else:
+                    # 既存のリストに新しい親を追加
+                    existing = set(self.class_info[class_name])
+                    for p in parents:
+                        if p not in existing:
+                            self.class_info[class_name].append(p)
+
+            # 呼び出し関係を保存（callsから詳細情報を取得）
+            calls_data = method.get("calls", [])
+            for call_item in calls_data:
+                # 新形式：オブジェクト配列
+                if isinstance(call_item, dict):
+                    callee = call_item.get("method", "")
+                    if callee:
+                        is_parent = "Yes" if call_item.get("isParentMethod", False) else "No"
+                        impls = call_item.get("implementations", "")
+                        self.forward_calls[method_sig].append({
+                            "method": callee,
+                            "is_parent_method": is_parent,
+                            "implementations": impls,
+                        })
+                else:
+                    # 後方互換性：文字列配列
+                    self.forward_calls[method_sig].append({
+                        "method": call_item,
+                        "is_parent_method": "No",
+                        "implementations": "",
+                    })
+
+            # 逆引き呼び出し関係を保存
+            for caller in method.get("calledBy", []):
+                self.reverse_calls[method_sig].append(caller)
+
+
+    def _load_tsv_data(self):
+        """TSV形式からデータを読み込む（後方互換性）"""
+        with open(self.input_file, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter="\t")
             for row in reader:
                 caller = row["呼び出し元メソッド"]
                 callee = row["呼び出し先メソッド"]
                 direction = row["方向"]
-
-                # print(f"row: {row}")
 
                 # メソッド情報を保存
                 if caller and (
@@ -1420,7 +1494,7 @@ class CallTreeVisualizer:
             "#", "."
         )  # メソッドとクラスの区切りをドットに変換
         # Windowsでファイル名として安全でない文字をアンダースコアに変換
-        name = re.sub(r'[<>:"/\\|?*\[\]]', "_", name)
+        name = re.sub(r'[<>:"/\\|?*]', "_", name)
         name = re.sub(r"_+", "_", name)  # 連続するアンダースコアを1つに
         name = name.strip("_")
         return name[:200]  # ファイル名の長さを制限
@@ -2340,6 +2414,14 @@ class StructureVisualizer:
                     extras.append(f"Annotations: [{anns_str}]")
                 else:
                     extras.append("Annotations: (なし)")
+                # superInterfaces表示
+                super_ifaces = iface.get("superInterfaces", [])
+                if super_ifaces:
+                    extras.append(f"Extends: [{', '.join(super_ifaces)}]")
+                # hitWords表示
+                hit_words = iface.get("hitWords", [])
+                if hit_words:
+                    extras.append(f"HitWords: [{', '.join(hit_words)}]")
                 print(f"Interface: {interface_name}\t{'\t'.join(extras)}")
             else:
                 print(f"Interface: {interface_name}")
@@ -2402,7 +2484,7 @@ def main():
 
     # メインパーサーの作成
     parser = argparse.ArgumentParser(
-        description="呼び出しツリー可視化スクリプト - TSV/JSONファイルから可視化を行います",
+        description="呼び出しツリー可視化スクリプト - JSONファイルから可視化を行います",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 除外ルールファイルのフォーマット:
@@ -2414,20 +2496,25 @@ def main():
   <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 
 使用例:
-  %(prog)s call-tree.tsv list
-  %(prog)s call-tree.tsv list --no-strict --min-calls 5
-  %(prog)s call-tree.tsv forward 'com.example.Main#main(String[])'
-  %(prog)s call-tree.tsv reverse 'com.example.Service#process()'
-  %(prog)s call-tree.tsv export 'com.example.Main#main(String[])' tree.html --format html
-  %(prog)s call-tree.tsv export-excel call_trees.xlsx --entry-points entry_points.txt
-  %(prog)s call-tree.tsv extract-sql --output-dir ./output/sqls
-  %(prog)s call-tree.tsv analyze-tables --sql-dir ./output/sqls
-  %(prog)s class-hierarchy.json class-tree --filter 'com.example'
-  %(prog)s interface-implementations.json interface-impls --interface 'MyService'
+  %(prog)s list
+  %(prog)s list --no-strict --min-calls 5
+  %(prog)s forward 'com.example.Main#main(String[])'
+  %(prog)s reverse 'com.example.Service#process()'
+  %(prog)s export 'com.example.Main#main(String[])' tree.html --format html
+  %(prog)s export-excel call_trees.xlsx --entry-points entry_points.txt
+  %(prog)s extract-sql --output-dir ./output/sqls
+  %(prog)s analyze-tables --sql-dir ./output/sqls
+  %(prog)s class-tree --filter 'com.example'
+  %(prog)s interface-impls --interface 'MyService'
         """,
     )
 
-    parser.add_argument("input_file", help="入力ファイル（TSV または JSON）のパス")
+    parser.add_argument(
+        "-i", "--input",
+        dest="input_file",
+        default="analyzed_result.json",
+        help="入力ファイル（JSONまたはTSV）のパス (デフォルト: analyzed_result.json)",
+    )
     parser.add_argument(
         "--exclusion-file",
         help="除外ルールファイルのパス (デフォルト: exclusion_rules.txt)",

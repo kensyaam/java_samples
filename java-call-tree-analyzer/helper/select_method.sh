@@ -1,24 +1,24 @@
 #!/bin/bash
 # ============================================================
-# call-tree.json からメソッドを fzf で選択するスクリプト
+# analyzed_result.json からメソッドを fzf で選択するスクリプト
 # ============================================================
 # 使用方法:
 #   ./select_method.sh [input.json]
 #
 # 引数:
-#   input.json : CallTreeAnalyzerで出力したJSONファイル（省略時: call-tree.json）
+#   input.json : CallTreeAnalyzerで出力したJSONファイル（省略時: analyzed_result.json）
 #
 # 出力:
 #   選択されたメソッドシグネチャを標準出力に出力
 #
 # 使用例:
 #   METHOD=$(./helper/select_method.sh)
-#   python call_tree_visualizer.py call-tree.tsv forward "$METHOD"
+#   python call_tree_visualizer.py forward "$METHOD"
 # ============================================================
 
 set -e
 
-INPUT_FILE="${1:-call-tree.json}"
+INPUT_FILE="${1:-analyzed_result.json}"
 
 # 入力ファイルの存在チェック
 if [ ! -f "$INPUT_FILE" ]; then
