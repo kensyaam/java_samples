@@ -17,6 +17,7 @@
     - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
     - [export : 呼び出しツリーを指定形式のファイルにエクスポート](#export--呼び出しツリーを指定形式のファイルにエクスポート)
     - [export-excel : 一括で呼び出しツリーをExcelファイルに出力](#export-excel--一括で呼び出しツリーをexcelファイルに出力)
+    - [export-csv : 呼び出しメソッド一覧をCSVにエクスポート](#export-csv--呼び出しメソッド一覧をcsvにエクスポート)
     - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
     - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
     - [class-tree : クラス階層ツリーを表示](#class-tree--クラス階層ツリーを表示)
@@ -374,6 +375,54 @@ com.example.service.OrderService#processOrder(Order)
 - フォント: Meiryo UI
 - L列以降の列幅: 5
 - 循環参照は `[循環参照]` として表示され、それ以上展開されない
+- 除外ルールファイルにも対応
+
+#### export-csv : 呼び出しメソッド一覧をCSVにエクスポート
+
+呼び出しツリーで呼び出すメソッドをCSV形式で出力する。
+複数のエントリーポイントからの呼び出しメソッドを1つのCSVファイルにまとめて出力できる。
+
+```bash
+$ python call_tree_visualizer.py export-csv --help
+usage: call_tree_visualizer.py export-csv [-h] [-o OUTPUT_FILE]
+                                          [--entry-points ENTRY_POINTS]
+                                          [--depth DEPTH] [--no-follow-impl]
+
+options:
+  -h, --help            show this help message and exit
+  -o, --output OUTPUT_FILE
+                        出力CSVファイル名（省略時は標準出力）
+  --entry-points ENTRY_POINTS
+                        エントリーポイントファイル（指定しない場合は厳密モードのエントリーポイントを使用）
+  --depth DEPTH         ツリーの最大深度 (デフォルト: 20)
+  --no-follow-impl      実装クラス候補を追跡しない
+```
+
+```bash
+# 標準出力に出力
+python call_tree_visualizer.py export-csv
+
+# ファイルに出力
+python call_tree_visualizer.py export-csv -o call_methods.csv
+
+# エントリーポイントファイルを指定
+python call_tree_visualizer.py export-csv -o call_methods.csv --entry-points entry_points.txt
+```
+
+###### CSV出力フォーマット
+
+| 列 | 内容 |
+|---|---|
+| エントリーポイント | エントリーポイント（fully qualified name） |
+| エントリーポイントのパッケージ名 | エントリーポイントのパッケージ名 |
+| エントリーポイントのクラス名 | エントリーポイントのクラス名（パッケージ名を含めない） |
+| エントリーポイントのメソッド名 | エントリーポイントのメソッド名（引数を含めない） |
+| 呼び出しメソッド | 呼び出しメソッド（fully qualified name） |
+| 呼び出しメソッドのパッケージ名 | 呼び出しメソッドのパッケージ名 |
+| 呼び出しメソッドのクラス名 | 呼び出しメソッドのクラス名（パッケージ名を含めない） |
+| 呼び出しメソッドのメソッド名 | 呼び出しメソッドのメソッド名（引数を含めない） |
+
+- エンコーディング: Shift-JIS（Excelへの貼り付けを考慮）
 - 除外ルールファイルにも対応
 
 #### extract-sql : SQL文を抽出してファイル出力

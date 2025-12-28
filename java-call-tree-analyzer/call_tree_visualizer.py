@@ -2034,6 +2034,122 @@ class CallTreeVisualizer:
 
         return result
 
+    def export_tree_to_csv(
+        self,
+        entry_points_file: Optional[str],
+        output_file: Optional[str],
+        max_depth: int = 20,
+        follow_implementations: bool = True,
+    ) -> None:
+        """
+        CSV形式でエントリーポイントからの呼び出しメソッド一覧をエクスポート
+
+        Args:
+            entry_points_file: エントリーポイントファイル（Noneの場合は厳密モードのエントリーポイント）
+            output_file: 出力ファイル名（Noneの場合は標準出力）
+            max_depth: 最大深度
+            follow_implementations: 実装クラス候補を追跡するか
+        """
+        # エントリーポイントの決定
+        entry_points: List[str] = []
+
+        if entry_points_file:
+            try:
+                with open(entry_points_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        # 空行とコメント行をスキップ
+                        if line and not line.startswith("#"):
+                            entry_points.append(line)
+            except Exception as e:
+                print(
+                    f"エラー: エントリーポイントファイルの読み込みに失敗しました: {e}",
+                    file=sys.stderr,
+                )
+                return
+        else:
+            # 厳密モードのエントリーポイントを取得
+            all_callees = set()
+            for callees in self.forward_calls.values():
+                for callee_info in callees:
+                    all_callees.add(callee_info["method"])
+
+            for method, info in self.method_info.items():
+                if method not in all_callees and info.get("is_entry_point"):
+                    entry_points.append(method)
+
+        if not entry_points:
+            print("警告: エントリーポイントが見つかりませんでした", file=sys.stderr)
+            return
+
+        # CSVヘッダー
+        headers = [
+            "エントリーポイント",
+            "エントリーポイントのパッケージ名",
+            "エントリーポイントのクラス名",
+            "エントリーポイントのメソッド名",
+            "呼び出しメソッド",
+            "呼び出しメソッドのパッケージ名",
+            "呼び出しメソッドのクラス名",
+            "呼び出しメソッドのメソッド名",
+        ]
+
+        def extract_method_name_only(method_with_params: str) -> str:
+            """メソッド名から引数を除去する"""
+            # method(params) -> method
+            paren_pos = method_with_params.find("(")
+            if paren_pos >= 0:
+                return method_with_params[:paren_pos]
+            return method_with_params
+
+        # 出力先を決定
+        if output_file:
+            try:
+                f = open(output_file, "w", encoding="Shift_JIS", newline="")
+            except Exception as e:
+                print(f"エラー: ファイルを開けません: {e}", file=sys.stderr)
+                return
+        else:
+            # 標準出力の場合もShift_JISにreconfigure
+            sys.stdout.reconfigure(encoding="Shift_JIS")
+            f = sys.stdout
+
+        try:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+
+            for entry_point in entry_points:
+                # エントリーポイント自身の情報を分解
+                ep_parts = self._extract_method_signature_parts(entry_point)
+                ep_method_name = extract_method_name_only(ep_parts["method"])
+
+                # ツリーデータを収集
+                tree_data = self._collect_tree_data(
+                    entry_point, max_depth, follow_implementations
+                )
+
+                # 各メソッドについてCSV行を出力
+                for node in tree_data:
+                    callee_method_name = extract_method_name_only(node["simple_method"])
+
+                    row = [
+                        entry_point,                    # エントリーポイント（fully qualified name）
+                        ep_parts["package"],            # エントリーポイントのパッケージ名
+                        ep_parts["simple_class"],       # エントリーポイントのクラス名
+                        ep_method_name,                 # エントリーポイントのメソッド名
+                        node["method"],                 # 呼び出しメソッド（fully qualified name）
+                        node["package"],                # 呼び出しメソッドのパッケージ名
+                        node["class"].split(".")[-1] if node["class"] else "",  # 呼び出しメソッドのクラス名
+                        callee_method_name,             # 呼び出しメソッドのメソッド名
+                    ]
+                    writer.writerow(row)
+
+            if output_file:
+                print(f"CSVを {output_file} にエクスポートしました", file=sys.stderr)
+        finally:
+            if output_file and f != sys.stdout:
+                f.close()
+
     def export_tree_to_excel(
         self,
         entry_points_file: Optional[str],
@@ -2256,6 +2372,16 @@ def handle_export_excel(args, visualizer: CallTreeVisualizer) -> None:
         args.follow_impl,
         args.include_tree,
         args.include_sql,
+    )
+
+
+def handle_export_csv(args, visualizer: CallTreeVisualizer) -> None:
+    """export-csvサブコマンドの処理"""
+    visualizer.export_tree_to_csv(
+        args.entry_points,
+        args.output_file,
+        args.depth,
+        args.follow_impl,
     )
 
 
@@ -2687,6 +2813,29 @@ def main():
         help="AZ列のSQL文を出力しない",
     )
 
+    # export-csv サブコマンド
+    parser_export_csv = subparsers.add_parser(
+        "export-csv", help="呼び出しメソッド一覧をCSVにエクスポート"
+    )
+    parser_export_csv.add_argument(
+        "-o", "--output",
+        dest="output_file",
+        help="出力CSVファイル名（省略時は標準出力）",
+    )
+    parser_export_csv.add_argument(
+        "--entry-points",
+        help="エントリーポイントファイル（指定しない場合は厳密モードのエントリーポイントを使用）",
+    )
+    parser_export_csv.add_argument(
+        "--depth", type=int, default=20, help="ツリーの最大深度 (デフォルト: 20)"
+    )
+    parser_export_csv.add_argument(
+        "--no-follow-impl",
+        action="store_false",
+        dest="follow_impl",
+        help="実装クラス候補を追跡しない",
+    )
+
     # extract-sql サブコマンド
     parser_extract_sql = subparsers.add_parser(
         "extract-sql", help="SQL文を抽出してファイル出力"
@@ -2780,6 +2929,8 @@ def main():
         handle_export(args, visualizer)
     elif args.command == "export-excel":
         handle_export_excel(args, visualizer)
+    elif args.command == "export-csv":
+        handle_export_csv(args, visualizer)
     elif args.command == "extract-sql":
         handle_extract_sql(args, visualizer)
     elif args.command == "analyze-tables":
