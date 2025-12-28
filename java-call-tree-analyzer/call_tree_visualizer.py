@@ -376,9 +376,10 @@ class CallTreeVisualizer:
         self,
         root_method: str,
         max_depth: int = 50,
-        show_class: bool = True,
-        show_sql: bool = True,
+        show_class: bool = False,
+        show_sql: bool = False,
         follow_implementations: bool = True,
+        verbose: bool = False,
     ):
         """呼び出し元からのツリーを表示
 
@@ -388,6 +389,7 @@ class CallTreeVisualizer:
             show_class: クラス情報を表示するか
             show_sql: SQL情報を表示するか
             follow_implementations: 実装クラス候補がある場合、それも追跡するか
+            verbose: 詳細表示（Javadocを表示）
         """
         print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
@@ -403,14 +405,16 @@ class CallTreeVisualizer:
             show_sql,
             is_forward=True,
             follow_implementations=follow_implementations,
+            verbose=verbose,
         )
 
     def print_reverse_tree(
         self,
         target_method: str,
         max_depth: int = 50,
-        show_class: bool = True,
+        show_class: bool = False,
         follow_overrides: bool = True,
+        verbose: bool = False,
     ):
         """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示
 
@@ -419,6 +423,7 @@ class CallTreeVisualizer:
             max_depth: 最大深度
             show_class: クラス情報を表示するか
             follow_overrides: オーバーライド元/インターフェースメソッドも追跡するか
+            verbose: 詳細表示（Javadocを表示）
         """
         print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
@@ -434,6 +439,7 @@ class CallTreeVisualizer:
             show_class,
             follow_overrides,
             final_endpoints,
+            verbose,
         )
 
         # 最終到達点のメソッド一覧を表示
@@ -455,6 +461,7 @@ class CallTreeVisualizer:
         show_sql: bool,
         is_forward: bool,
         follow_implementations: bool = True,
+        verbose: bool = False,
     ):
         """ツリーを再帰的に表示"""
         if depth > max_depth:
@@ -466,11 +473,13 @@ class CallTreeVisualizer:
 
         # 循環参照チェック
         if method in visited:
-            self._print_node(method, depth, show_class, show_sql, is_circular=True)
+            self._print_node(
+                method, depth, show_class, show_sql, is_circular=True, verbose=verbose
+            )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, show_sql)
+        self._print_node(method, depth, show_class, show_sql, verbose=verbose)
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
@@ -504,6 +513,7 @@ class CallTreeVisualizer:
                     show_sql,
                     is_forward,
                     follow_implementations,
+                    verbose,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -563,6 +573,7 @@ class CallTreeVisualizer:
                                     show_sql,
                                     is_forward,
                                     follow_implementations,
+                                    verbose,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -576,6 +587,7 @@ class CallTreeVisualizer:
                     False,
                     is_forward,
                     follow_implementations,
+                    verbose,
                 )
 
     def _print_reverse_tree_recursive(
@@ -587,6 +599,7 @@ class CallTreeVisualizer:
         show_class: bool,
         follow_overrides: bool,
         final_endpoints: Optional[Set[str]] = None,
+        verbose: bool = False,
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
@@ -598,11 +611,13 @@ class CallTreeVisualizer:
 
         # 循環参照チェック
         if method in visited:
-            self._print_node(method, depth, show_class, False, is_circular=True)
+            self._print_node(
+                method, depth, show_class, False, is_circular=True, verbose=verbose
+            )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, False)
+        self._print_node(method, depth, show_class, False, verbose=verbose)
 
         callers = self.reverse_calls.get(method, [])
 
@@ -621,6 +636,7 @@ class CallTreeVisualizer:
                         show_class,
                         follow_overrides,
                         final_endpoints,
+                        verbose,
                     )
             else:
                 # オーバーライド元もない場合は最終到達点
@@ -641,6 +657,7 @@ class CallTreeVisualizer:
                     show_class,
                     follow_overrides,
                     final_endpoints,
+                    verbose,
                 )
 
     def _print_node(
@@ -650,6 +667,7 @@ class CallTreeVisualizer:
         show_class: bool,
         show_sql: bool,
         is_circular: bool = False,
+        verbose: bool = False,
     ):
         """ノード情報を表示"""
         indent = "    " * depth
@@ -661,6 +679,13 @@ class CallTreeVisualizer:
         display = f"{indent}{prefix}{method}"
         if is_circular:
             display += " [循環参照]"
+
+        # verboseモードの場合、Javadocをタブ区切りで追加
+        if verbose:
+            javadoc = info.get("javadoc", "")
+            if javadoc:
+                display += f"\t{javadoc}"
+
         print(display)
 
         # クラス情報を表示
@@ -2196,6 +2221,7 @@ def handle_forward(args, visualizer: CallTreeVisualizer) -> None:
         show_class=args.show_class,
         show_sql=args.show_sql,
         follow_implementations=args.follow_impl,
+        verbose=args.verbose,
     )
 
 
@@ -2206,6 +2232,7 @@ def handle_reverse(args, visualizer: CallTreeVisualizer) -> None:
         args.depth,
         show_class=args.show_class,
         follow_overrides=args.follow_override,
+        verbose=args.verbose,
     )
 
 
@@ -2561,19 +2588,24 @@ def main():
         "--depth", type=int, default=50, help="ツリーの最大深度 (デフォルト: 50)"
     )
     parser_forward.add_argument(
-        "--no-class",
-        action="store_false",
+        "--show-class",
+        action="store_true",
         dest="show_class",
-        help="クラス情報を非表示",
+        help="クラス情報を表示",
     )
     parser_forward.add_argument(
-        "--no-sql", action="store_false", dest="show_sql", help="SQL情報を非表示"
+        "--show-sql", action="store_true", dest="show_sql", help="SQL情報を表示"
     )
     parser_forward.add_argument(
         "--no-follow-impl",
         action="store_false",
         dest="follow_impl",
         help="実装クラス候補を追跡しない",
+    )
+    parser_forward.add_argument(
+        "--verbose",
+        action="store_true",
+        help="詳細表示（Javadocをタブ区切りで表示）",
     )
 
     # reverse サブコマンド
@@ -2585,16 +2617,21 @@ def main():
         "--depth", type=int, default=50, help="ツリーの最大深度 (デフォルト: 50)"
     )
     parser_reverse.add_argument(
-        "--no-class",
-        action="store_false",
+        "--show-class",
+        action="store_true",
         dest="show_class",
-        help="クラス情報を非表示",
+        help="クラス情報を表示",
     )
     parser_reverse.add_argument(
         "--no-follow-override",
         action="store_false",
         dest="follow_override",
         help="オーバーライド元を追跡しない",
+    )
+    parser_reverse.add_argument(
+        "--verbose",
+        action="store_true",
+        help="詳細表示（Javadocをタブ区切りで表示）",
     )
 
     # export サブコマンド

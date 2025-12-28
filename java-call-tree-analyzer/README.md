@@ -232,7 +232,7 @@ python call_tree_visualizer.py search "$KEYWORD"
 
 ```bash
 $ python call_tree_visualizer.py forward --help
-usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--no-class] [--no-sql] [--no-follow-impl] method
+usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] method
 
 positional arguments:
   method                起点メソッド
@@ -240,9 +240,10 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --depth DEPTH         ツリーの最大深度 (デフォルト: 50)
-  --no-class            クラス情報を非表示
-  --no-sql              SQL情報を非表示
+  --show-class          クラス情報を表示
+  --show-sql            SQL情報を表示
   --no-follow-impl      実装クラス候補を追跡しない
+  --verbose             詳細表示（Javadocをタブ区切りで表示）
 ```
 
 ```bash
@@ -251,6 +252,8 @@ METHOD="com.example.Main#main(String[])"
 python call_tree_visualizer.py forward "$METHOD"
 # 実装クラス候補を追跡しない
 python call_tree_visualizer.py forward "$METHOD" --no-follow-impl
+# Javadocを表示
+python call_tree_visualizer.py forward "$METHOD" --verbose
 ```
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
@@ -260,7 +263,7 @@ python call_tree_visualizer.py forward "$METHOD" --no-follow-impl
 
 ```bash
 $ python call_tree_visualizer.py reverse --help
-usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--no-class] [--no-follow-override] method
+usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] method
 
 positional arguments:
   method                対象メソッド
@@ -268,8 +271,9 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --depth DEPTH         ツリーの最大深度 (デフォルト: 50)
-  --no-class            クラス情報を非表示
+  --show-class          クラス情報を表示
   --no-follow-override  オーバーライド元を追跡しない
+  --verbose             詳細表示（Javadocをタブ区切りで表示）
 ```
 
 ```bash
@@ -278,6 +282,8 @@ METHOD="com.example.UserDaoImpl#save(User)"
 python call_tree_visualizer.py reverse "$METHOD"
 # オーバーライド元/インターフェースメソッドを追跡しない
 python call_tree_visualizer.py reverse "$METHOD" --no-follow-override
+# Javadocを表示
+python call_tree_visualizer.py reverse "$METHOD" --verbose
 ```
 
 #### export : 呼び出しツリーを指定形式のファイルにエクスポート
