@@ -207,6 +207,9 @@ public class CallTreeAnalyzer {
                 }
             });
 
+            // 親インターフェース・親クラスのオーバーライド元メソッドからもアノテーションを収集
+            collectInheritedMethodAnnotations(method, annotations, annotationRaws, new HashSet<>());
+
             // クラス情報を保存
             if (classMeta != null) {
                 this.classAnnotations = classMeta.annotations;
@@ -734,6 +737,116 @@ public class CallTreeAnalyzer {
             }
 
             return null;
+        }
+
+        /**
+         * 親クラスおよびインターフェースのオーバーライド元メソッドからアノテーションを再帰的に収集
+         */
+        private void collectInheritedMethodAnnotations(CtMethod<?> method,
+                Set<String> annotations,
+                Set<String> annotationRaws,
+                Set<String> visitedTypes) {
+            if (method == null || method.getDeclaringType() == null) {
+                return;
+            }
+
+            CtType<?> declaringType = method.getDeclaringType();
+
+            // 親クラスのメソッドからアノテーションを収集
+            if (declaringType instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) declaringType;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                if (superClassRef != null) {
+                    try {
+                        CtType<?> superType = superClassRef.getTypeDeclaration();
+                        if (superType != null) {
+                            collectAnnotationsFromType(method, superType, annotations, annotationRaws, visitedTypes);
+                        }
+                    } catch (Exception e) {
+                        // 型解決できない場合は無視
+                    }
+                }
+            }
+
+            // インターフェースのメソッドからアノテーションを収集
+            try {
+                for (CtTypeReference<?> iface : declaringType.getSuperInterfaces()) {
+                    try {
+                        CtType<?> ifaceType = iface.getTypeDeclaration();
+                        if (ifaceType != null) {
+                            collectAnnotationsFromType(method, ifaceType, annotations, annotationRaws, visitedTypes);
+                        }
+                    } catch (Exception e) {
+                        // 型解決できない場合は無視
+                    }
+                }
+            } catch (Exception e) {
+                // 無視
+            }
+        }
+
+        /**
+         * 指定された型から対応するメソッドを探し、そのアノテーションを収集
+         */
+        private void collectAnnotationsFromType(CtMethod<?> method,
+                CtType<?> targetType,
+                Set<String> annotations,
+                Set<String> annotationRaws,
+                Set<String> visitedTypes) {
+            if (targetType == null) {
+                return;
+            }
+
+            String typeName = targetType.getQualifiedName();
+            if (visitedTypes.contains(typeName)) {
+                return;
+            }
+            visitedTypes.add(typeName);
+
+            // 対応するメソッドを検索
+            CtMethod<?> parentMethod = findParentMethod(method, targetType);
+            if (parentMethod != null) {
+                // 親メソッドのアノテーションを追加
+                parentMethod.getAnnotations().forEach(ann -> {
+                    String simpleName = ann.getAnnotationType().getSimpleName();
+                    String annotationStr = ann.toString();
+                    annotations.add(simpleName);
+                    annotationRaws.add(annotationStr);
+                });
+            }
+
+            // さらに親を辿る（再帰）
+            // 親クラス
+            if (targetType instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) targetType;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                if (superClassRef != null) {
+                    try {
+                        CtType<?> superType = superClassRef.getTypeDeclaration();
+                        if (superType != null) {
+                            collectAnnotationsFromType(method, superType, annotations, annotationRaws, visitedTypes);
+                        }
+                    } catch (Exception e) {
+                        // 無視
+                    }
+                }
+            }
+
+            // インターフェース
+            try {
+                for (CtTypeReference<?> iface : targetType.getSuperInterfaces()) {
+                    try {
+                        CtType<?> ifaceType = iface.getTypeDeclaration();
+                        if (ifaceType != null) {
+                            collectAnnotationsFromType(method, ifaceType, annotations, annotationRaws, visitedTypes);
+                        }
+                    } catch (Exception e) {
+                        // 無視
+                    }
+                }
+            } catch (Exception e) {
+                // 無視
+            }
         }
     }
 
@@ -1675,7 +1788,7 @@ public class CallTreeAnalyzer {
             String javadoc = extractJavadocSummary(javadocRaw);
             writer.write("      \"javadoc\": \"" + escapeJson(javadoc) + "\",\n");
 
-            // アノテーション
+            // アノテーション（クラス名のみ）
             List<String> annotations = type.getAnnotations().stream()
                     .map(a -> a.getAnnotationType().getQualifiedName())
                     .collect(Collectors.toList());
@@ -1686,6 +1799,20 @@ public class CallTreeAnalyzer {
                     writer.write(", ");
                 writer.write("\"" + escapeJson(ann) + "\"");
                 firstAnn = false;
+            }
+            writer.write("],\n");
+
+            // アノテーション（フル形式、パス情報等を含む）
+            List<String> annotationRaws = type.getAnnotations().stream()
+                    .map(a -> a.toString())
+                    .collect(Collectors.toList());
+            writer.write("      \"annotationRaws\": [");
+            boolean firstAnnRaw = true;
+            for (String ann : annotationRaws) {
+                if (!firstAnnRaw)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(ann) + "\"");
+                firstAnnRaw = false;
             }
             writer.write("],\n");
 
@@ -1763,6 +1890,7 @@ public class CallTreeAnalyzer {
         Map<String, List<Map<String, Object>>> interfaceMap = new HashMap<>();
         Map<String, String> interfaceJavadocs = new HashMap<>();
         Map<String, List<String>> interfaceAnnotations = new HashMap<>();
+        Map<String, List<String>> interfaceAnnotationRaws = new HashMap<>();
         Map<String, Set<String>> interfaceSuperInterfaces = new HashMap<>();
         Map<String, Set<String>> interfaceHitWordsMap = new HashMap<>();
 
@@ -1784,6 +1912,12 @@ public class CallTreeAnalyzer {
                         .map(a -> a.getAnnotationType().getQualifiedName())
                         .collect(Collectors.toList());
                 interfaceAnnotations.put(ifaceName, anns);
+
+                // フル形式のアノテーションを収集
+                List<String> annRaws = type.getAnnotations().stream()
+                        .map(a -> a.toString())
+                        .collect(Collectors.toList());
+                interfaceAnnotationRaws.put(ifaceName, annRaws);
 
                 // 親インターフェースを収集
                 Set<String> superIfaces = new HashSet<>();
@@ -1863,6 +1997,18 @@ public class CallTreeAnalyzer {
                     writer.write(", ");
                 writer.write("\"" + escapeJson(ann) + "\"");
                 firstIfaceAnn = false;
+            }
+            writer.write("],\n");
+
+            // アノテーション（フル形式）
+            List<String> ifaceAnnRaws = interfaceAnnotationRaws.getOrDefault(ifaceName, Collections.emptyList());
+            writer.write("      \"annotationRaws\": [");
+            boolean firstIfaceAnnRaw = true;
+            for (String ann : ifaceAnnRaws) {
+                if (!firstIfaceAnnRaw)
+                    writer.write(", ");
+                writer.write("\"" + escapeJson(ann) + "\"");
+                firstIfaceAnnRaw = false;
             }
             writer.write("],\n");
 

@@ -199,6 +199,9 @@ class CallTreeVisualizer:
         self.reverse_calls: Dict[str, List[str]] = defaultdict(list)
         self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
         self.class_info: Dict[str, List[str]] = {}
+        # クラス・インターフェースのメタデータ（annotations, javadoc等）
+        self.class_data: Dict[str, Dict] = {}  # className -> {annotations, javadoc, superClass, directInterfaces, allInterfaces}
+        self.interface_data: Dict[str, Dict] = {}  # interfaceName -> {annotations, javadoc, superInterfaces}
         self.exclusion_manager: ExclusionRuleManager = ExclusionRuleManager(
             exclusion_file
         )
@@ -238,6 +241,7 @@ class CallTreeVisualizer:
                 "class_annotations": ",".join(method.get("classAnnotations", [])),
                 "sql": " ||| ".join(method.get("sqlStatements", [])),
                 "javadoc": method.get("javadoc", ""),
+                "class_javadoc": method.get("classJavadoc", ""),
                 "hit_words": ",".join(method.get("hitWords", [])),
             }
 
@@ -279,6 +283,127 @@ class CallTreeVisualizer:
             # 逆引き呼び出し関係を保存
             for caller in method.get("calledBy", []):
                 self.reverse_calls[method_sig].append(caller)
+
+        # classesセクションを読み込み
+        classes = data.get("classes", [])
+        for cls in classes:
+            class_name = cls.get("className", "")
+            if class_name:
+                self.class_data[class_name] = {
+                    "annotations": cls.get("annotations", []),
+                    "annotationRaws": cls.get("annotationRaws", []),
+                    "javadoc": cls.get("javadoc", ""),
+                    "superClass": cls.get("superClass", ""),
+                    "directInterfaces": cls.get("directInterfaces", []),
+                    "allInterfaces": cls.get("allInterfaces", []),
+                }
+
+        # interfacesセクションを読み込み
+        interfaces = data.get("interfaces", [])
+        for iface in interfaces:
+            iface_name = iface.get("interfaceName", "")
+            if iface_name:
+                self.interface_data[iface_name] = {
+                    "annotations": iface.get("annotations", []),
+                    "annotationRaws": iface.get("annotationRaws", []),
+                    "javadoc": iface.get("javadoc", ""),
+                    "superInterfaces": iface.get("superInterfaces", []),
+                }
+
+    def _get_all_class_annotations(self, class_name: str) -> List[str]:
+        """クラスとその親クラス・インターフェースのすべてのアノテーションを再帰的に取得"""
+        if not class_name:
+            return []
+
+        all_annotations: List[str] = []
+        visited: Set[str] = set()
+        self._collect_annotations_recursive(class_name, all_annotations, visited)
+        return all_annotations
+
+    def _collect_annotations_recursive(
+        self, type_name: str, all_annotations: List[str], visited: Set[str]
+    ) -> None:
+        """アノテーションを再帰的に収集"""
+        if not type_name or type_name in visited:
+            return
+        visited.add(type_name)
+
+        # クラスとして検索
+        if type_name in self.class_data:
+            cls = self.class_data[type_name]
+            for ann in cls.get("annotations", []):
+                if ann not in all_annotations:
+                    all_annotations.append(ann)
+            # 親クラスを辿る
+            super_class = cls.get("superClass", "")
+            if super_class:
+                self._collect_annotations_recursive(super_class, all_annotations, visited)
+            # インターフェースを辿る
+            for iface in cls.get("directInterfaces", []):
+                self._collect_annotations_recursive(iface, all_annotations, visited)
+
+        # インターフェースとして検索
+        if type_name in self.interface_data:
+            iface = self.interface_data[type_name]
+            for ann in iface.get("annotations", []):
+                if ann not in all_annotations:
+                    all_annotations.append(ann)
+            # 親インターフェースを辿る
+            for super_iface in iface.get("superInterfaces", []):
+                self._collect_annotations_recursive(super_iface, all_annotations, visited)
+
+    def _get_class_javadoc(self, class_name: str) -> str:
+        """クラスのJavadocを取得（なければ空文字）"""
+        if class_name in self.class_data:
+            return self.class_data[class_name].get("javadoc", "")
+        if class_name in self.interface_data:
+            return self.interface_data[class_name].get("javadoc", "")
+        return ""
+
+    def _get_all_class_annotation_raws(self, class_name: str) -> List[str]:
+        """クラスとその親クラス・インターフェースのフル形式アノテーションを再帰的に取得
+        
+        エンドポイントパス抽出用にannotationRaws（@RequestMapping(path = "/bill")形式）を返す
+        """
+        if not class_name:
+            return []
+
+        all_annotations: List[str] = []
+        visited: Set[str] = set()
+        self._collect_annotation_raws_recursive(class_name, all_annotations, visited)
+        return all_annotations
+
+    def _collect_annotation_raws_recursive(
+        self, type_name: str, all_annotations: List[str], visited: Set[str]
+    ) -> None:
+        """フル形式アノテーションを再帰的に収集"""
+        if not type_name or type_name in visited:
+            return
+        visited.add(type_name)
+
+        # クラスとして検索
+        if type_name in self.class_data:
+            cls = self.class_data[type_name]
+            for ann in cls.get("annotationRaws", []):
+                if ann not in all_annotations:
+                    all_annotations.append(ann)
+            # 親クラスを辿る
+            super_class = cls.get("superClass", "")
+            if super_class:
+                self._collect_annotation_raws_recursive(super_class, all_annotations, visited)
+            # インターフェースを辿る
+            for iface in cls.get("directInterfaces", []):
+                self._collect_annotation_raws_recursive(iface, all_annotations, visited)
+
+        # インターフェースとして検索
+        if type_name in self.interface_data:
+            iface = self.interface_data[type_name]
+            for ann in iface.get("annotationRaws", []):
+                if ann not in all_annotations:
+                    all_annotations.append(ann)
+            # 親インターフェースを辿る
+            for super_iface in iface.get("superInterfaces", []):
+                self._collect_annotation_raws_recursive(super_iface, all_annotations, visited)
 
 
     def _load_tsv_data(self):
@@ -1116,15 +1241,15 @@ class CallTreeVisualizer:
             if annotations:
                 print(f"   メソッドアノテーション: {annotations}")
 
-            # クラスアノテーションも表示
+            # クラスアノテーションも表示（親クラス・インターフェース含む）
             info = self.method_info.get(method, {})
-            class_annotations = info.get("class_annotations", "")
-            if class_annotations:
-                print(f"   クラスアノテーション: {class_annotations}")
+            all_class_annotations = self._get_all_class_annotations(class_name)
+            if all_class_annotations:
+                print(f"   クラスアノテーション: {', '.join(all_class_annotations)}")
 
             # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
             if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
-                endpoint_path = self._extract_endpoint_path(info)
+                endpoint_path = self._extract_endpoint_path(info, class_name)
                 if endpoint_path:
                     print(f"   エンドポイント: {endpoint_path}")
 
@@ -1192,7 +1317,7 @@ class CallTreeVisualizer:
 
         # TSVヘッダーを出力
         print(
-            "メソッド\tクラス\tメソッド名\tエンドポイント\tjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション"
+            "メソッド\tパッケージ名\tクラス名\tメソッド名\tエンドポイント\tメソッドjavadoc\tクラスjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション"
         )
 
         # 結果をTSV形式で出力
@@ -1205,6 +1330,14 @@ class CallTreeVisualizer:
             visibility,
             javadoc,
         ) in entry_points:
+            # パッケージ名とクラス名（パッケージ除く）を分離
+            package_name = ""
+            class_name_only = class_name
+            if "." in class_name:
+                parts = class_name.rsplit(".", 1)
+                package_name = parts[0]
+                class_name_only = parts[1]
+
             # メソッド名（クラスや引数を含めないメソッド名のみ）を抽出
             method_name_only = ""
             if "#" in method:
@@ -1226,46 +1359,86 @@ class CallTreeVisualizer:
             info = self.method_info.get(method, {})
             endpoint_path = ""
             if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
-                endpoint_path = self._extract_endpoint_path(info)
+                endpoint_path = self._extract_endpoint_path(info, class_name)
 
-            # クラスアノテーションを取得
-            class_annotations = info.get("class_annotations", "")
+            # クラスアノテーションとクラスJavadocを取得（親クラス・インターフェース含む）
+            all_class_annotations = self._get_all_class_annotations(class_name)
+            class_annotations_str = ", ".join(all_class_annotations)
+            class_javadoc = self._get_class_javadoc(class_name)
 
             # TSV行を出力
             print(
-                f"{method}\t{class_name}\t{method_name_only}\t{endpoint_path}\t{javadoc}\t{entry_type}\t{annotations}\t{class_annotations}"
+                f"{method}\t{package_name}\t{class_name_only}\t{method_name_only}\t{endpoint_path}\t{javadoc}\t{class_javadoc}\t{entry_type}\t{annotations}\t{class_annotations_str}"
             )
 
-    def _extract_endpoint_path(self, info: dict) -> str:
+    def _extract_endpoint_path(self, info: dict, class_name: str = "") -> str:
         """アノテーションやクラスアノテーションからエンドポイントの path を抽出する
+
+        親クラス・インターフェースのアノテーションも考慮し、
+        クラスレベルのパス + メソッドレベルのパスを結合して返す。
 
         戻り値: 見つかれば path（例: /api/foo や https://... など）、見つからなければ空文字
         """
         if not info:
             return ""
 
-        text = ""
-        text += str(info.get("annotations", "")) + " "
-        text += str(info.get("class_annotations", ""))
+        method_annotations = str(info.get("annotations", ""))
 
-        # よく使われるマッピングアノテーションのパターン
-        patterns = [
+        # クラスレベルのアノテーション（親クラス・インターフェース含む、フル形式）を取得
+        all_class_annotation_raws = self._get_all_class_annotation_raws(class_name) if class_name else []
+        class_annotations = " ".join(all_class_annotation_raws)
+
+        # パス抽出パターン
+        path_patterns = [
+            r"\w*Mapping\(\s*path\s*=\s*[\"']([^\"']+)[\"']",  # path = "/x"
+            r"\w*Mapping\(\s*value\s*=\s*[\"']([^\"']+)[\"']",  # value = "/x"
             r"\w*Mapping\(\s*[\"']([^\"']+)[\"']",  # GetMapping("/x"), RequestMapping("/x") 等
-            r"RequestMapping\(.*?path\s*=\s*[\"']([^\"']+)[\"']",  # path = "/x"
-            r"RequestMapping\(.*?value\s*=\s*[\"']([^\"']+)[\"']",  # value = "/x"
             r"Path\(\s*[\"']([^\"']+)[\"']",  # JAX-RS @Path
-            r"[\"'](\/[^\"']+)[\"']",  # 汎用: 引用された /... パス
-            r"[\"'](https?://[^\"']+)[\"']",  # フルURL
         ]
 
-        for p in patterns:
-            m = re.search(p, text)
+        # クラスレベルの基本パスを抽出（@RequestMapping等から）
+        base_path = ""
+        for pattern in path_patterns:
+            m = re.search(pattern, class_annotations)
+            if m:
+                base_path = m.group(1)
+                break
+
+        # メソッドレベルのパスを抽出
+        method_path = ""
+        for pattern in path_patterns:
+            m = re.search(pattern, method_annotations)
+            if m:
+                method_path = m.group(1)
+                break
+
+        # パスの結合
+        if base_path and method_path:
+            # 両方存在する場合は結合
+            if base_path.endswith("/"):
+                base_path = base_path[:-1]
+            if not method_path.startswith("/"):
+                method_path = "/" + method_path
+            return base_path + method_path
+        elif base_path:
+            return base_path
+        elif method_path:
+            return method_path
+
+        # 汎用パターンでの検索（上記で見つからない場合）
+        full_text = method_annotations + " " + class_annotations
+        general_patterns = [
+            r"[\"'](/[^\"']+)[\"']",  # 汎用: 引用された /... パス
+            r"[\"'](https?://[^\"']+)[\"']",  # フルURL
+        ]
+        for pattern in general_patterns:
+            m = re.search(pattern, full_text)
             if m:
                 return m.group(1)
 
         # SOAP系: class アノテーションに serviceName や targetNamespace があれば返す
         m2 = re.search(
-            r"(?:serviceName|targetNamespace)\s*=\s*[\"']([^\"']+)[\"']", text
+            r"(?:serviceName|targetNamespace)\s*=\s*[\"']([^\"']+)[\"']", full_text
         )
         if m2:
             return m2.group(1)
@@ -2316,8 +2489,8 @@ class CallTreeVisualizer:
 # サブコマンドハンドラー関数
 
 
-def handle_list(args, visualizer: CallTreeVisualizer) -> None:
-    """listサブコマンドの処理"""
+def handle_entries(args, visualizer: CallTreeVisualizer) -> None:
+    """entriesサブコマンドの処理"""
     if args.tsv:
         visualizer.list_entry_points_tsv(args.min_calls, args.strict)
     else:
@@ -2649,8 +2822,8 @@ def main():
   <物理テーブル名><TAB><論理テーブル名><TAB><補足情報>
 
 使用例:
-  %(prog)s list
-  %(prog)s list --no-strict --min-calls 5
+  %(prog)s entries
+  %(prog)s entries --no-strict --min-calls 5
   %(prog)s forward 'com.example.Main#main(String[])'
   %(prog)s reverse 'com.example.Service#process()'
   %(prog)s export 'com.example.Main#main(String[])' tree.html --format html
@@ -2681,21 +2854,21 @@ def main():
     # サブコマンドの作成
     subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
 
-    # list サブコマンド
-    parser_list = subparsers.add_parser("list", help="エントリーポイント候補を表示")
-    parser_list.add_argument(
+    # entries サブコマンド
+    parser_entries = subparsers.add_parser("entries", help="エントリーポイント候補を表示")
+    parser_entries.add_argument(
         "--no-strict",
         action="store_false",
         dest="strict",
         help="緩和モード（デフォルトは厳密モード）",
     )
-    parser_list.add_argument(
+    parser_entries.add_argument(
         "--min-calls",
         type=int,
         default=1,
         help="エントリーポイントの最小呼び出し数 (デフォルト: 1)",
     )
-    parser_list.add_argument(
+    parser_entries.add_argument(
         "--tsv",
         action="store_true",
         help="TSV形式で出力",
@@ -2917,8 +3090,8 @@ def main():
     )
 
     # サブコマンドに応じた処理を実行
-    if args.command == "list":
-        handle_list(args, visualizer)
+    if args.command == "entries":
+        handle_entries(args, visualizer)
     elif args.command == "search":
         handle_search(args, visualizer)
     elif args.command == "forward":

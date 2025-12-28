@@ -11,7 +11,7 @@
   - [事前準備](#事前準備)
   - [使い方](#使い方)
   - [サブコマンド](#サブコマンド)
-    - [list : エントリーポイントの一覧出力](#list--エントリーポイントの一覧出力)
+    - [entries : エントリーポイントの一覧出力](#entries--エントリーポイントの一覧出力)
     - [search : キーワードでメソッドを検索](#search--キーワードでメソッドを検索)
     - [forward : 呼び出しツリー出力](#forward--呼び出しツリー出力)
     - [reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）](#reverse--逆引きツリー出力誰がこのメソッドを呼んでいるか)
@@ -136,7 +136,7 @@ pyinstaller --onefile --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.
 ```bash
 $ python call_tree_visualizer.py --help
 usage: call_tree_visualizer.py [-h] [-i INPUT_FILE] [--exclusion-file EXCLUSION_FILE] [--output-tsv-encoding OUTPUT_TSV_ENCODING]
-                               {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls} ...
+                               {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls} ...
 
 呼び出しツリー可視化スクリプト - JSONファイルから可視化を行います
 
@@ -150,8 +150,8 @@ options:
                         出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))
 
 サブコマンド:
-  {list,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
-    list                エントリーポイント候補を表示
+  {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
+    entries             エントリーポイント候補を表示
     search              キーワードでメソッドを検索
     forward             指定メソッドからの呼び出しツリーを表示
     reverse             指定メソッドへの呼び出し元ツリーを表示
@@ -168,8 +168,8 @@ options:
   E: 対象は表示するが、配下の呼び出しを除外
 
 使用例:
-  python call_tree_visualizer.py list
-  python call_tree_visualizer.py list --no-strict --min-calls 5
+  python call_tree_visualizer.py entries
+  python call_tree_visualizer.py entries --no-strict --min-calls 5
   python call_tree_visualizer.py forward 'com.example.Main#main(String[])'
   python call_tree_visualizer.py reverse 'com.example.Service#process()'
   python call_tree_visualizer.py export 'com.example.Main#main(String[])' tree.html --format html
@@ -183,18 +183,20 @@ options:
   python call_tree_visualizer.py -i custom.json list
 
 サブコマンドのヘルプを表示する例:
-  python call_tree_visualizer.py list --help
+  python call_tree_visualizer.py entries --help
   python call_tree_visualizer.py forward --help
   python call_tree_visualizer.py reverse --help
 ```
 
 ### サブコマンド
 
-#### list : エントリーポイントの一覧出力
+#### entries : エントリーポイントの一覧出力
+
+エントリーポイント候補を一覧表示します。`--tsv`オプションでTSV形式出力も可能です。
 
 ```bash
-$ python call_tree_visualizer.py list --help
-usage: call_tree_visualizer.py list [-h] [--no-strict] [--min-calls MIN_CALLS] [--tsv]
+$ python call_tree_visualizer.py entries --help
+usage: call_tree_visualizer.py entries [-h] [--no-strict] [--min-calls MIN_CALLS] [--tsv]
 
 options:
   -h, --help            show this help message and exit
@@ -206,10 +208,29 @@ options:
 
 ```bash
 # 厳密モード（デフォルト）
-python call_tree_visualizer.py list
+python call_tree_visualizer.py entries
 # 緩和モード（呼び出し数で絞り込み）
-python call_tree_visualizer.py list --no-strict --min-calls 5
+python call_tree_visualizer.py entries --no-strict --min-calls 5
+# TSV形式で出力
+python call_tree_visualizer.py entries --tsv
 ```
+
+###### TSV出力項目
+
+| 列 | 内容 |
+|---|---|
+| メソッド | メソッドシグネチャ（fully qualified name） |
+| パッケージ名 | パッケージ名 |
+| クラス名 | クラス名（パッケージ名を含めない） |
+| メソッド名 | メソッド名（引数を含めない） |
+| エンドポイント | HTTPエンドポイントパス（クラス+メソッドレベルのパスを結合） |
+| メソッドjavadoc | メソッドのJavadoc要約 |
+| クラスjavadoc | クラスのJavadoc要約 |
+| 種別 | エントリーポイントの種別（HTTP Endpoint、Main Method等） |
+| メソッドアノテーション | メソッドのアノテーション（親インターフェースのアノテーション含む） |
+| クラスアノテーション | クラス・インターフェースのアノテーション（親を含む） |
+
+> **Note**: エンドポイントパスは、インターフェース（例: `@RequestMapping("/bill")`）とメソッド（例: `@PostMapping("/generateReport")`）のパスを自動的に結合して `/bill/generateReport` のように出力します。
 
 #### search : キーワードでメソッドを検索
 
@@ -595,11 +616,11 @@ python call_tree_visualizer.py interface-impls
 ```bash
 # エントリーポイントの一覧から呼び出しツリーを出力するメソッドを選択
 # (fzfのインストールが必要)
-METHOD=$(LIST=$(python call_tree_visualizer.py list | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
+METHOD=$(LIST=$(python call_tree_visualizer.py entries | grep -E "^[0-9]" | sed -E 's/^[0-9]+\. //g'); echo "$LIST" | fzf)
 python call_tree_visualizer.py forward "$METHOD"
 
 # エントリーポイントのテキスト形式の呼び出しツリーを一括出力
-python call_tree_visualizer.py list | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
+python call_tree_visualizer.py entries | grep -E "^[0-9]+\." | sed -E "s|^[0-9]+\. ||g" | while read -r line; do
   python call_tree_visualizer.py forward "$line";
 done
 
