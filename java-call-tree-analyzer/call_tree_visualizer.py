@@ -506,6 +506,7 @@ class CallTreeVisualizer:
         follow_implementations: bool = True,
         verbose: bool = False,
         use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """呼び出し元からのツリーを表示
 
@@ -517,6 +518,7 @@ class CallTreeVisualizer:
             follow_implementations: 実装クラス候補がある場合、それも追跡するか
             verbose: 詳細表示（Javadocを表示）
             use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
+            short_mode: Trueの場合、クラス名からパッケージ名を省いて表示
         """
         print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
@@ -534,6 +536,7 @@ class CallTreeVisualizer:
             follow_implementations=follow_implementations,
             verbose=verbose,
             use_tab=use_tab,
+            short_mode=short_mode,
         )
 
     def print_reverse_tree(
@@ -544,6 +547,7 @@ class CallTreeVisualizer:
         follow_overrides: bool = True,
         verbose: bool = False,
         use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示
 
@@ -554,6 +558,7 @@ class CallTreeVisualizer:
             follow_overrides: オーバーライド元/インターフェースメソッドも追跡するか
             verbose: 詳細表示（Javadocを表示）
             use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
+            short_mode: Trueの場合、クラス名からパッケージ名を省いて表示
         """
         print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
@@ -571,6 +576,7 @@ class CallTreeVisualizer:
             final_endpoints,
             verbose,
             use_tab,
+            short_mode,
         )
 
         # 最終到達点のメソッド一覧を表示
@@ -594,6 +600,7 @@ class CallTreeVisualizer:
         follow_implementations: bool = True,
         verbose: bool = False,
         use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """ツリーを再帰的に表示"""
         if depth > max_depth:
@@ -606,12 +613,12 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, show_sql, is_circular=True, verbose=verbose, use_tab=use_tab
+                method, depth, show_class, show_sql, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab)
+        self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
@@ -647,6 +654,7 @@ class CallTreeVisualizer:
                     follow_implementations,
                     verbose,
                     use_tab,
+                    short_mode,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -708,6 +716,7 @@ class CallTreeVisualizer:
                                     follow_implementations,
                                     verbose,
                                     use_tab,
+                                    short_mode,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -723,6 +732,7 @@ class CallTreeVisualizer:
                     follow_implementations,
                     verbose,
                     use_tab,
+                    short_mode,
                 )
 
     def _print_reverse_tree_recursive(
@@ -736,6 +746,7 @@ class CallTreeVisualizer:
         final_endpoints: Optional[Set[str]] = None,
         verbose: bool = False,
         use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
@@ -748,12 +759,12 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, False, is_circular=True, verbose=verbose, use_tab=use_tab
+                method, depth, show_class, False, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, False, verbose=verbose, use_tab=use_tab)
+        self._print_node(method, depth, show_class, False, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
 
         callers = self.reverse_calls.get(method, [])
 
@@ -774,6 +785,7 @@ class CallTreeVisualizer:
                         final_endpoints,
                         verbose,
                         use_tab,
+                        short_mode,
                     )
             else:
                 # オーバーライド元もない場合は最終到達点
@@ -796,6 +808,7 @@ class CallTreeVisualizer:
                     final_endpoints,
                     verbose,
                     use_tab,
+                    short_mode,
                 )
 
     def _print_node(
@@ -807,6 +820,7 @@ class CallTreeVisualizer:
         is_circular: bool = False,
         verbose: bool = False,
         use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """ノード情報を表示"""
         # use_tabがTrueの場合、ハードタブでインデントし、プレフィックスを省略
@@ -819,8 +833,11 @@ class CallTreeVisualizer:
 
         info = self.method_info.get(method, {})
 
+        # 表示するメソッド名を決定（short_modeの場合、パッケージ名を省略）
+        display_method = self._shorten_method_signature(method) if short_mode else method
+
         # メソッド名を表示
-        display = f"{indent}{prefix}{method}"
+        display = f"{indent}{prefix}{display_method}"
         if is_circular:
             display += " [循環参照]"
 
@@ -846,6 +863,53 @@ class CallTreeVisualizer:
             sql_text = info.get("sql", "") or ""
             sub_indent = "\t" if use_tab else "    "
             print(f"{indent}{sub_indent}〓SQL: {sql_text}")
+
+    def _shorten_method_signature(self, method: str) -> str:
+        """メソッドシグネチャからパッケージ名を省いて返す
+
+        Args:
+            method: メソッドシグネチャ (例: "com.example.MyClass#myMethod(com.example.Arg)")
+
+        Returns:
+            パッケージ名を省いたメソッドシグネチャ (例: "MyClass#myMethod(Arg)")
+        """
+        if "#" not in method:
+            # メソッドシグネチャでない場合はそのまま返す
+            return method
+
+        # クラス名#メソッド名(引数) の形式を解析
+        hash_pos = method.find("#")
+        class_part = method[:hash_pos]
+        method_part = method[hash_pos + 1:]
+
+        # クラス名からパッケージ名を省略
+        short_class = class_part.split(".")[-1] if "." in class_part else class_part
+
+        # メソッド名の引数部分もパッケージ名を省略
+        paren_pos = method_part.find("(")
+        if paren_pos >= 0:
+            method_name = method_part[:paren_pos]
+            args_part = method_part[paren_pos + 1:-1]  # () 内の部分
+            if args_part:
+                # 引数をカンマで分割し、各引数のパッケージ名を省略
+                short_args = []
+                for arg in args_part.split(","):
+                    arg = arg.strip()
+                    # 配列の場合 (e.g., "String[]", "com.example.Type[]")
+                    array_suffix = ""
+                    if arg.endswith("[]"):
+                        array_suffix = "[]"
+                        arg = arg[:-2]
+                    # パッケージ名を省略
+                    short_arg = arg.split(".")[-1] if "." in arg else arg
+                    short_args.append(short_arg + array_suffix)
+                short_method_part = f"{method_name}({', '.join(short_args)})"
+            else:
+                short_method_part = f"{method_name}()"
+        else:
+            short_method_part = method_part
+
+        return f"{short_class}#{short_method_part}"
 
     def _find_parent_methods(self, method: str) -> List[str]:
         """メソッドのオーバーライド元/インターフェースメソッドを探す
@@ -2543,6 +2607,7 @@ def handle_forward(args, visualizer: CallTreeVisualizer) -> None:
         follow_implementations=args.follow_impl,
         verbose=args.verbose,
         use_tab=args.tab,
+        short_mode=args.short,
     )
 
 
@@ -2555,6 +2620,7 @@ def handle_reverse(args, visualizer: CallTreeVisualizer) -> None:
         follow_overrides=args.follow_override,
         verbose=args.verbose,
         use_tab=args.tab,
+        short_mode=args.short,
     )
 
 
@@ -2944,6 +3010,11 @@ def main():
         action="store_true",
         help="ハードタブでインデントし、プレフィックス|-- を省略",
     )
+    parser_forward.add_argument(
+        "--short",
+        action="store_true",
+        help="クラス名からパッケージ名を省いて表示",
+    )
 
     # reverse サブコマンド
     parser_reverse = subparsers.add_parser(
@@ -2974,6 +3045,11 @@ def main():
         "--tab",
         action="store_true",
         help="ハードタブでインデントし、プレフィックス|-- を省略",
+    )
+    parser_reverse.add_argument(
+        "--short",
+        action="store_true",
+        help="クラス名からパッケージ名を省いて表示",
     )
 
     # export サブコマンド
