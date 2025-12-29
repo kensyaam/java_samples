@@ -160,7 +160,11 @@ public class StubGenerator {
         }
 
         // 5. スタブの生成
-        for (String typeName : unresolvedTypeNames) {
+        // ネストされたクラスのためにソート（親クラスから先に生成するため）
+        List<String> sortedTypes = new ArrayList<>(unresolvedTypeNames);
+        Collections.sort(sortedTypes);
+
+        for (String typeName : sortedTypes) {
             createStubType(typeName, model);
         }
 
@@ -220,34 +224,127 @@ public class StubGenerator {
         if (processedTypes.contains(qualifiedName)) return;
         processedTypes.add(qualifiedName);
 
-        String packageName = "";
+        // ネストクラス対応
+        CtType<?> declaringType = null;
         String simpleName = qualifiedName;
-        int lastDot = qualifiedName.lastIndexOf('.');
-        if (lastDot != -1) {
-            packageName = qualifiedName.substring(0, lastDot);
-            simpleName = qualifiedName.substring(lastDot + 1);
+        String packageName = "";
+
+        // $が含まれる場合 (内部クラスのバイナリ名慣習)
+        if (qualifiedName.contains("$")) {
+            String parentName = qualifiedName.substring(0, qualifiedName.lastIndexOf('$'));
+            simpleName = qualifiedName.substring(qualifiedName.lastIndexOf('$') + 1);
+            declaringType = ensureTypeExists(parentName, originalModel);
+        }
+        // ドット区切りだが、プレフィックスが既に型として存在する場合 (ソースコード上の慣習)
+        else {
+            // 親となりうる部分を探す
+            String parentCandidate = null;
+            int lastDot = qualifiedName.lastIndexOf('.');
+            while (lastDot != -1) {
+                String candidate = qualifiedName.substring(0, lastDot);
+                if (processedTypes.contains(candidate)) {
+                    parentCandidate = candidate;
+                    break;
+                }
+                lastDot = candidate.lastIndexOf('.');
+            }
+
+            if (parentCandidate != null) {
+                // 親が見つかった -> ネストクラス
+                declaringType = stubFactory.Type().get(parentCandidate);
+                simpleName = qualifiedName.substring(parentCandidate.length() + 1); // .Inner
+            } else {
+                // 通常のトップレベルクラス
+                lastDot = qualifiedName.lastIndexOf('.');
+                if (lastDot != -1) {
+                    packageName = qualifiedName.substring(0, lastDot);
+                    simpleName = qualifiedName.substring(lastDot + 1);
+                }
+                stubFactory.Package().getOrCreate(packageName);
+            }
         }
 
-        // パッケージ作成
-        CtPackage pkg = stubFactory.Package().getOrCreate(packageName);
+        // 型の種類を推論 (Interface, Annotation, Enum, Class)
+        CtType<?> stubType = createTypeBasedOnUsage(qualifiedName, simpleName, originalModel);
+        stubType.addModifier(ModifierKind.PUBLIC);
 
-        // クラス作成 (とりあえずClassとして作成、Interfaceの可能性もあるが)
-        // 呼び出し状況からInterfaceかClassか推測できればベストだが、Classにしておけば概ね動く
-        CtClass<?> stubClass = stubFactory.Class().create(qualifiedName);
-        stubClass.setSimpleName(simpleName);
-        stubClass.addModifier(ModifierKind.PUBLIC);
+        // ネストクラスとして追加 または パッケージに追加
+        if (declaringType != null) {
+            stubType.addModifier(ModifierKind.STATIC); // デフォルトでstatic inner classにする
+            declaringType.addNestedType(stubType);
+        }
 
-        // メソッドの推論
-        inferMethods(stubClass, qualifiedName, originalModel);
-
-        // フィールドの推論
-        inferFields(stubClass, qualifiedName, originalModel);
-
-        // 親クラス・インターフェースの推論 (extends/implementsされている場合)
-        // これは難しいので、とりあえずObject継承のままにする
+        // メンバの推論
+        inferMethods(stubType, qualifiedName, originalModel);
+        inferFields(stubType, qualifiedName, originalModel);
     }
 
-    private void inferMethods(CtClass<?> stubClass, String targetTypeQName, CtModel originalModel) {
+    private CtType<?> ensureTypeExists(String typeName, CtModel model) {
+        CtType<?> type = stubFactory.Type().get(typeName);
+        if (type == null) {
+            createStubType(typeName, model);
+            type = stubFactory.Type().get(typeName);
+        }
+        return type;
+    }
+
+    private CtType<?> createTypeBasedOnUsage(String qualifiedName, String simpleName, CtModel model) {
+        // アノテーションとして使われているか確認
+        boolean isAnnotation = model.getElements(new TypeFilter<>(CtAnnotation.class)).stream()
+                .anyMatch(a -> a.getAnnotationType().getQualifiedName().equals(qualifiedName));
+
+        if (isAnnotation) {
+            CtAnnotationType<?> annType = stubFactory.Core().createAnnotationType();
+            annType.setSimpleName(simpleName);
+            // 通常のクラスとして登録されないようにパッケージに追加する必要があるが、
+            // SpoonのFactory.createAnnotationTypeなどは自動でやってくれない場合がある
+            // ここでは簡易的に処理
+            if (!qualifiedName.contains("$")) {
+                String packageName = "";
+                if (qualifiedName.contains(".")) {
+                    packageName = qualifiedName.substring(0, qualifiedName.lastIndexOf('.'));
+                }
+                stubFactory.Package().getOrCreate(packageName).addType(annType);
+            }
+            return annType;
+        }
+
+        // インターフェースとして使われているか確認 (implementsされているか)
+        boolean isInterface = model.getElements(new TypeFilter<>(CtType.class)).stream()
+                .flatMap(t -> t.getSuperInterfaces().stream())
+                .anyMatch(ref -> ref.getQualifiedName().equals(qualifiedName));
+
+        if (isInterface) {
+             CtInterface<?> iface = stubFactory.Core().createInterface();
+             iface.setSimpleName(simpleName);
+             if (!qualifiedName.contains("$")) {
+                 String packageName = "";
+                 if (qualifiedName.contains(".")) {
+                     packageName = qualifiedName.substring(0, qualifiedName.lastIndexOf('.'));
+                 }
+                 stubFactory.Package().getOrCreate(packageName).addType(iface);
+             }
+             return iface;
+        }
+
+        // Enumとして使われているか (簡易判定: switchのcaseに使われている、あるいはEnumSetなどで使われている...は難しいので、
+        // 名前や特定のメソッド呼び出し(values, valueOf)で判定する手もあるが、誤検知のリスクあり)
+        // ここでは安全のためClassとして生成するが、もしEnum定数のようなフィールドアクセスがあればEnumにするなどのロジックも追加可能
+        // 現状はClassでフォールバック
+
+        CtClass<?> clazz = stubFactory.Core().createClass();
+        clazz.setSimpleName(simpleName);
+        if (!qualifiedName.contains("$")) {
+             String packageName = "";
+             if (qualifiedName.contains(".")) {
+                 packageName = qualifiedName.substring(0, qualifiedName.lastIndexOf('.'));
+             }
+             stubFactory.Package().getOrCreate(packageName).addType(clazz);
+        }
+        return clazz;
+    }
+
+    private void inferMethods(CtType<?> stubType, String targetTypeQName, CtModel originalModel) {
         // 対象の型に対するメソッド呼び出しを検索
         // targetTypeQNameを持つ変形あるいは式に対するInvocationを探す
 
@@ -343,13 +440,13 @@ public class StubGenerator {
                     }
                     method.setBody(body);
 
-                    stubClass.addMethod(method);
+                    stubType.addMethod(method);
                 }
             }
         }
     }
 
-    private void inferFields(CtClass<?> stubClass, String targetTypeQName, CtModel originalModel) {
+    private void inferFields(CtType<?> stubType, String targetTypeQName, CtModel originalModel) {
         // フィールドアクセスを検索
         List<CtFieldAccess<?>> accesses = originalModel.getElements(new TypeFilter<>(CtFieldAccess.class));
         Set<String> addedFields = new HashSet<>();
@@ -366,13 +463,10 @@ public class StubGenerator {
                 field.addModifier(ModifierKind.PUBLIC);
 
                 // 型推論 (使われ方から)
-                // FieldReadなら、その親がAssignmentの右辺なら... 難しいのでObjectか、
-                // あるいはFieldWriteなら右辺の型
                 CtTypeReference<?> fieldType = stubFactory.Type().objectType();
 
                 if (access instanceof CtFieldWrite) {
                      CtFieldWrite<?> write = (CtFieldWrite<?>) access;
-                     // write.getParent() が Assignment
                      if (write.getParent() instanceof CtAssignment) {
                          CtAssignment<?,?> assign = (CtAssignment<?,?>) write.getParent();
                          if (assign.getAssignment() != null && assign.getAssignment().getType() != null) {
@@ -380,10 +474,8 @@ public class StubGenerator {
                          }
                      }
                 } else {
-                    // Readの場合、代入先などから推論
                     if (access.getParent() instanceof CtAssignment) {
                          CtAssignment<?,?> assign = (CtAssignment<?,?>) access.getParent();
-                         // 左辺に代入されている場合 (Readが右辺)
                          if (assign.getAssigned() != null && assign.getAssigned().getType() != null) {
                              fieldType = createTypeReferenceInStubFactory(assign.getAssigned().getType());
                          }
@@ -396,7 +488,7 @@ public class StubGenerator {
                 }
 
                 field.setType((CtTypeReference) fieldType);
-                stubClass.addField(field);
+                stubType.addField(field);
             }
         }
     }
