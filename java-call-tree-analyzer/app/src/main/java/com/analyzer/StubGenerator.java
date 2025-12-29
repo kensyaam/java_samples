@@ -10,6 +10,7 @@ import spoon.reflect.visitor.filter.TypeFilter;
 import spoon.reflect.code.*;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,7 +93,10 @@ public class StubGenerator {
 
         if (!classpath.isEmpty()) {
             // クラスパスがある場合は設定（解決できるものは解決させる）
-            analyzerLauncher.getEnvironment().setSourceClasspath(classpath.split(","));
+            String[] cpPaths = classpath.split(",");
+            List<String> expandedClasspath = expandClasspath(cpPaths);
+            analyzerLauncher.getEnvironment().setSourceClasspath(expandedClasspath.toArray(new String[0]));
+            System.out.println("クラスパス設定: " + expandedClasspath.size() + "個");
         }
 
         // 2. モデル構築
@@ -162,6 +166,46 @@ public class StubGenerator {
         stubLauncher.prettyprint();
 
         System.out.println("スタブ生成完了: " + outputDir);
+    }
+
+    /**
+     * クラスパスを展開（ディレクトリ指定の場合、そのディレクトリと中のすべてのJARファイルを追加）
+     */
+    private List<String> expandClasspath(String[] cpPaths) {
+        List<String> result = new ArrayList<>();
+
+        for (String cpPath : cpPaths) {
+            cpPath = cpPath.trim();
+            Path path = Paths.get(cpPath);
+
+            try {
+                if (Files.isDirectory(path)) {
+                    // ディレクトリ自体を追加
+                    result.add(cpPath);
+                    System.out.println("ディレクトリ追加: " + cpPath);
+
+                    // その中のすべてのJARファイルを追加
+                    try (var stream = Files.list(path)) {
+                        stream.filter(p -> p.toString().endsWith(".jar"))
+                                .map(Path::toString)
+                                .forEach(e -> {
+                                    result.add(e);
+                                    System.out.println("  JAR追加: " + e);
+                                });
+                    }
+                } else if (Files.isRegularFile(path)) {
+                    // ファイルの場合、そのまま追加
+                    result.add(cpPath);
+                    System.out.println("ファイル追加: " + cpPath);
+                } else if (!Files.exists(path)) {
+                    System.out.println("警告: パスが存在しません: " + cpPath);
+                }
+            } catch (IOException e) {
+                System.err.println("クラスパス処理エラー (" + cpPath + "): " + e.getMessage());
+            }
+        }
+
+        return result;
     }
 
     private void createStubType(String qualifiedName, CtModel originalModel) {
