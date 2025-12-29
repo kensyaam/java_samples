@@ -112,6 +112,8 @@ public class StubGenerator {
         // 3. スタブ生成用Launcherのセットアップ
         Launcher stubLauncher = new Launcher();
         stubLauncher.getEnvironment().setNoClasspath(true);
+        stubLauncher.getEnvironment().setComplianceLevel(complianceLevel);
+        stubLauncher.getEnvironment().setEncoding(Charset.forName(encoding));
         stubFactory = stubLauncher.getFactory();
 
         // 4. 未解決の型参照を収集
