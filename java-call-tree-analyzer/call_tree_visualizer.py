@@ -845,14 +845,14 @@ class CallTreeVisualizer:
         if verbose:
             javadoc = info.get("javadoc", "")
             if javadoc:
-                display += f"\t〓{javadoc}"
+                display += f"    〓{javadoc}"
 
         print(display)
 
         # クラス情報を表示
         if show_class and info.get("class"):
             class_name = info.get("class", "")
-            sub_indent = "\t" if use_tab else "    "
+            sub_indent = "    "
             print(f"{indent}{sub_indent}〓クラス: {class_name}")
             if info.get("parent"):
                 parent_class = info.get("parent", "")
@@ -861,7 +861,7 @@ class CallTreeVisualizer:
         # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
             sql_text = info.get("sql", "") or ""
-            sub_indent = "\t" if use_tab else "    "
+            sub_indent = "    "
             print(f"{indent}{sub_indent}〓SQL: {sql_text}")
 
     def _shorten_method_signature(self, method: str) -> str:
