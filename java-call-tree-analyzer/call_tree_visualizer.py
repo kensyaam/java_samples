@@ -505,6 +505,7 @@ class CallTreeVisualizer:
         show_sql: bool = False,
         follow_implementations: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
     ):
         """呼び出し元からのツリーを表示
 
@@ -515,6 +516,7 @@ class CallTreeVisualizer:
             show_sql: SQL情報を表示するか
             follow_implementations: 実装クラス候補がある場合、それも追跡するか
             verbose: 詳細表示（Javadocを表示）
+            use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
         """
         print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
@@ -531,6 +533,7 @@ class CallTreeVisualizer:
             is_forward=True,
             follow_implementations=follow_implementations,
             verbose=verbose,
+            use_tab=use_tab,
         )
 
     def print_reverse_tree(
@@ -540,6 +543,7 @@ class CallTreeVisualizer:
         show_class: bool = False,
         follow_overrides: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
     ):
         """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示
 
@@ -549,6 +553,7 @@ class CallTreeVisualizer:
             show_class: クラス情報を表示するか
             follow_overrides: オーバーライド元/インターフェースメソッドも追跡するか
             verbose: 詳細表示（Javadocを表示）
+            use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
         """
         print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
@@ -565,6 +570,7 @@ class CallTreeVisualizer:
             follow_overrides,
             final_endpoints,
             verbose,
+            use_tab,
         )
 
         # 最終到達点のメソッド一覧を表示
@@ -587,6 +593,7 @@ class CallTreeVisualizer:
         is_forward: bool,
         follow_implementations: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
     ):
         """ツリーを再帰的に表示"""
         if depth > max_depth:
@@ -599,17 +606,17 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, show_sql, is_circular=True, verbose=verbose
+                method, depth, show_class, show_sql, is_circular=True, verbose=verbose, use_tab=use_tab
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, show_sql, verbose=verbose)
+        self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab)
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
-            indent = "    " * (depth + 1)
-            print(f"{indent}[配下の呼び出しを除外]")
+            indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+            print(f"{indent}〓[配下の呼び出しを除外]")
             return
 
         # 子ノードを表示
@@ -618,7 +625,7 @@ class CallTreeVisualizer:
             for callee_info in callees:
                 callee = callee_info["method"]
 
-                indent = "    " * (depth + 1)
+                indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
 
                 # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
                 if not self.exclusion_manager.should_include(callee):
@@ -626,7 +633,7 @@ class CallTreeVisualizer:
 
                 # 親クラスメソッドの情報を表示
                 if callee_info["is_parent_method"] == "Yes":
-                    print(f"{indent}↓ [親クラスメソッド]")
+                    print(f"{indent}〓↓ [親クラスメソッド]")
 
                 # 呼び出し先を再帰的に表示
                 self._print_tree_recursive(
@@ -639,6 +646,7 @@ class CallTreeVisualizer:
                     is_forward,
                     follow_implementations,
                     verbose,
+                    use_tab,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -658,8 +666,8 @@ class CallTreeVisualizer:
                         annotations.append(f"実装: {impl_class_info}")
 
                     for annotation in annotations:
-                        indent = "    " * (depth + 1)
-                        print(f"{indent}^ [{annotation}]")
+                        indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                        print(f"{indent}〓^ [{annotation}]")
 
                     # 実装クラス候補がある場合、それらも追跡
                     if follow_implementations:
@@ -670,8 +678,8 @@ class CallTreeVisualizer:
 
                         # Eモード: 除外対象の場合、実装クラスへの展開を停止
                         if self.exclusion_manager.should_exclude_children(callee):
-                            indent = "    " * (depth + 1)
-                            print(f"{indent}[実装クラスへの展開を除外]")
+                            indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                            print(f"{indent}〓[実装クラスへの展開を除外]")
                             continue
 
                         for impl_class in implementations:
@@ -686,8 +694,8 @@ class CallTreeVisualizer:
                                 ):
                                     continue
 
-                                indent = "    " * (depth + 1)
-                                print(f"{indent}> [実装クラスへの展開: {impl_class}]")
+                                indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                                print(f"{indent}〓> [実装クラスへの展開: {impl_class}]")
 
                                 self._print_tree_recursive(
                                     impl_method,
@@ -699,6 +707,7 @@ class CallTreeVisualizer:
                                     is_forward,
                                     follow_implementations,
                                     verbose,
+                                    use_tab,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -713,6 +722,7 @@ class CallTreeVisualizer:
                     is_forward,
                     follow_implementations,
                     verbose,
+                    use_tab,
                 )
 
     def _print_reverse_tree_recursive(
@@ -725,6 +735,7 @@ class CallTreeVisualizer:
         follow_overrides: bool,
         final_endpoints: Optional[Set[str]] = None,
         verbose: bool = False,
+        use_tab: bool = False,
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
@@ -737,12 +748,12 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, False, is_circular=True, verbose=verbose
+                method, depth, show_class, False, is_circular=True, verbose=verbose, use_tab=use_tab
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, False, verbose=verbose)
+        self._print_node(method, depth, show_class, False, verbose=verbose, use_tab=use_tab)
 
         callers = self.reverse_calls.get(method, [])
 
@@ -750,8 +761,8 @@ class CallTreeVisualizer:
         if not callers and follow_overrides:
             parent_methods = self._find_parent_methods(method)
             if parent_methods:
-                indent = "    " * (depth)
-                print(f"{indent}> [オーバーライド元/インターフェースメソッドを展開]")
+                indent = "\t" * depth if use_tab else "    " * depth
+                print(f"{indent}〓> [オーバーライド元/インターフェースメソッドを展開]")
                 for parent_method in parent_methods:
                     self._print_reverse_tree_recursive(
                         parent_method,
@@ -762,6 +773,7 @@ class CallTreeVisualizer:
                         follow_overrides,
                         final_endpoints,
                         verbose,
+                        use_tab,
                     )
             else:
                 # オーバーライド元もない場合は最終到達点
@@ -783,6 +795,7 @@ class CallTreeVisualizer:
                     follow_overrides,
                     final_endpoints,
                     verbose,
+                    use_tab,
                 )
 
     def _print_node(
@@ -793,10 +806,16 @@ class CallTreeVisualizer:
         show_sql: bool,
         is_circular: bool = False,
         verbose: bool = False,
+        use_tab: bool = False,
     ):
         """ノード情報を表示"""
-        indent = "    " * depth
-        prefix = "|-- " if depth > 0 else ""
+        # use_tabがTrueの場合、ハードタブでインデントし、プレフィックスを省略
+        if use_tab:
+            indent = "\t" * depth
+            prefix = ""
+        else:
+            indent = "    " * depth
+            prefix = "|-- " if depth > 0 else ""
 
         info = self.method_info.get(method, {})
 
@@ -809,22 +828,24 @@ class CallTreeVisualizer:
         if verbose:
             javadoc = info.get("javadoc", "")
             if javadoc:
-                display += f"\t{javadoc}"
+                display += f"\t〓{javadoc}"
 
         print(display)
 
         # クラス情報を表示
         if show_class and info.get("class"):
             class_name = info.get("class", "")
-            print(f"{indent}    クラス: {class_name}")
+            sub_indent = "\t" if use_tab else "    "
+            print(f"{indent}{sub_indent}〓クラス: {class_name}")
             if info.get("parent"):
                 parent_class = info.get("parent", "")
-                print(f"{indent}    親クラス: {parent_class}")
+                print(f"{indent}{sub_indent}〓親クラス: {parent_class}")
 
         # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
             sql_text = info.get("sql", "") or ""
-            print(f"{indent}    SQL: {sql_text}")
+            sub_indent = "\t" if use_tab else "    "
+            print(f"{indent}{sub_indent}〓SQL: {sql_text}")
 
     def _find_parent_methods(self, method: str) -> List[str]:
         """メソッドのオーバーライド元/インターフェースメソッドを探す
@@ -2521,6 +2542,7 @@ def handle_forward(args, visualizer: CallTreeVisualizer) -> None:
         show_sql=args.show_sql,
         follow_implementations=args.follow_impl,
         verbose=args.verbose,
+        use_tab=args.tab,
     )
 
 
@@ -2532,6 +2554,7 @@ def handle_reverse(args, visualizer: CallTreeVisualizer) -> None:
         show_class=args.show_class,
         follow_overrides=args.follow_override,
         verbose=args.verbose,
+        use_tab=args.tab,
     )
 
 
@@ -2916,6 +2939,11 @@ def main():
         action="store_true",
         help="詳細表示（Javadocをタブ区切りで表示）",
     )
+    parser_forward.add_argument(
+        "--tab",
+        action="store_true",
+        help="ハードタブでインデントし、プレフィックス|-- を省略",
+    )
 
     # reverse サブコマンド
     parser_reverse = subparsers.add_parser(
@@ -2941,6 +2969,11 @@ def main():
         "--verbose",
         action="store_true",
         help="詳細表示（Javadocをタブ区切りで表示）",
+    )
+    parser_reverse.add_argument(
+        "--tab",
+        action="store_true",
+        help="ハードタブでインデントし、プレフィックス|-- を省略",
     )
 
     # export サブコマンド

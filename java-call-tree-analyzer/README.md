@@ -254,7 +254,7 @@ python call_tree_visualizer.py search "$KEYWORD"
 
 ```bash
 $ python call_tree_visualizer.py forward --help
-usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] method
+usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] [--tab] method
 
 positional arguments:
   method                起点メソッド
@@ -266,6 +266,7 @@ options:
   --show-sql            SQL情報を表示
   --no-follow-impl      実装クラス候補を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
+  --tab                 ハードタブでインデントし、プレフィックス|-- を省略
 ```
 
 ```bash
@@ -276,6 +277,8 @@ python call_tree_visualizer.py forward "$METHOD"
 python call_tree_visualizer.py forward "$METHOD" --no-follow-impl
 # Javadocを表示
 python call_tree_visualizer.py forward "$METHOD" --verbose
+# ハードタブでインデント
+python call_tree_visualizer.py forward "$METHOD" --tab
 ```
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
@@ -285,7 +288,7 @@ python call_tree_visualizer.py forward "$METHOD" --verbose
 
 ```bash
 $ python call_tree_visualizer.py reverse --help
-usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] method
+usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] [--tab] method
 
 positional arguments:
   method                対象メソッド
@@ -296,6 +299,7 @@ options:
   --show-class          クラス情報を表示
   --no-follow-override  オーバーライド元を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
+  --tab                 ハードタブでインデントし、プレフィックス|-- を省略
 ```
 
 ```bash
@@ -306,6 +310,8 @@ python call_tree_visualizer.py reverse "$METHOD"
 python call_tree_visualizer.py reverse "$METHOD" --no-follow-override
 # Javadocを表示
 python call_tree_visualizer.py reverse "$METHOD" --verbose
+# ハードタブでインデント
+python call_tree_visualizer.py reverse "$METHOD" --tab
 ```
 
 #### export : 呼び出しツリーを指定形式のファイルにエクスポート
