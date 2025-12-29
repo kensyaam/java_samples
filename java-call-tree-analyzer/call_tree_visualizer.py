@@ -1183,100 +1183,9 @@ class CallTreeVisualizer:
             if method in all_callees:
                 continue
 
-            call_count = len(self.forward_calls.get(method, []))
-
-            # 厳密モードの場合
-            if strict:
-                if info.get("is_entry_point"):
-                    entry_type = self._determine_entry_type(method, info)
-                    entry_points.append(
-                        (
-                            method,
-                            call_count,
-                            info.get("class", ""),
-                            entry_type,
-                            info.get("annotations", ""),
-                            info.get("visibility", ""),
-                            info.get("javadoc", ""),
-                        )
-                    )
-            else:
-                # 非厳密モードの場合は呼び出し数で判定
-                if call_count >= min_calls:
-                    entry_type = self._determine_entry_type(method, info)
-                    entry_points.append(
-                        (
-                            method,
-                            call_count,
-                            info.get("class", ""),
-                            entry_type,
-                            info.get("annotations", ""),
-                            info.get("visibility", ""),
-                            info.get("javadoc", ""),
-                        )
-                    )
-
-        # エントリータイプと呼び出し数でソート
-        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
-
-        # 結果を表示
-        if not entry_points:
-            print("エントリーポイント候補が見つかりませんでした", file=sys.stderr)
-            return
-
-        for i, (
-            method,
-            call_count,
-            class_name,
-            entry_type,
-            annotations,
-            visibility,
-            javadoc,
-        ) in enumerate(entry_points, 1):
-            print(f"{i}. {method}")
-            print(f"   クラス: {class_name}")
-            print(f"   種別: {entry_type}")
-            print(f"   Javadoc: {javadoc}")
-            print(f"   可視性: {visibility}")
-            if annotations:
-                print(f"   メソッドアノテーション: {annotations}")
-
-            # クラスアノテーションも表示（親クラス・インターフェース含む）
-            info = self.method_info.get(method, {})
-            all_class_annotations = self._get_all_class_annotations(class_name)
-            if all_class_annotations:
-                print(f"   クラスアノテーション: {', '.join(all_class_annotations)}")
-
-            # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
-            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
-                endpoint_path = self._extract_endpoint_path(info, class_name)
-                if endpoint_path:
-                    print(f"   エンドポイント: {endpoint_path}")
-
-            print(f"   呼び出し数: {call_count}")
-            print()
-
-    def list_entry_points_tsv(self, min_calls: int = 1, strict: bool = True) -> None:
-        """エントリーポイント候補をTSV形式で出力
-
-        Args:
-            min_calls: 最小呼び出し数
-            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
-        """
-        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
-        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
-
-        # すべての呼び出し先を収集
-        all_callees = set()
-        for callees in self.forward_calls.values():
-            for callee_info in callees:
-                all_callees.add(callee_info["method"])
-
-        entry_points = []
-
-        for method, info in self.method_info.items():
-            # 他から呼ばれていないメソッドのみ
-            if method in all_callees:
+            # インターフェースの場合は除外
+            type = info.get("class", "")
+            if self.interface_data.get(type, ""):
                 continue
 
             call_count = len(self.forward_calls.get(method, []))
@@ -1312,8 +1221,109 @@ class CallTreeVisualizer:
                         )
                     )
 
-        # エントリータイプと呼び出し数でソート
-        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
+        # エントリータイプとメソッド名でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), x[0]))
+
+        # 結果を表示
+        if not entry_points:
+            print("エントリーポイント候補が見つかりませんでした", file=sys.stderr)
+            return
+
+        for i, (
+            method,
+            call_count,
+            class_name,
+            entry_type,
+            annotations,
+            visibility,
+            javadoc,
+        ) in enumerate(entry_points, 1):
+            print(f"{i}. {method}")
+            print(f"   クラス: {class_name}")
+            print(f"   種別: {entry_type}")
+            print(f"   Javadoc: {javadoc}")
+            print(f"   可視性: {visibility}")
+            if annotations:
+                print(f"   メソッドアノテーション: {annotations}")
+
+            # クラスアノテーションも表示（親クラス・インターフェース含む）
+            info = self.method_info.get(method, {})
+            all_class_annotations = self._get_all_class_annotation_raws(class_name)
+            if all_class_annotations:
+                print(f"   クラスアノテーション: {', '.join(all_class_annotations)}")
+
+            # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
+            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
+                endpoint_path = self._extract_endpoint_path(info, class_name)
+                if endpoint_path:
+                    print(f"   エンドポイント: {endpoint_path}")
+
+            print(f"   呼び出し数: {call_count}")
+            print()
+
+    def list_entry_points_tsv(self, min_calls: int = 1, strict: bool = True) -> None:
+        """エントリーポイント候補をTSV形式で出力
+
+        Args:
+            min_calls: 最小呼び出し数
+            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
+        """
+        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
+        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
+
+        # すべての呼び出し先を収集
+        all_callees = set()
+        for callees in self.forward_calls.values():
+            for callee_info in callees:
+                all_callees.add(callee_info["method"])
+
+        entry_points = []
+
+        for method, info in self.method_info.items():
+            # 他から呼ばれていないメソッドのみ
+            if method in all_callees:
+                continue
+
+            # インターフェースの場合は除外
+            type = info.get("class", "")
+            if self.interface_data.get(type, ""):
+                continue
+
+            call_count = len(self.forward_calls.get(method, []))
+
+            # 厳密モードの場合
+            if strict:
+                if info.get("is_entry_point"):
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+            else:
+                # 非厳密モードの場合は呼び出し数で判定
+                if call_count >= min_calls:
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+
+        # エントリータイプとメソッド名でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), x[0]))
 
         # TSVヘッダーを出力
         print(
@@ -1362,7 +1372,7 @@ class CallTreeVisualizer:
                 endpoint_path = self._extract_endpoint_path(info, class_name)
 
             # クラスアノテーションとクラスJavadocを取得（親クラス・インターフェース含む）
-            all_class_annotations = self._get_all_class_annotations(class_name)
+            all_class_annotations = self._get_all_class_annotation_raws(class_name)
             class_annotations_str = ", ".join(all_class_annotations)
             class_javadoc = self._get_class_javadoc(class_name)
 

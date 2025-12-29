@@ -986,6 +986,10 @@ public class CallTreeAnalyzer {
 
             try {
                 if (Files.isDirectory(path)) {
+                    // ディレクトリ自体を追加
+                    result.add(cpPath);
+                    System.out.println("ディレクトリ追加: " + cpPath);
+
                     // ディレクトリの場合、その中のすべてのJARファイルを追加
                     try (var stream = Files.list(path)) {
                         stream.filter(p -> p.toString().endsWith(".jar"))
