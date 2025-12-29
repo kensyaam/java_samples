@@ -11,6 +11,7 @@ import spoon.reflect.code.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +36,8 @@ public class StubGenerator {
         options.addOption("c", "classpath", true, "（オプション）既存のクラスパス");
         options.addOption("o", "output", true, "スタブ出力ディレクトリ（デフォルト: stubs）");
         options.addOption("d", "debug", false, "デバッグモード");
+        options.addOption("cl", "complianceLevel", true, "Javaのコンプライアンスレベル（デフォルト: 21）");
+        options.addOption("e", "encoding", true, "ソースコードの文字エンコーディング（デフォルト: UTF-8）");
         options.addOption("h", "help", false, "ヘルプを表示");
 
         CommandLineParser parser = new DefaultParser();
@@ -58,10 +61,12 @@ public class StubGenerator {
             String classpath = cmd.getOptionValue("classpath", "");
             String outputDir = cmd.getOptionValue("output", "stubs");
             boolean debug = cmd.hasOption("debug");
+            int complianceLevel = Integer.parseInt(cmd.getOptionValue("complianceLevel", "21"));
+            String encoding = cmd.getOptionValue("encoding", "UTF-8");
 
             StubGenerator generator = new StubGenerator();
             generator.setDebugMode(debug);
-            generator.generate(sourceDirs, classpath, outputDir);
+            generator.generate(sourceDirs, classpath, outputDir, complianceLevel, encoding);
 
         } catch (ParseException e) {
             System.err.println("引数解析エラー: " + e.getMessage());
@@ -76,7 +81,7 @@ public class StubGenerator {
         this.debugMode = debug;
     }
 
-    public void generate(String sourceDirs, String classpath, String outputDir) {
+    public void generate(String sourceDirs, String classpath, String outputDir, int complianceLevel, String encoding) {
         System.out.println("解析開始...");
         System.out.println("ソース: " + sourceDirs);
         System.out.println("出力先: " + outputDir);
@@ -85,7 +90,8 @@ public class StubGenerator {
         Launcher analyzerLauncher = new Launcher();
         analyzerLauncher.getEnvironment().setNoClasspath(true); // クラスパスが不完全でも動作させる
         analyzerLauncher.getEnvironment().setAutoImports(true);
-        analyzerLauncher.getEnvironment().setComplianceLevel(17); // 適当なバージョン
+        analyzerLauncher.getEnvironment().setComplianceLevel(complianceLevel);
+        analyzerLauncher.getEnvironment().setEncoding(Charset.forName(encoding));
 
         for (String dir : sourceDirs.split(",")) {
             analyzerLauncher.addInputResource(dir.trim());
