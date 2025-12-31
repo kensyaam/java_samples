@@ -243,6 +243,7 @@ class CallTreeVisualizer:
                 "javadoc": method.get("javadoc", ""),
                 "class_javadoc": method.get("classJavadoc", ""),
                 "hit_words": ",".join(method.get("hitWords", [])),
+                "createdInstances": method.get("createdInstances", []),  # 生成されたインスタンス
             }
 
             # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
@@ -296,6 +297,7 @@ class CallTreeVisualizer:
                     "superClass": cls.get("superClass", ""),
                     "directInterfaces": cls.get("directInterfaces", []),
                     "allInterfaces": cls.get("allInterfaces", []),
+                    "fieldInitializers": cls.get("fieldInitializers", []),  # フィールド初期化情報
                 }
 
         # interfacesセクションを読み込み
@@ -537,6 +539,7 @@ class CallTreeVisualizer:
             verbose=verbose,
             use_tab=use_tab,
             short_mode=short_mode,
+            accumulated_instances=None,  # ルートから累積開始
         )
 
     def print_reverse_tree(
@@ -601,8 +604,13 @@ class CallTreeVisualizer:
         verbose: bool = False,
         use_tab: bool = False,
         short_mode: bool = False,
+        accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
     ):
-        """ツリーを再帰的に表示"""
+        """ツリーを再帰的に表示
+
+        Args:
+            accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス情報
+        """
         if depth > max_depth:
             return
 
@@ -619,6 +627,13 @@ class CallTreeVisualizer:
 
         visited.add(method)
         self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
+
+        # 現在のメソッドで生成されるインスタンスを収集し、累積に追加
+        current_instances = self._collect_created_instances(method)
+        if accumulated_instances is None:
+            accumulated_instances = current_instances
+        else:
+            accumulated_instances = accumulated_instances | current_instances
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
@@ -655,6 +670,7 @@ class CallTreeVisualizer:
                     verbose,
                     use_tab,
                     short_mode,
+                    accumulated_instances,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -680,7 +696,7 @@ class CallTreeVisualizer:
                     # 実装クラス候補がある場合、それらも追跡
                     if follow_implementations:
                         # implementationsの各要素は、「<クラス名> + " [<追加情報>]"」の形式かもしれないので、クラス名だけ抽出
-                        implementations = [
+                        impl_classes = [
                             impl.split(" ")[0] for impl in implementations
                         ]
 
@@ -690,7 +706,15 @@ class CallTreeVisualizer:
                             print(f"{indent}〓[実装クラスへの展開を除外]")
                             continue
 
-                        for impl_class in implementations:
+                        # 累積されたインスタンス情報に基づいてフィルタリング
+                        if accumulated_instances:
+                            filtered_impl_classes = self._filter_implementations_by_accumulated_instances(
+                                accumulated_instances, impl_classes
+                            )
+                        else:
+                            filtered_impl_classes = impl_classes
+
+                        for impl_class in filtered_impl_classes:
                             # 実装クラスの対応するメソッドを探す
                             impl_method = self._find_implementation_method(
                                 callee, impl_class
@@ -717,6 +741,7 @@ class CallTreeVisualizer:
                                     verbose,
                                     use_tab,
                                     short_mode,
+                                    accumulated_instances,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -733,6 +758,7 @@ class CallTreeVisualizer:
                     verbose,
                     use_tab,
                     short_mode,
+                    accumulated_instances,
                 )
 
     def _print_reverse_tree_recursive(
@@ -1040,6 +1066,57 @@ class CallTreeVisualizer:
             queue.extend(self.class_info.get(current_parent, []))
 
         return None
+
+    def _filter_implementations_by_accumulated_instances(
+        self,
+        accumulated_instances: Set[str],
+        implementations: List[str],
+    ) -> List[str]:
+        """累積されたインスタンス情報を使用して実装クラス候補をフィルタリング
+
+        Args:
+            accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス
+            implementations: 実装クラス候補のリスト
+
+        Returns:
+            フィルタリングされた実装クラスのリスト
+        """
+        if not implementations or not accumulated_instances:
+            return implementations
+
+        # 実装クラス候補が累積インスタンスに含まれるかチェック
+        filtered = [impl for impl in implementations if impl in accumulated_instances]
+
+        if filtered:
+            return filtered  # マッチするものがあればそれのみ返す
+
+        return implementations  # マッチしなければ全候補を返す
+
+    def _collect_created_instances(self, method: str) -> Set[str]:
+        """メソッドおよびそのクラスで生成されるインスタンスを収集
+
+        Args:
+            method: メソッドシグネチャ
+
+        Returns:
+            生成されるインスタンスのクラス名セット
+        """
+        created_instances: Set[str] = set()
+
+        # メソッド内で生成されたインスタンス
+        method_info = self.method_info.get(method, {})
+        created_instances.update(method_info.get("createdInstances", []))
+
+        # クラスのフィールド初期化で生成されたインスタンス
+        method_class = method_info.get("class", "")
+        if method_class:
+            class_data = self.class_data.get(method_class, {})
+            for init in class_data.get("fieldInitializers", []):
+                initialized_class = init.get("initializedClass", "")
+                if initialized_class:
+                    created_instances.add(initialized_class)
+
+        return created_instances
 
     def export_tree_to_file(
         self,

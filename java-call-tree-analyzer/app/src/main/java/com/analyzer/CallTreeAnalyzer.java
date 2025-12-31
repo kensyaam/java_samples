@@ -40,6 +40,23 @@ public class CallTreeAnalyzer {
     private boolean debugMode = false; // デバッグモードフラグ
     private Set<String> searchWords = new HashSet<>(); // 検索ワード
     private Map<String, Set<String>> methodHitWords = new HashMap<>(); // メソッド -> 検出ワード
+    private Map<String, Set<String>> methodCreatedInstances = new HashMap<>(); // メソッド -> 生成されたインスタンスのクラス
+    private Map<String, List<FieldInitializer>> classFieldInitializers = new HashMap<>(); // クラス -> フィールド初期化情報
+
+    /**
+     * フィールド初期化情報
+     */
+    static class FieldInitializer {
+        String fieldName;
+        String fieldType;
+        String initializedClass;
+
+        FieldInitializer(String fieldName, String fieldType, String initializedClass) {
+            this.fieldName = fieldName;
+            this.fieldType = fieldType;
+            this.initializedClass = initializedClass;
+        }
+    }
 
     /**
      * Bean定義情報
@@ -961,10 +978,18 @@ public class CallTreeAnalyzer {
         // 9. リテラル文字列中の検索ワードを検出
         detectHitWords();
 
+        // 10. メソッド内のインスタンス生成を検出
+        detectCreatedInstances();
+
+        // 11. フィールド初期化を検出（宣言時+コンストラクタ内）
+        detectFieldInitializers();
+
         System.out.println("解析完了: " + methodMap.size() + "個のメソッドを検出");
         System.out.println("Bean定義: " + beanDefinitions.size() + "個");
         System.out.println("SQL文検出: " + sqlStatements.size() + "個のメソッドでSQL文を検出");
         System.out.println("検索ワード検出: " + methodHitWords.size() + "個のメソッドでワードを検出");
+        System.out.println("インスタンス生成: " + methodCreatedInstances.size() + "個のメソッドで生成を検出");
+        System.out.println("フィールド初期化: " + classFieldInitializers.size() + "個のクラスで検出");
     }
 
     /**
@@ -1648,6 +1673,117 @@ public class CallTreeAnalyzer {
     }
 
     /**
+     * メソッド内で生成されるインスタンスを検出
+     */
+    private void detectCreatedInstances() {
+        for (CtMethod<?> method : methodMap.values()) {
+            String methodSig = getMethodSignature(method);
+            Set<String> createdInstances = new HashSet<>();
+
+            // newキーワードによるコンストラクタ呼び出しを検出
+            List<CtConstructorCall<?>> constructorCalls = method.getElements(new TypeFilter<>(CtConstructorCall.class));
+            for (CtConstructorCall<?> constructorCall : constructorCalls) {
+                CtTypeReference<?> type = constructorCall.getType();
+                if (type != null) {
+                    String createdClass = type.getQualifiedName();
+                    if (!isJavaStandardLibrary(createdClass)) {
+                        createdInstances.add(createdClass);
+                    }
+                }
+            }
+
+            if (!createdInstances.isEmpty()) {
+                methodCreatedInstances.put(methodSig, createdInstances);
+                if (debugMode) {
+                    System.out.println("  生成インスタンス in " + methodSig + ": " + String.join(", ", createdInstances));
+                }
+            }
+        }
+    }
+
+    /**
+     * フィールド初期化を検出（宣言時+コンストラクタ内）
+     */
+    private void detectFieldInitializers() {
+        List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+
+        for (CtType<?> type : types) {
+            // インターフェースはフィールドを持たないので除外
+            if (type.isInterface()) {
+                continue;
+            }
+
+            String className = type.getQualifiedName();
+            List<FieldInitializer> initializers = new ArrayList<>();
+
+            // 1. フィールド宣言時の初期化を検出
+            for (CtField<?> field : type.getFields()) {
+                CtExpression<?> defaultExpr = field.getDefaultExpression();
+                if (defaultExpr instanceof CtConstructorCall) {
+                    CtConstructorCall<?> constructorCall = (CtConstructorCall<?>) defaultExpr;
+                    CtTypeReference<?> initType = constructorCall.getType();
+                    if (initType != null) {
+                        String initializedClass = initType.getQualifiedName();
+                        if (!isJavaStandardLibrary(initializedClass)) {
+                            String fieldName = field.getSimpleName();
+                            String fieldType = field.getType().getQualifiedName();
+                            initializers.add(new FieldInitializer(fieldName, fieldType, initializedClass));
+                            if (debugMode) {
+                                System.out.println("  フィールド宣言時初期化: " + className + "." + fieldName +
+                                        " = new " + initializedClass);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. コンストラクタ内でのフィールド初期化を検出
+            if (type instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) type;
+                for (CtConstructor<?> constructor : ctClass.getConstructors()) {
+                    // コンストラクタ内のすべての代入文を検査
+                    List<CtAssignment<?, ?>> assignments = constructor
+                            .getElements(new TypeFilter<>(CtAssignment.class));
+                    for (CtAssignment<?, ?> assignment : assignments) {
+                        // フィールドへの代入かつnewによる初期化かを確認
+                        if (assignment.getAssigned() instanceof CtFieldWrite &&
+                                assignment.getAssignment() instanceof CtConstructorCall) {
+                            CtFieldWrite<?> fieldWrite = (CtFieldWrite<?>) assignment.getAssigned();
+                            CtConstructorCall<?> constructorCall = (CtConstructorCall<?>) assignment.getAssignment();
+
+                            CtTypeReference<?> initType = constructorCall.getType();
+                            if (initType != null) {
+                                String initializedClass = initType.getQualifiedName();
+                                if (!isJavaStandardLibrary(initializedClass)) {
+                                    String fieldName = fieldWrite.getVariable().getSimpleName();
+                                    String fieldType = fieldWrite.getType() != null
+                                            ? fieldWrite.getType().getQualifiedName()
+                                            : "";
+
+                                    // 重複チェック（宣言時初期化と重複しないように）
+                                    boolean isDuplicate = initializers.stream()
+                                            .anyMatch(fi -> fi.fieldName.equals(fieldName));
+                                    if (!isDuplicate) {
+                                        initializers.add(new FieldInitializer(fieldName, fieldType, initializedClass));
+                                        if (debugMode) {
+                                            System.out.println("  コンストラクタ内初期化: " + className + "." + fieldName +
+                                                    " = new " + initializedClass);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!initializers.isEmpty()) {
+                classFieldInitializers.put(className, initializers);
+            }
+        }
+    }
+
+    /**
      * メソッドシグネチャを取得（完全修飾名）
      */
     private String getMethodSignature(CtMethod<?> method) {
@@ -1878,6 +2014,22 @@ public class CallTreeAnalyzer {
                     writer.write(", ");
                 writer.write("\"" + escapeJson(word) + "\"");
                 firstWord = false;
+            }
+            writer.write("],\n");
+
+            // フィールド初期化情報
+            List<FieldInitializer> fieldInits = classFieldInitializers.getOrDefault(className, Collections.emptyList());
+            writer.write("      \"fieldInitializers\": [");
+            boolean firstFieldInit = true;
+            for (FieldInitializer fi : fieldInits) {
+                if (!firstFieldInit)
+                    writer.write(", ");
+                writer.write("{");
+                writer.write("\"fieldName\": \"" + escapeJson(fi.fieldName) + "\", ");
+                writer.write("\"fieldType\": \"" + escapeJson(fi.fieldType) + "\", ");
+                writer.write("\"initializedClass\": \"" + escapeJson(fi.initializedClass) + "\"");
+                writer.write("}");
+                firstFieldInit = false;
             }
             writer.write("]\n");
 
@@ -2205,6 +2357,20 @@ public class CallTreeAnalyzer {
                     json.append(", ");
                 json.append("\"").append(escapeJson(word)).append("\"");
                 firstWord = false;
+            }
+            json.append("]");
+        }
+
+        // 生成インスタンスを追加
+        Set<String> createdInstances = methodCreatedInstances.get(method);
+        if (createdInstances != null && !createdInstances.isEmpty()) {
+            json.append(",\n      \"createdInstances\": [");
+            boolean firstInstance = true;
+            for (String inst : createdInstances) {
+                if (!firstInstance)
+                    json.append(", ");
+                json.append("\"").append(escapeJson(inst)).append("\"");
+                firstInstance = false;
             }
             json.append("]");
         }

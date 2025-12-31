@@ -107,6 +107,53 @@ java -jar call-tree-analyzer-1.0.0.jar
   -d
 ```
 
+### JSON出力仕様
+
+解析結果のJSONファイルには以下のセクションが含まれます。
+
+#### methodsセクション
+
+各メソッドの情報を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| method | メソッドシグネチャ（fully qualified name） |
+| class | 所属クラス |
+| parentClasses | 親クラス・インターフェース一覧 |
+| visibility | 可視性（public/protected/private） |
+| isEntryPoint | エントリーポイント候補かどうか |
+| annotations | メソッドアノテーション |
+| javadoc | Javadoc要約 |
+| calls | 呼び出し先メソッド一覧 |
+| calledBy | 呼び出し元メソッド一覧 |
+| sqlStatements | 検出されたSQL文 |
+| hitWords | 検索ワードでヒットした語 |
+| createdInstances | メソッド内で`new`により生成されるインスタンスのクラス一覧 |
+
+#### classesセクション
+
+各クラスの情報を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| className | クラス名（fully qualified name） |
+| javadoc | Javadoc要約 |
+| annotations | クラスアノテーション |
+| superClass | 親クラス |
+| directInterfaces | 直接実装インターフェース |
+| allInterfaces | 全実装インターフェース |
+| hitWords | 検索ワードでヒットした語 |
+| fieldInitializers | メンバ変数の初期化時に生成されるインスタンス情報（フィールド宣言時およびコンストラクタ内での初期化を含む） |
+
+##### fieldInitializersの形式
+
+```json
+"fieldInitializers": [
+  {"fieldName": "processor", "fieldType": "DataProcessor", "initializedClass": "ConcreteProcessorA"},
+  {"fieldName": "repository", "fieldType": "UserRepository", "initializedClass": "UserRepositoryImpl"}
+]
+```
+
 ## 可視化ツール
 
 静的解析ツールの出力結果を可視化するツール。
@@ -280,6 +327,21 @@ python call_tree_visualizer.py forward "$METHOD" --verbose
 # ハードタブでインデント
 python call_tree_visualizer.py forward "$METHOD" --tab
 ```
+
+###### 実装クラス候補のスマートフィルタリング
+
+インターフェースや抽象クラスのメソッド呼び出し時に、実装クラス候補が複数ある場合、呼び元メソッド（およびその呼び元を再帰的に遡る）で`new`によって生成されたインスタンスを考慮して、実装クラスを自動的に絞り込みます。
+
+例: 以下のコードでは、`processor.process()`の実装クラス候補として`ConcreteProcessorA`のみが展開されます。
+
+```java
+public void processData() {
+    DataProcessor processor = new ConcreteProcessorA();  // ← ここでの生成を検出
+    processor.process();  // ← ConcreteProcessorAのみを展開
+}
+```
+
+また、クラスのフィールド初期化（宣言時およびコンストラクタ内）も考慮されます。
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
 
