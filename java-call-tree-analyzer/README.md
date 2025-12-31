@@ -7,6 +7,12 @@
 - [静的解析ツール](#静的解析ツール)
   - [ビルド](#ビルド)
   - [解析実行](#解析実行)
+  - [JSON出力仕様](#json出力仕様)
+    - [methodsセクション](#methodsセクション)
+    - [classesセクション](#classesセクション)
+      - [fieldInitializersの形式](#fieldinitializersの形式)
+    - [interfacesセクション](#interfacesセクション)
+      - [implementationsの形式](#implementationsの形式)
 - [可視化ツール](#可視化ツール)
   - [事前準備](#事前準備)
   - [使い方](#使い方)
@@ -153,6 +159,48 @@ java -jar call-tree-analyzer-1.0.0.jar
   {"fieldName": "repository", "fieldType": "UserRepository", "initializedClass": "UserRepositoryImpl"}
 ]
 ```
+
+#### interfacesセクション
+
+各インターフェースの情報と実装クラス一覧を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| interfaceName | インターフェース名（fully qualified name） |
+| javadoc | Javadoc要約 |
+| annotations | アノテーション（クラス名のみ） |
+| annotationRaws | アノテーション（パス情報等を含むフル形式） |
+| superInterfaces | 親インターフェース一覧 |
+| hitWords | 検索ワードでヒットした語 |
+| implementations | 実装クラス一覧（詳細は下記参照） |
+
+##### implementationsの形式
+
+```json
+"implementations": [
+  {
+    "className": "com.example.impl.UserServiceImpl",
+    "type": "direct",
+    "javadoc": "ユーザーサービスの実装クラス",
+    "annotations": ["org.springframework.stereotype.Service"]
+  },
+  {
+    "className": "com.example.impl.UserServiceCacheImpl",
+    "type": "indirect",
+    "javadoc": "キャッシュ付きユーザーサービス",
+    "annotations": ["org.springframework.stereotype.Service"]
+  }
+]
+```
+
+| フィールド | 説明 |
+|-----------|------|
+| className | 実装クラス名（fully qualified name） |
+| type | 実装タイプ（`direct`: 直接実装、`indirect`: 間接実装） |
+| javadoc | 実装クラスのJavadoc要約 |
+| annotations | 実装クラスのアノテーション |
+
+
 
 ## 可視化ツール
 
@@ -612,8 +660,8 @@ python call_tree_visualizer.py analyze-tables | clip
 クラス階層JSONファイルを読み込み、クラスの継承関係とインターフェース実装を表示します。
 
 ```bash
-$ python call_tree_visualizer.py class-hierarchy.json class-tree --help
-usage: call_tree_visualizer.py input_file class-tree [-h] [--filter FILTER] [--root ROOT_FILTER] [--verbose]
+$ python call_tree_visualizer.py class-tree --help
+usage: call_tree_visualizer.py class-tree [-h] [--filter FILTER] [--root ROOT_FILTER] [--verbose]
 
 options:
   -h, --help            show this help message and exit
@@ -623,14 +671,14 @@ options:
 ```
 
 ```bash
-# 全体のクラス階層ツリーを表示
-python call_tree_visualizer.py class-hierarchy.json class-tree
+# 全体のクラス階層ツリーを表示（デフォルトでanalyzed_result.jsonを読み込む）
+python call_tree_visualizer.py class-tree
 
 # 特定のパッケージでフィルタリング
-python call_tree_visualizer.py class-hierarchy.json class-tree --filter "com.example.service"
+python call_tree_visualizer.py class-tree --filter "com.example.service"
 
 # 特定のクラスのみ表示
-python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.example.UserServiceImpl"
+python call_tree_visualizer.py class-tree --filter "com.example.UserServiceImpl"
 ```
 
 #### interface-impls : インターフェース実装一覧を表示
@@ -638,8 +686,8 @@ python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.exam
 インターフェース実装JSONファイルを読み込み、各インターフェースの実装クラスを表示します。
 
 ```bash
-$ python call_tree_visualizer.py interface-implementations.json interface-impls --help
-usage: call_tree_visualizer.py input_file interface-impls [-h] [--interface FILTER_STR] [--verbose]
+$ python call_tree_visualizer.py interface-impls --help
+usage: call_tree_visualizer.py interface-impls [-h] [--interface FILTER_STR] [--verbose]
 
 options:
   -h, --help            show this help message and exit
@@ -649,14 +697,14 @@ options:
 ```
 
 ```bash
-# 全体のインターフェース実装一覧を表示
-python call_tree_visualizer.py interface-implementations.json interface-impls
+# 全体のインターフェース実装一覧を表示（デフォルトでanalyzed_result.jsonを読み込む）
+python call_tree_visualizer.py interface-impls
 
 # 特定のインターフェースでフィルタリング
-python call_tree_visualizer.py interface-implementations.json interface-impls --interface "com.example.UserRepository"
+python call_tree_visualizer.py interface-impls --interface "com.example.UserRepository"
 
-# 直接実装のみ表示
-python call_tree_visualizer.py interface-implementations.json interface-impls --direct-only
+# Javadocやアノテーションの詳細を表示
+python call_tree_visualizer.py interface-impls --verbose
 ```
 
 ###### 使用例
