@@ -379,7 +379,10 @@ public class StubGenerator {
 
                     // 親要素をチェックして戻り値を推論
                     // (Spoon 11系での親取得)
-                    if (invocation.getParent() instanceof CtAssignment) {
+                    if (!invocation.getTypeCasts().isEmpty()) {
+                        // キャストされている場合 ((String) unknown.method())
+                        returnType = createTypeReferenceInStubFactory(invocation.getTypeCasts().get(0));
+                    } else if (invocation.getParent() instanceof CtAssignment) {
                         CtAssignment<?,?> assignment = (CtAssignment<?,?>) invocation.getParent();
                         if (assignment.getAssigned() != null && assignment.getAssigned().getType() != null) {
                              returnType = createTypeReferenceInStubFactory(assignment.getAssigned().getType());
@@ -395,6 +398,13 @@ public class StubGenerator {
                          if (parentMethod != null && parentMethod.getType() != null) {
                              returnType = createTypeReferenceInStubFactory(parentMethod.getType());
                          }
+                    } else if (invocation.getParent() instanceof CtInvocation) {
+                        CtInvocation<?> parentInv = (CtInvocation<?>) invocation.getParent();
+                        if (parentInv.getTarget() == invocation) {
+                            // メソッドチェーンのターゲットとして使われている -> voidではない
+                            // 型が特定できない場合はObjectとする
+                            returnType = stubFactory.Type().objectType();
+                        }
                     }
 
                     if (addedSignatures.contains(signature)) {

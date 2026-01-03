@@ -1,0 +1,10 @@
+
+task printSpoonJarPath {
+    doLast {
+        configurations.runtimeClasspath.files.each { file ->
+            if (file.name.contains("spoon-core")) {
+                println "Spoon JAR: " + file.absolutePath
+            }
+        }
+    }
+}
