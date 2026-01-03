@@ -244,6 +244,7 @@ class CallTreeVisualizer:
                 "class_javadoc": method.get("classJavadoc", ""),
                 "hit_words": ",".join(method.get("hitWords", [])),
                 "createdInstances": method.get("createdInstances", []),  # 生成されたインスタンス
+                "httpCalls": method.get("httpCalls", []),  # HTTPクライアント呼び出し
             }
 
             # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
@@ -2313,6 +2314,7 @@ class CallTreeVisualizer:
                 "sql": info.get("sql", ""),
                 "is_circular": is_circular,
                 "tree_display": self._format_tree_display(root_method),
+                "httpCalls": info.get("httpCalls", []),  # HTTPクライアント呼び出し情報
             }
         )
 
@@ -2581,6 +2583,12 @@ class CallTreeVisualizer:
             row=current_row, column=7, value="親クラス / 実装クラスへの展開"
         ).font = font
         ws.cell(row=current_row, column=8, value="SQL有無").font = font
+        #   BB列（HTTPリクエスト有無）
+        bb_col = column_index_from_string("BB")
+        ws.cell(row=current_row, column=bb_col, value="HTTP有無").font = font
+        #   BC列（HTTPリクエスト詳細）
+        bc_col = column_index_from_string("BC")
+        ws.cell(row=current_row, column=bc_col, value="HTTPリクエスト").font = font
         #   L列（呼び出しツリーを出力する場合のみ）
         if include_tree:
             ws.cell(
@@ -2630,6 +2638,19 @@ class CallTreeVisualizer:
                 # H列: SQL有無
                 sql_marker = "●" if node["sql"] else ""
                 ws.cell(row=current_row, column=8, value=sql_marker).font = font
+
+                # BB列: HTTPリクエスト有無
+                http_calls = node.get("httpCalls", [])
+                http_marker = "●" if http_calls else ""
+                ws.cell(row=current_row, column=bb_col, value=http_marker).font = font
+
+                # BC列: HTTPリクエスト詳細（HTTPメソッド - URI）
+                if http_calls:
+                    http_details = ", ".join(
+                        f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
+                        for call in http_calls
+                    )
+                    ws.cell(row=current_row, column=bc_col, value=http_details).font = font
 
                 # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
                 if include_tree:

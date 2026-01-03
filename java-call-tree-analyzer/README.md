@@ -9,6 +9,7 @@
   - [解析実行](#解析実行)
   - [JSON出力仕様](#json出力仕様)
     - [methodsセクション](#methodsセクション)
+      - [httpCallsの形式](#httpcallsの形式)
     - [classesセクション](#classesセクション)
       - [fieldInitializersの形式](#fieldinitializersの形式)
     - [interfacesセクション](#interfacesセクション)
@@ -135,6 +136,31 @@ java -jar call-tree-analyzer-1.0.0.jar
 | sqlStatements | 検出されたSQL文 |
 | hitWords | 検索ワードでヒットした語 |
 | createdInstances | メソッド内で`new`により生成されるインスタンスのクラス一覧 |
+| httpCalls | HTTPクライアント呼び出し情報（httpMethod, uri, clientLibrary） |
+
+##### httpCallsの形式
+
+```json
+"httpCalls": [
+  {"httpMethod": "GET", "uri": "https://api.example.com/users", "clientLibrary": "RestTemplate"},
+  {"httpMethod": "POST", "uri": "https://api.example.com/users", "clientLibrary": "Apache HttpClient 4.x"}
+]
+```
+
+**対応HTTPクライアントライブラリ**:
+
+| ライブラリ | clientLibrary値 | 検出メソッド |
+|-----------|----------------|------------|
+| Apache HttpClient 4.x | Apache HttpClient 4.x | HttpGet/HttpPost等のコンストラクタ |
+| Apache HttpClient 3.x | Apache HttpClient 3.x | GetMethod/PostMethod等のコンストラクタ |
+| Apache HttpClient 5.x | Apache HttpClient 5.x | execute() |
+| Apache CXF WebClient | CXF WebClient | get()/post()/put()/delete() |
+| Spring RestTemplate | RestTemplate | getForObject()/postForEntity()/exchange()等 |
+| Java 11+ HttpClient | Java HttpClient | send()/sendAsync() |
+| JAX-RS Client | JAX-RS Client | get()/post()/put()/delete() |
+| OkHttp | OkHttp | execute()/enqueue() |
+| Spring WebClient | Spring WebClient | get()/post()/put()/delete() |
+| HttpURLConnection | HttpURLConnection | connect() |
 
 #### classesセクション
 
@@ -506,6 +532,8 @@ com.example.service.OrderService#processOrder(Order)
 - **H列**: 呼び出しメソッド内にSQL文がある場合: `●`
 - **L列以降**: 呼び出しツリー（メソッドからパッケージ名は除外、列のインデントで階層表現）
 - **AZ列**: 呼び出しメソッド内のSQL文
+- **BB列**: 呼び出しメソッド内にHTTPリクエストがある場合: `●`
+- **BC列**: HTTPリクエスト詳細（例: `GET - https://api.example.com/users, POST - https://api.example.com/orders`）
 
 その他:
 
@@ -835,6 +863,11 @@ scoop install jq
 | annotations | メソッドアノテーション（カンマ区切り） |
 | sqlStatements | SQL文（複数ある場合は ` \|\|\| ` 区切り） |
 | hitWords | 検出ワード（複数ある場合はカンマ区切り） |
+| httpMethod | HTTPリクエストメソッド（GET/POST/PUT/DELETE等） |
+| uri | HTTPリクエスト先URI |
+
+> [!NOTE]
+> 出力はmethodでソートされます。
 
 ### select_method.sh : fzfでメソッドを選択
 
