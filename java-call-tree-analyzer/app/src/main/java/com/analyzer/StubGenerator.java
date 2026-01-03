@@ -483,12 +483,6 @@ public class StubGenerator {
             CtExpression<?> target = access.getTarget();
             if (target != null && target.getType() != null && target.getType().getQualifiedName().equals(targetTypeQName)) {
                 String fieldName = access.getVariable().getSimpleName();
-                if (addedFields.contains(fieldName)) continue;
-                addedFields.add(fieldName);
-
-                CtField<?> field = stubFactory.Core().createField();
-                field.setSimpleName(fieldName);
-                field.addModifier(ModifierKind.PUBLIC);
 
                 // 型推論 (使われ方から)
                 CtTypeReference<?> fieldType = stubFactory.Type().objectType();
@@ -515,6 +509,20 @@ public class StubGenerator {
                     }
                 }
 
+                if (addedFields.contains(fieldName)) {
+                    // 既にフィールドが存在する場合、型がObjectで、今回推論できた型がObjectでなければ更新する
+                    CtField<?> field = stubType.getField(fieldName);
+                    if (field != null && field.getType().equals(stubFactory.Type().objectType()) && !fieldType.equals(stubFactory.Type().objectType())) {
+                        field.setType((CtTypeReference) fieldType);
+                    }
+                    continue;
+                }
+
+                addedFields.add(fieldName);
+
+                CtField<?> field = stubFactory.Core().createField();
+                field.setSimpleName(fieldName);
+                field.addModifier(ModifierKind.PUBLIC);
                 field.setType((CtTypeReference) fieldType);
                 stubType.addField(field);
             }
