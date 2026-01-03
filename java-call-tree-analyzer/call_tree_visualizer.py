@@ -2247,6 +2247,7 @@ class CallTreeVisualizer:
         """
         L列以降に表示するツリー用のメソッド名を生成
         パッケージ名を除外し、SimpleClassName#methodName(params)形式
+        引数のクラス名からもパッケージ名を除去
 
         Args:
             method_signature: メソッドシグネチャ
@@ -2254,10 +2255,8 @@ class CallTreeVisualizer:
         Returns:
             ツリー表示用のメソッド名
         """
-        parts = self._extract_method_signature_parts(method_signature)
-        if parts["simple_class"]:
-            return f"{parts['simple_class']}#{parts['method']}"
-        return parts["method"]
+        # _shorten_method_signatureを再利用
+        return self._shorten_method_signature(method_signature)
 
     def _collect_tree_data(
         self,
@@ -2619,8 +2618,9 @@ class CallTreeVisualizer:
                 # C列: パッケージ名
                 ws.cell(row=current_row, column=3, value=node["package"]).font = font
 
-                # D列: クラス名
-                ws.cell(row=current_row, column=4, value=node["class"]).font = font
+                # D列: クラス名（パッケージ名を除いたシンプルなクラス名）
+                simple_class = node["class"].split(".")[-1] if node["class"] else ""
+                ws.cell(row=current_row, column=4, value=simple_class).font = font
 
                 # E列: メソッド名（simple name）
                 ws.cell(row=current_row, column=5, value=node["simple_method"]).font = (

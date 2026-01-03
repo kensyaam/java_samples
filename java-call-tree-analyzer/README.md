@@ -375,7 +375,7 @@ python call_tree_visualizer.py search "$KEYWORD"
 
 ```bash
 $ python call_tree_visualizer.py forward --help
-usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] [--tab] method
+usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] [--tab] [--short] method
 
 positional arguments:
   method                起点メソッド
@@ -388,6 +388,7 @@ options:
   --no-follow-impl      実装クラス候補を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
   --tab                 ハードタブでインデントし、プレフィックス|-- を省略
+  --short               パッケージ名を省略してクラス名のみ表示
 ```
 
 ```bash
@@ -424,7 +425,7 @@ public void processData() {
 
 ```bash
 $ python call_tree_visualizer.py reverse --help
-usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] [--tab] method
+usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] [--tab] [--short] method
 
 positional arguments:
   method                対象メソッド
@@ -436,6 +437,7 @@ options:
   --no-follow-override  オーバーライド元を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
   --tab                 ハードタブでインデントし、プレフィックス|-- を省略
+  --short               パッケージ名を省略してクラス名のみ表示
 ```
 
 ```bash
@@ -525,7 +527,7 @@ com.example.service.OrderService#processOrder(Order)
 - **A列**: 呼び出しツリーの先頭メソッド（fully qualified name）
 - **B列**: 呼び出しメソッド（fully qualified name）
 - **C列**: 呼び出しメソッドのパッケージ名
-- **D列**: 呼び出しメソッドのクラス名
+- **D列**: 呼び出しメソッドのクラス名（パッケージ名を含めない）
 - **E列**: 呼び出しメソッドのメソッド名（simple name）
 - **F列**: 呼び出しメソッドのJavadoc
 - **G列**: 呼び出しメソッドが呼び元の親クラスのメソッドなら`親クラス`、実装クラスへ展開したものなら`実装クラスへの展開`
