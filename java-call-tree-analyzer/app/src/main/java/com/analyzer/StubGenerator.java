@@ -374,18 +374,7 @@ public class StubGenerator {
                     }
 
                     String signature = sigBuilder.toString();
-                    if (addedSignatures.contains(signature)) continue;
-                    addedSignatures.add(signature);
-
-                    // メソッド作成
-                    CtMethod<?> method = stubFactory.Core().createMethod();
-                    method.setSimpleName(methodName);
-                    method.addModifier(ModifierKind.PUBLIC);
-
-                    // 戻り値の推論
-                    // Invocationが使われている場所から推論したいが、Spoonの推論が効かない場合nullになる
-                    // デフォルトはvoidかObjectにする
-                    // 親がAssignmentなら、左辺の型が戻り値
+                    CtMethod<?> method;
                     CtTypeReference<?> returnType = stubFactory.Type().voidType();
 
                     // 親要素をチェックして戻り値を推論
@@ -393,8 +382,6 @@ public class StubGenerator {
                     if (invocation.getParent() instanceof CtAssignment) {
                         CtAssignment<?,?> assignment = (CtAssignment<?,?>) invocation.getParent();
                         if (assignment.getAssigned() != null && assignment.getAssigned().getType() != null) {
-                             // クローンしないと元のモデルの参照を持ってしまう可能性があるが、TypeReferenceなら大丈夫
-                             // ただしFactoryが違うので作成しなおすのが安全
                              returnType = createTypeReferenceInStubFactory(assignment.getAssigned().getType());
                         }
                     } else if (invocation.getParent() instanceof CtLocalVariable) {
@@ -410,6 +397,47 @@ public class StubGenerator {
                          }
                     }
 
+                    if (addedSignatures.contains(signature)) {
+                        // 既にメソッドが存在する場合、戻り値がvoidで、今回推論できた型がvoidでなければ更新する
+                        method = stubType.getMethods().stream()
+                            .filter(m -> {
+                                StringBuilder sb = new StringBuilder(m.getSimpleName());
+                                for (CtParameter<?> p : m.getParameters()) {
+                                    sb.append("_").append(p.getType().getSimpleName());
+                                }
+                                return sb.toString().equals(signature);
+                            })
+                            .findFirst()
+                            .orElse(null);
+
+                        if (method != null && method.getType().equals(stubFactory.Type().voidType()) && !returnType.equals(stubFactory.Type().voidType())) {
+                            method.setType((CtTypeReference) returnType);
+                            // ボディも更新
+                            CtBlock<?> body = stubFactory.Core().createBlock();
+                            CtReturn ret = stubFactory.Core().createReturn();
+                            CtExpression returnExpr;
+                            if (returnType.isPrimitive()) {
+                                if (returnType.getSimpleName().equals("boolean")) {
+                                    returnExpr = stubFactory.Code().createLiteral(false);
+                                } else {
+                                    returnExpr = stubFactory.Code().createLiteral(0);
+                                }
+                            } else {
+                                returnExpr = stubFactory.Code().createLiteral(null);
+                            }
+                            ret.setReturnedExpression(returnExpr);
+                            body.addStatement(ret);
+                            method.setBody(body);
+                        }
+                        continue;
+                    }
+
+                    addedSignatures.add(signature);
+
+                    // メソッド作成
+                    method = stubFactory.Core().createMethod();
+                    method.setSimpleName(methodName);
+                    method.addModifier(ModifierKind.PUBLIC);
                     method.setType((CtTypeReference) returnType);
 
                     // パラメータ追加
