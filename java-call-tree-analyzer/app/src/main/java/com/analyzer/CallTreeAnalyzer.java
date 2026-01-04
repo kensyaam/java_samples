@@ -6,6 +6,8 @@ import spoon.reflect.CtModel;
 import spoon.reflect.declaration.*;
 import spoon.reflect.reference.CtExecutableReference;
 import spoon.reflect.reference.CtTypeReference;
+import spoon.reflect.reference.CtVariableReference;
+import spoon.reflect.reference.CtFieldReference;
 import spoon.reflect.visitor.filter.TypeFilter;
 import spoon.reflect.code.*;
 
@@ -40,6 +42,39 @@ public class CallTreeAnalyzer {
     private boolean debugMode = false; // デバッグモードフラグ
     private Set<String> searchWords = new HashSet<>(); // 検索ワード
     private Map<String, Set<String>> methodHitWords = new HashMap<>(); // メソッド -> 検出ワード
+    private Map<String, Set<String>> methodCreatedInstances = new HashMap<>(); // メソッド -> 生成されたインスタンスのクラス
+    private Map<String, List<FieldInitializer>> classFieldInitializers = new HashMap<>(); // クラス -> フィールド初期化情報
+    private Map<String, List<HttpCallInfo>> httpCalls = new HashMap<>(); // メソッド -> HTTPリクエスト情報
+
+    /**
+     * HTTPリクエスト情報
+     */
+    static class HttpCallInfo {
+        String httpMethod; // GET, POST, PUT, DELETE, PATCH, etc.
+        String uri; // URIパス or プロパティキー
+        String clientLibrary; // "Apache HttpClient 4.x", "CXF WebClient", "RestTemplate", etc.
+
+        HttpCallInfo(String httpMethod, String uri, String clientLibrary) {
+            this.httpMethod = httpMethod;
+            this.uri = uri;
+            this.clientLibrary = clientLibrary;
+        }
+    }
+
+    /**
+     * フィールド初期化情報
+     */
+    static class FieldInitializer {
+        String fieldName;
+        String fieldType;
+        String initializedClass;
+
+        FieldInitializer(String fieldName, String fieldType, String initializedClass) {
+            this.fieldName = fieldName;
+            this.fieldType = fieldType;
+            this.initializedClass = initializedClass;
+        }
+    }
 
     /**
      * Bean定義情報
@@ -961,10 +996,22 @@ public class CallTreeAnalyzer {
         // 9. リテラル文字列中の検索ワードを検出
         detectHitWords();
 
+        // 10. メソッド内のインスタンス生成を検出
+        detectCreatedInstances();
+
+        // 11. フィールド初期化を検出（宣言時+コンストラクタ内）
+        detectFieldInitializers();
+
+        // 12. HTTPクライアント呼び出しを検出
+        detectHttpClientCalls();
+
         System.out.println("解析完了: " + methodMap.size() + "個のメソッドを検出");
         System.out.println("Bean定義: " + beanDefinitions.size() + "個");
         System.out.println("SQL文検出: " + sqlStatements.size() + "個のメソッドでSQL文を検出");
         System.out.println("検索ワード検出: " + methodHitWords.size() + "個のメソッドでワードを検出");
+        System.out.println("インスタンス生成: " + methodCreatedInstances.size() + "個のメソッドで生成を検出");
+        System.out.println("フィールド初期化: " + classFieldInitializers.size() + "個のクラスで検出");
+        System.out.println("HTTPクライアント呼び出し: " + httpCalls.size() + "個のメソッドで検出");
     }
 
     /**
@@ -986,6 +1033,10 @@ public class CallTreeAnalyzer {
 
             try {
                 if (Files.isDirectory(path)) {
+                    // ディレクトリ自体を追加
+                    result.add(cpPath);
+                    System.out.println("ディレクトリ追加: " + cpPath);
+
                     // ディレクトリの場合、その中のすべてのJARファイルを追加
                     try (var stream = Files.list(path)) {
                         stream.filter(p -> p.toString().endsWith(".jar"))
@@ -1644,6 +1695,757 @@ public class CallTreeAnalyzer {
     }
 
     /**
+     * メソッド内で生成されるインスタンスを検出
+     */
+    private void detectCreatedInstances() {
+        for (CtMethod<?> method : methodMap.values()) {
+            String methodSig = getMethodSignature(method);
+            Set<String> createdInstances = new HashSet<>();
+
+            // newキーワードによるコンストラクタ呼び出しを検出
+            List<CtConstructorCall<?>> constructorCalls = method.getElements(new TypeFilter<>(CtConstructorCall.class));
+            for (CtConstructorCall<?> constructorCall : constructorCalls) {
+                CtTypeReference<?> type = constructorCall.getType();
+                if (type != null) {
+                    String createdClass = type.getQualifiedName();
+                    if (!isJavaStandardLibrary(createdClass)) {
+                        createdInstances.add(createdClass);
+                    }
+                }
+            }
+
+            if (!createdInstances.isEmpty()) {
+                methodCreatedInstances.put(methodSig, createdInstances);
+                if (debugMode) {
+                    System.out.println("  生成インスタンス in " + methodSig + ": " + String.join(", ", createdInstances));
+                }
+            }
+        }
+    }
+
+    /**
+     * フィールド初期化を検出（宣言時+コンストラクタ内）
+     */
+    private void detectFieldInitializers() {
+        List<CtType<?>> types = model.getElements(new TypeFilter<>(CtType.class));
+
+        for (CtType<?> type : types) {
+            // インターフェースはフィールドを持たないので除外
+            if (type.isInterface()) {
+                continue;
+            }
+
+            String className = type.getQualifiedName();
+            List<FieldInitializer> initializers = new ArrayList<>();
+
+            // 1. フィールド宣言時の初期化を検出
+            for (CtField<?> field : type.getFields()) {
+                CtExpression<?> defaultExpr = field.getDefaultExpression();
+                if (defaultExpr instanceof CtConstructorCall) {
+                    CtConstructorCall<?> constructorCall = (CtConstructorCall<?>) defaultExpr;
+                    CtTypeReference<?> initType = constructorCall.getType();
+                    if (initType != null) {
+                        String initializedClass = initType.getQualifiedName();
+                        if (!isJavaStandardLibrary(initializedClass)) {
+                            String fieldName = field.getSimpleName();
+                            String fieldType = field.getType().getQualifiedName();
+                            initializers.add(new FieldInitializer(fieldName, fieldType, initializedClass));
+                            if (debugMode) {
+                                System.out.println("  フィールド宣言時初期化: " + className + "." + fieldName +
+                                        " = new " + initializedClass);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. コンストラクタ内でのフィールド初期化を検出
+            if (type instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) type;
+                for (CtConstructor<?> constructor : ctClass.getConstructors()) {
+                    // コンストラクタ内のすべての代入文を検査
+                    List<CtAssignment<?, ?>> assignments = constructor
+                            .getElements(new TypeFilter<>(CtAssignment.class));
+                    for (CtAssignment<?, ?> assignment : assignments) {
+                        // フィールドへの代入かつnewによる初期化かを確認
+                        if (assignment.getAssigned() instanceof CtFieldWrite &&
+                                assignment.getAssignment() instanceof CtConstructorCall) {
+                            CtFieldWrite<?> fieldWrite = (CtFieldWrite<?>) assignment.getAssigned();
+                            CtConstructorCall<?> constructorCall = (CtConstructorCall<?>) assignment.getAssignment();
+
+                            CtTypeReference<?> initType = constructorCall.getType();
+                            if (initType != null) {
+                                String initializedClass = initType.getQualifiedName();
+                                if (!isJavaStandardLibrary(initializedClass)) {
+                                    String fieldName = fieldWrite.getVariable().getSimpleName();
+                                    String fieldType = fieldWrite.getType() != null
+                                            ? fieldWrite.getType().getQualifiedName()
+                                            : "";
+
+                                    // 重複チェック（宣言時初期化と重複しないように）
+                                    boolean isDuplicate = initializers.stream()
+                                            .anyMatch(fi -> fi.fieldName.equals(fieldName));
+                                    if (!isDuplicate) {
+                                        initializers.add(new FieldInitializer(fieldName, fieldType, initializedClass));
+                                        if (debugMode) {
+                                            System.out.println("  コンストラクタ内初期化: " + className + "." + fieldName +
+                                                    " = new " + initializedClass);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!initializers.isEmpty()) {
+                classFieldInitializers.put(className, initializers);
+            }
+        }
+    }
+
+    /**
+     * HTTPクライアント呼び出しを検出
+     */
+    private void detectHttpClientCalls() {
+        // Apache HttpClient 4.x のリクエストクラスとHTTPメソッドのマッピング
+        Map<String, String> apacheHttp4RequestClasses = new HashMap<>();
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpGet", "GET");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpPost", "POST");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpPut", "PUT");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpDelete", "DELETE");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpPatch", "PATCH");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpHead", "HEAD");
+        apacheHttp4RequestClasses.put("org.apache.http.client.methods.HttpOptions", "OPTIONS");
+
+        // CXF WebClient のHTTPメソッド名マッピング
+        Set<String> cxfWebClientMethods = new HashSet<>(Arrays.asList(
+                "get", "post", "put", "delete", "head", "options", "invoke"));
+
+        // RestTemplate のメソッド名とHTTPメソッドのマッピング
+        Map<String, String> restTemplateMethods = new HashMap<>();
+        restTemplateMethods.put("getForObject", "GET");
+        restTemplateMethods.put("getForEntity", "GET");
+        restTemplateMethods.put("postForObject", "POST");
+        restTemplateMethods.put("postForEntity", "POST");
+        restTemplateMethods.put("postForLocation", "POST");
+        restTemplateMethods.put("put", "PUT");
+        restTemplateMethods.put("delete", "DELETE");
+        restTemplateMethods.put("patchForObject", "PATCH");
+        restTemplateMethods.put("exchange", "EXCHANGE"); // HTTPメソッドは引数から判定
+
+        for (CtMethod<?> method : methodMap.values()) {
+            String methodSig = getMethodSignature(method);
+            List<HttpCallInfo> callInfos = new ArrayList<>();
+
+            // メソッド内のすべてのメソッド呼び出しを取得
+            List<CtInvocation<?>> invocations = method.getElements(new TypeFilter<>(CtInvocation.class));
+
+            for (CtInvocation<?> invocation : invocations) {
+                CtExecutableReference<?> executable = invocation.getExecutable();
+                if (executable == null || executable.getDeclaringType() == null) {
+                    continue;
+                }
+
+                String declaringClass = executable.getDeclaringType().getQualifiedName();
+                String methodName = executable.getSimpleName();
+
+                // 1. Apache HttpClient 4.x の検出 - execute()はスキップ（コンストラクタで検出するため）
+                // execute()を検出すると重複するため、コンストラクタ検出のみに統一
+
+                // 2. Apache CXF WebClient の検出
+                if (declaringClass.equals("org.apache.cxf.jaxrs.client.WebClient")) {
+                    String lowerMethodName = methodName.toLowerCase();
+                    if (cxfWebClientMethods.contains(lowerMethodName)) {
+                        String httpMethod = lowerMethodName.toUpperCase();
+                        if (httpMethod.equals("INVOKE")) {
+                            // invoke("GET", payload) の場合、第1引数からHTTPメソッドを取得
+                            List<CtExpression<?>> args = invocation.getArguments();
+                            if (!args.isEmpty()) {
+                                String firstArgValue = evaluateStringExpression(args.get(0));
+                                if (firstArgValue != null && !firstArgValue.contains("${")) {
+                                    httpMethod = firstArgValue.toUpperCase();
+                                }
+                            }
+                        }
+
+                        // WebClient.create() 呼び出しからURIを抽出
+                        String uri = extractUriFromWebClientChain(invocation);
+
+                        callInfos.add(new HttpCallInfo(httpMethod, uri, "CXF WebClient"));
+                    }
+                }
+
+                // 3. Spring RestTemplate の検出
+                if (declaringClass.equals("org.springframework.web.client.RestTemplate")) {
+                    String httpMethod = restTemplateMethods.get(methodName);
+                    if (httpMethod != null) {
+                        List<CtExpression<?>> args = invocation.getArguments();
+                        String uri = "${UNRESOLVED}";
+
+                        // 第1引数がURIの場合が多い
+                        if (!args.isEmpty()) {
+                            uri = extractUriFromExpression(args.get(0));
+                        }
+
+                        // exchange の場合、HTTPメソッドを引数から判定
+                        if (httpMethod.equals("EXCHANGE") && args.size() >= 2) {
+                            for (CtExpression<?> arg : args) {
+                                if (arg.getType() != null &&
+                                        arg.getType().getQualifiedName()
+                                                .equals("org.springframework.http.HttpMethod")) {
+                                    String argStr = arg.toString();
+                                    if (argStr.contains("GET"))
+                                        httpMethod = "GET";
+                                    else if (argStr.contains("POST"))
+                                        httpMethod = "POST";
+                                    else if (argStr.contains("PUT"))
+                                        httpMethod = "PUT";
+                                    else if (argStr.contains("DELETE"))
+                                        httpMethod = "DELETE";
+                                    else if (argStr.contains("PATCH"))
+                                        httpMethod = "PATCH";
+                                    break;
+                                }
+                            }
+                        }
+
+                        callInfos.add(new HttpCallInfo(httpMethod, uri, "RestTemplate"));
+                    }
+                }
+
+                // 4. Java 11+ HttpClient の検出
+                if (declaringClass.equals("java.net.http.HttpClient") &&
+                        (methodName.equals("send") || methodName.equals("sendAsync"))) {
+
+                    List<CtExpression<?>> args = invocation.getArguments();
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    if (!args.isEmpty()) {
+                        // HttpRequest からURIとメソッドを抽出（複雑なため簡易実装）
+                        uri = extractUriFromExpression(args.get(0));
+                    }
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "Java HttpClient"));
+                }
+
+                // 5. Apache HttpClient 3.x の検出 - executeMethod()はスキップ（コンストラクタで検出するため）
+                // executeMethodを検出すると重複するため、コンストラクタ検出のみに統一
+
+                // 6. Apache HttpClient 5.x の検出
+                if ((declaringClass.equals("org.apache.hc.client5.http.classic.HttpClient") ||
+                        declaringClass.equals("org.apache.hc.client5.http.impl.classic.CloseableHttpClient") ||
+                        declaringClass.contains("hc.client5")) &&
+                        methodName.equals("execute")) {
+
+                    List<CtExpression<?>> args = invocation.getArguments();
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    if (!args.isEmpty()) {
+                        CtExpression<?> firstArg = args.get(0);
+                        if (firstArg.getType() != null) {
+                            String argType = firstArg.getType().getQualifiedName();
+                            if (argType.contains("HttpGet"))
+                                httpMethod = "GET";
+                            else if (argType.contains("HttpPost"))
+                                httpMethod = "POST";
+                            else if (argType.contains("HttpPut"))
+                                httpMethod = "PUT";
+                            else if (argType.contains("HttpDelete"))
+                                httpMethod = "DELETE";
+                            else if (argType.contains("HttpPatch"))
+                                httpMethod = "PATCH";
+                        }
+                        uri = extractUriFromExpression(firstArg);
+                    }
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "Apache HttpClient 5.x"));
+                }
+
+                // 7. JAX-RS Client の検出 (Invocation.Builder)
+                if ((declaringClass.contains("javax.ws.rs.client") ||
+                        declaringClass.contains("jakarta.ws.rs.client")) &&
+                        (methodName.equals("get") || methodName.equals("post") ||
+                                methodName.equals("put") || methodName.equals("delete") ||
+                                methodName.equals("head") || methodName.equals("options"))) {
+
+                    String httpMethod = methodName.toUpperCase();
+                    String uri = extractUriFromJaxRsClientChain(invocation);
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "JAX-RS Client"));
+                }
+
+                // 8. OkHttp の検出
+                if ((declaringClass.equals("okhttp3.Call") ||
+                        declaringClass.contains("okhttp3")) &&
+                        (methodName.equals("execute") || methodName.equals("enqueue"))) {
+
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    // OkHttpClient.newCall(request) からURIを抽出
+                    uri = extractUriFromOkHttpChain(invocation);
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "OkHttp"));
+                }
+
+                // 9. Spring WebClient の検出 (reactive)
+                if (declaringClass.equals("org.springframework.web.reactive.function.client.WebClient") ||
+                        declaringClass.contains("WebClient$RequestHeadersUriSpec") ||
+                        declaringClass.contains("WebClient$RequestBodyUriSpec")) {
+
+                    if (methodName.equals("get") || methodName.equals("post") ||
+                            methodName.equals("put") || methodName.equals("delete") ||
+                            methodName.equals("patch") || methodName.equals("head") ||
+                            methodName.equals("options")) {
+
+                        String httpMethod = methodName.toUpperCase();
+                        String uri = extractUriFromWebClientChain(invocation);
+
+                        callInfos.add(new HttpCallInfo(httpMethod, uri, "Spring WebClient"));
+                    }
+                }
+
+                // 10. HttpURLConnection の検出 - connect()のみ検出（重複防止）
+                if ((declaringClass.equals("java.net.HttpURLConnection") ||
+                        declaringClass.equals("java.net.URLConnection")) &&
+                        methodName.equals("connect")) {
+
+                    String httpMethod = "GET"; // デフォルトGET
+                    String uri = "${UNRESOLVED}";
+
+                    // 同じメソッド内のsetRequestMethod()呼び出しからHTTPメソッドを抽出
+                    for (CtInvocation<?> otherInv : invocations) {
+                        if (otherInv.getExecutable() != null &&
+                                otherInv.getExecutable().getSimpleName().equals("setRequestMethod")) {
+                            List<CtExpression<?>> setMethodArgs = otherInv.getArguments();
+                            if (!setMethodArgs.isEmpty()) {
+                                String methodArg = extractUriFromExpression(setMethodArgs.get(0));
+                                if (methodArg != null && !methodArg.contains("${")) {
+                                    httpMethod = methodArg;
+                                }
+                            }
+                        }
+                    }
+
+                    // invocationのターゲットから変数を追跡してURLを抽出
+                    CtExpression<?> target = invocation.getTarget();
+                    uri = extractUriFromHttpUrlConnection(target, method);
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "HttpURLConnection"));
+                }
+            }
+
+            // コンストラクタ呼び出しからApache HttpClient リクエストオブジェクト生成を検出
+            List<CtConstructorCall<?>> constructorCalls = method.getElements(new TypeFilter<>(CtConstructorCall.class));
+            for (CtConstructorCall<?> ctorCall : constructorCalls) {
+                if (ctorCall.getType() != null) {
+                    String ctorType = ctorCall.getType().getQualifiedName();
+                    String httpMethod = apacheHttp4RequestClasses.get(ctorType);
+                    if (httpMethod != null) {
+                        List<CtExpression<?>> args = ctorCall.getArguments();
+                        String extractedUri = "${UNRESOLVED}";
+                        if (!args.isEmpty()) {
+                            extractedUri = extractUriFromExpression(args.get(0));
+                        }
+                        // この情報は execute() 呼び出しで既に取得している可能性があるので
+                        // 重複チェックを行う
+                        final String finalHttpMethod = httpMethod;
+                        final String finalUri = extractedUri;
+                        boolean alreadyExists = callInfos.stream()
+                                .anyMatch(info -> info.httpMethod.equals(finalHttpMethod) && info.uri.equals(finalUri));
+                        if (!alreadyExists) {
+                            callInfos.add(new HttpCallInfo(httpMethod, extractedUri, "Apache HttpClient 4.x"));
+                        }
+                    }
+
+                    // Apache HttpClient 3.x のメソッドクラス（GetMethod, PostMethod等）
+                    Map<String, String> apache3MethodClasses = Map.of(
+                            "org.apache.commons.httpclient.methods.GetMethod", "GET",
+                            "org.apache.commons.httpclient.methods.PostMethod", "POST",
+                            "org.apache.commons.httpclient.methods.PutMethod", "PUT",
+                            "org.apache.commons.httpclient.methods.DeleteMethod", "DELETE");
+                    String apache3HttpMethod = apache3MethodClasses.get(ctorType);
+                    if (apache3HttpMethod != null) {
+                        List<CtExpression<?>> args3 = ctorCall.getArguments();
+                        String extractedUri = "${UNRESOLVED}";
+                        if (!args3.isEmpty()) {
+                            extractedUri = extractUriFromExpression(args3.get(0));
+                        }
+                        // 重複チェック
+                        final String finalUri = extractedUri;
+                        final String finalMethod = apache3HttpMethod;
+                        boolean alreadyExists = callInfos.stream()
+                                .anyMatch(info -> info.httpMethod.equals(finalMethod) && info.uri.equals(finalUri));
+                        if (!alreadyExists) {
+                            callInfos.add(new HttpCallInfo(apache3HttpMethod, extractedUri, "Apache HttpClient 3.x"));
+                        }
+                    }
+                }
+            }
+            if (!callInfos.isEmpty()) {
+                httpCalls.put(methodSig, callInfos);
+                if (debugMode) {
+                    System.out.println("  HTTPクライアント呼び出し検出 in " + methodSig + ": " + callInfos.size() + "件");
+                    for (HttpCallInfo info : callInfos) {
+                        System.out.println("    " + info.httpMethod + " " + info.uri + " (" + info.clientLibrary + ")");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 式からURIを抽出（簡易実装）
+     */
+    private String extractUriFromExpression(CtExpression<?> expr) {
+        if (expr == null) {
+            return "${UNRESOLVED}";
+        }
+
+        // 文字列リテラルの場合
+        String evaluated = evaluateStringExpression(expr);
+        if (evaluated != null && !evaluated.isEmpty()) {
+            return evaluated;
+        }
+
+        // 変数参照の場合、定義まで遡る
+        if (expr instanceof CtVariableRead) {
+            CtVariableRead<?> varRead = (CtVariableRead<?>) expr;
+            CtVariableReference<?> varRef = varRead.getVariable();
+            if (varRef != null) {
+                CtVariable<?> varDecl = varRef.getDeclaration();
+                if (varDecl != null && varDecl.getDefaultExpression() != null) {
+                    // 変数の初期値を再帰的に抽出
+                    return extractUriFromExpression(varDecl.getDefaultExpression());
+                }
+            }
+        }
+
+        // フィールドアクセスの場合（定数フィールドなど）
+        if (expr instanceof CtFieldRead) {
+            CtFieldRead<?> fieldRead = (CtFieldRead<?>) expr;
+            CtFieldReference<?> fieldRef = fieldRead.getVariable();
+            if (fieldRef != null) {
+                CtField<?> field = fieldRef.getFieldDeclaration();
+                if (field != null && field.getDefaultExpression() != null) {
+                    // フィールドの初期値を再帰的に抽出
+                    return extractUriFromExpression(field.getDefaultExpression());
+                }
+            }
+        }
+
+        // コンストラクタ呼び出しの場合（new HttpGet(url)）
+        if (expr instanceof CtConstructorCall) {
+            CtConstructorCall<?> ctorCall = (CtConstructorCall<?>) expr;
+            List<CtExpression<?>> args = ctorCall.getArguments();
+            if (!args.isEmpty()) {
+                return extractUriFromExpression(args.get(0));
+            }
+        }
+
+        // メソッド呼び出しの場合（URI.create(url)等）
+        if (expr instanceof CtInvocation) {
+            CtInvocation<?> inv = (CtInvocation<?>) expr;
+            List<CtExpression<?>> args = inv.getArguments();
+            if (!args.isEmpty()) {
+                return extractUriFromExpression(args.get(0));
+            }
+        }
+
+        // 二項演算子（文字列連結）の場合
+        if (expr instanceof CtBinaryOperator) {
+            CtBinaryOperator<?> binOp = (CtBinaryOperator<?>) expr;
+            String left = extractUriFromExpression(binOp.getLeftHandOperand());
+            String right = extractUriFromExpression(binOp.getRightHandOperand());
+            // 両方が解決できた場合は連結
+            if (!left.contains("${UNRESOLVED}") && !right.contains("${UNRESOLVED}")) {
+                return left + right;
+            } else if (!left.contains("${UNRESOLVED}")) {
+                return left + "${UNRESOLVED}";
+            } else if (!right.contains("${UNRESOLVED}")) {
+                return "${UNRESOLVED}" + right;
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * CXF WebClientチェーンからURIを抽出
+     */
+    private String extractUriFromWebClientChain(CtInvocation<?> invocation) {
+        // メソッドチェーンを遡ってベースURLとパスを収集
+        List<String> pathParts = new ArrayList<>();
+        String baseUrl = "${UNRESOLVED}";
+
+        CtExpression<?> target = invocation.getTarget();
+
+        while (target != null) {
+            if (target instanceof CtInvocation) {
+                CtInvocation<?> targetInv = (CtInvocation<?>) target;
+                CtExecutableReference<?> exec = targetInv.getExecutable();
+                if (exec != null) {
+                    String methodName = exec.getSimpleName();
+                    if (methodName.equals("create")) {
+                        // WebClient.create(url) の引数を取得
+                        List<CtExpression<?>> args = targetInv.getArguments();
+                        if (!args.isEmpty()) {
+                            baseUrl = extractUriFromExpression(args.get(0));
+                        }
+                        break; // create()が見つかったらループ終了
+                    } else if (methodName.equals("path")) {
+                        // path() の引数を収集
+                        List<CtExpression<?>> args = targetInv.getArguments();
+                        if (!args.isEmpty()) {
+                            String pathPart = extractUriFromExpression(args.get(0));
+                            pathParts.add(0, pathPart); // リストの先頭に追加（逆順で遡っているため）
+                        }
+                    }
+                }
+                target = targetInv.getTarget();
+            } else if (target instanceof CtVariableRead) {
+                // 変数参照の場合（client.path(...).get() のパターン）
+                CtVariableRead<?> varRead = (CtVariableRead<?>) target;
+                CtVariableReference<?> varRef = varRead.getVariable();
+                if (varRef != null) {
+                    CtVariable<?> varDecl = varRef.getDeclaration();
+                    if (varDecl != null && varDecl.getDefaultExpression() != null) {
+                        // 変数の初期値からWebClient.create()を探す
+                        baseUrl = extractBaseUrlFromWebClientCreate(varDecl.getDefaultExpression());
+                    }
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+
+        // ベースURLとパスを結合
+        if (!pathParts.isEmpty()) {
+            StringBuilder fullUrl = new StringBuilder(baseUrl);
+            for (String part : pathParts) {
+                if (!fullUrl.toString().endsWith("/") && !part.startsWith("/")) {
+                    fullUrl.append("/");
+                }
+                fullUrl.append(part);
+            }
+            return fullUrl.toString();
+        }
+
+        return baseUrl;
+    }
+
+    /**
+     * WebClient.create()からベースURLを抽出
+     */
+    private String extractBaseUrlFromWebClientCreate(CtExpression<?> expr) {
+        if (expr instanceof CtInvocation) {
+            CtInvocation<?> inv = (CtInvocation<?>) expr;
+            CtExecutableReference<?> exec = inv.getExecutable();
+            if (exec != null && exec.getSimpleName().equals("create")) {
+                List<CtExpression<?>> args = inv.getArguments();
+                if (!args.isEmpty()) {
+                    return extractUriFromExpression(args.get(0));
+                }
+            }
+        }
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * JAX-RS ClientチェーンからURIを抽出
+     */
+    private String extractUriFromJaxRsClientChain(CtInvocation<?> invocation) {
+        // メソッドチェーンを遡ってtarget()を探す
+        CtExpression<?> target = invocation.getTarget();
+
+        while (target != null) {
+            if (target instanceof CtInvocation) {
+                CtInvocation<?> targetInv = (CtInvocation<?>) target;
+                CtExecutableReference<?> exec = targetInv.getExecutable();
+                if (exec != null) {
+                    String methodName = exec.getSimpleName();
+                    if (methodName.equals("target")) {
+                        // Client.target(url) の引数を取得
+                        List<CtExpression<?>> args = targetInv.getArguments();
+                        if (!args.isEmpty()) {
+                            return extractUriFromExpression(args.get(0));
+                        }
+                    } else if (methodName.equals("path")) {
+                        // path() の引数も考慮
+                        List<CtExpression<?>> args = targetInv.getArguments();
+                        if (!args.isEmpty()) {
+                            String pathPart = extractUriFromExpression(args.get(0));
+                            String basePart = extractUriFromJaxRsClientChain(targetInv);
+                            if (!basePart.equals("${UNRESOLVED}")) {
+                                return basePart + "/" + pathPart;
+                            }
+                        }
+                    }
+                }
+                target = targetInv.getTarget();
+            } else {
+                break;
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * OkHttpチェーンからURIを抽出
+     */
+    private String extractUriFromOkHttpChain(CtInvocation<?> invocation) {
+        // メソッドチェーンを遡ってnewCall()を探す
+        CtExpression<?> target = invocation.getTarget();
+
+        while (target != null) {
+            if (target instanceof CtInvocation) {
+                CtInvocation<?> targetInv = (CtInvocation<?>) target;
+                CtExecutableReference<?> exec = targetInv.getExecutable();
+                if (exec != null) {
+                    String methodName = exec.getSimpleName();
+                    if (methodName.equals("newCall")) {
+                        // OkHttpClient.newCall(request) の引数からRequestを取得
+                        List<CtExpression<?>> args = targetInv.getArguments();
+                        if (!args.isEmpty()) {
+                            // Request オブジェクトからURLを抽出
+                            return extractUriFromOkHttpRequest(args.get(0));
+                        }
+                    }
+                }
+                target = targetInv.getTarget();
+            } else {
+                break;
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * OkHttp RequestオブジェクトからURLを抽出
+     */
+    private String extractUriFromOkHttpRequest(CtExpression<?> requestExpr) {
+        // 変数参照の場合、変数宣言を追跡
+        if (requestExpr instanceof CtVariableRead) {
+            CtVariableRead<?> varRead = (CtVariableRead<?>) requestExpr;
+            CtVariableReference<?> varRef = varRead.getVariable();
+            if (varRef != null) {
+                CtVariable<?> varDecl = varRef.getDeclaration();
+                if (varDecl != null && varDecl.getDefaultExpression() != null) {
+                    return extractUriFromOkHttpRequest(varDecl.getDefaultExpression());
+                }
+            }
+        }
+
+        // Request.Builder().url("...").build() のパターンを追跡
+        if (requestExpr instanceof CtInvocation) {
+            CtInvocation<?> inv = (CtInvocation<?>) requestExpr;
+            CtExecutableReference<?> exec = inv.getExecutable();
+            if (exec != null) {
+                String methodName = exec.getSimpleName();
+                if (methodName.equals("build")) {
+                    // build()の前のチェーンを追跡してurl()を探す
+                    return extractUrlFromOkHttpBuilderChain(inv);
+                } else if (methodName.equals("url")) {
+                    List<CtExpression<?>> args = inv.getArguments();
+                    if (!args.isEmpty()) {
+                        return extractUriFromExpression(args.get(0));
+                    }
+                }
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * OkHttp Request.Builderチェーンからurl()を探す
+     */
+    private String extractUrlFromOkHttpBuilderChain(CtInvocation<?> invocation) {
+        CtExpression<?> target = invocation.getTarget();
+
+        while (target != null) {
+            if (target instanceof CtInvocation) {
+                CtInvocation<?> targetInv = (CtInvocation<?>) target;
+                CtExecutableReference<?> exec = targetInv.getExecutable();
+                if (exec != null && exec.getSimpleName().equals("url")) {
+                    List<CtExpression<?>> args = targetInv.getArguments();
+                    if (!args.isEmpty()) {
+                        return extractUriFromExpression(args.get(0));
+                    }
+                }
+                target = targetInv.getTarget();
+            } else {
+                break;
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * HttpURLConnectionからURLを抽出
+     */
+    private String extractUriFromHttpUrlConnection(CtExpression<?> connExpr, CtMethod<?> method) {
+        // conn変数の宣言を追跡
+        if (connExpr instanceof CtVariableRead) {
+            CtVariableRead<?> varRead = (CtVariableRead<?>) connExpr;
+            CtVariableReference<?> varRef = varRead.getVariable();
+            if (varRef != null) {
+                CtVariable<?> varDecl = varRef.getDeclaration();
+                if (varDecl != null && varDecl.getDefaultExpression() != null) {
+                    // (HttpURLConnection) url.openConnection() のパターン
+                    CtExpression<?> defaultExpr = varDecl.getDefaultExpression();
+                    return extractUriFromUrlOpenConnection(defaultExpr, method);
+                }
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
+     * url.openConnection()からURLを抽出
+     */
+    private String extractUriFromUrlOpenConnection(CtExpression<?> expr, CtMethod<?> method) {
+        // キャストを除去
+        if (expr instanceof CtTargetedExpression) {
+            CtExpression<?> target = ((CtTargetedExpression<?, ?>) expr).getTarget();
+            if (target != null) {
+                return extractUriFromUrlOpenConnection(target, method);
+            }
+        }
+
+        if (expr instanceof CtInvocation) {
+            CtInvocation<?> inv = (CtInvocation<?>) expr;
+            CtExecutableReference<?> exec = inv.getExecutable();
+            if (exec != null && exec.getSimpleName().equals("openConnection")) {
+                // openConnection()のターゲット(URL変数)を追跡
+                CtExpression<?> urlTarget = inv.getTarget();
+                if (urlTarget instanceof CtVariableRead) {
+                    CtVariableRead<?> urlVarRead = (CtVariableRead<?>) urlTarget;
+                    CtVariableReference<?> urlVarRef = urlVarRead.getVariable();
+                    if (urlVarRef != null) {
+                        CtVariable<?> urlVarDecl = urlVarRef.getDeclaration();
+                        if (urlVarDecl != null && urlVarDecl.getDefaultExpression() != null) {
+                            // new URL("...") からURLを抽出
+                            return extractUriFromExpression(urlVarDecl.getDefaultExpression());
+                        }
+                    }
+                }
+            }
+        }
+
+        return "${UNRESOLVED}";
+    }
+
+    /**
      * メソッドシグネチャを取得（完全修飾名）
      */
     private String getMethodSignature(CtMethod<?> method) {
@@ -1874,6 +2676,22 @@ public class CallTreeAnalyzer {
                     writer.write(", ");
                 writer.write("\"" + escapeJson(word) + "\"");
                 firstWord = false;
+            }
+            writer.write("],\n");
+
+            // フィールド初期化情報
+            List<FieldInitializer> fieldInits = classFieldInitializers.getOrDefault(className, Collections.emptyList());
+            writer.write("      \"fieldInitializers\": [");
+            boolean firstFieldInit = true;
+            for (FieldInitializer fi : fieldInits) {
+                if (!firstFieldInit)
+                    writer.write(", ");
+                writer.write("{");
+                writer.write("\"fieldName\": \"" + escapeJson(fi.fieldName) + "\", ");
+                writer.write("\"fieldType\": \"" + escapeJson(fi.fieldType) + "\", ");
+                writer.write("\"initializedClass\": \"" + escapeJson(fi.initializedClass) + "\"");
+                writer.write("}");
+                firstFieldInit = false;
             }
             writer.write("]\n");
 
@@ -2203,6 +3021,38 @@ public class CallTreeAnalyzer {
                 firstWord = false;
             }
             json.append("]");
+        }
+
+        // 生成インスタンスを追加
+        Set<String> createdInstances = methodCreatedInstances.get(method);
+        if (createdInstances != null && !createdInstances.isEmpty()) {
+            json.append(",\n      \"createdInstances\": [");
+            boolean firstInstance = true;
+            for (String inst : createdInstances) {
+                if (!firstInstance)
+                    json.append(", ");
+                json.append("\"").append(escapeJson(inst)).append("\"");
+                firstInstance = false;
+            }
+            json.append("]");
+        }
+
+        // HTTPクライアント呼び出しを追加
+        List<HttpCallInfo> httpCallList = httpCalls.get(method);
+        if (httpCallList != null && !httpCallList.isEmpty()) {
+            json.append(",\n      \"httpCalls\": [\n");
+            boolean firstHttp = true;
+            for (HttpCallInfo info : httpCallList) {
+                if (!firstHttp)
+                    json.append(",\n");
+                firstHttp = false;
+                json.append("        {\n");
+                json.append("          \"httpMethod\": \"").append(escapeJson(info.httpMethod)).append("\",\n");
+                json.append("          \"uri\": \"").append(escapeJson(info.uri)).append("\",\n");
+                json.append("          \"clientLibrary\": \"").append(escapeJson(info.clientLibrary)).append("\"\n");
+                json.append("        }");
+            }
+            json.append("\n      ]");
         }
 
         json.append("\n    }");

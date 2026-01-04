@@ -243,6 +243,8 @@ class CallTreeVisualizer:
                 "javadoc": method.get("javadoc", ""),
                 "class_javadoc": method.get("classJavadoc", ""),
                 "hit_words": ",".join(method.get("hitWords", [])),
+                "createdInstances": method.get("createdInstances", []),  # 生成されたインスタンス
+                "httpCalls": method.get("httpCalls", []),  # HTTPクライアント呼び出し
             }
 
             # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
@@ -296,6 +298,7 @@ class CallTreeVisualizer:
                     "superClass": cls.get("superClass", ""),
                     "directInterfaces": cls.get("directInterfaces", []),
                     "allInterfaces": cls.get("allInterfaces", []),
+                    "fieldInitializers": cls.get("fieldInitializers", []),  # フィールド初期化情報
                 }
 
         # interfacesセクションを読み込み
@@ -505,6 +508,8 @@ class CallTreeVisualizer:
         show_sql: bool = False,
         follow_implementations: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """呼び出し元からのツリーを表示
 
@@ -515,6 +520,8 @@ class CallTreeVisualizer:
             show_sql: SQL情報を表示するか
             follow_implementations: 実装クラス候補がある場合、それも追跡するか
             verbose: 詳細表示（Javadocを表示）
+            use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
+            short_mode: Trueの場合、クラス名からパッケージ名を省いて表示
         """
         print(f"\n{'=' * 80}")
         print(f"呼び出しツリー (起点: {root_method})")
@@ -531,6 +538,9 @@ class CallTreeVisualizer:
             is_forward=True,
             follow_implementations=follow_implementations,
             verbose=verbose,
+            use_tab=use_tab,
+            short_mode=short_mode,
+            accumulated_instances=None,  # ルートから累積開始
         )
 
     def print_reverse_tree(
@@ -540,6 +550,8 @@ class CallTreeVisualizer:
         show_class: bool = False,
         follow_overrides: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """呼び出し先からのツリー（誰がこのメソッドを呼んでいるか）を表示
 
@@ -549,6 +561,8 @@ class CallTreeVisualizer:
             show_class: クラス情報を表示するか
             follow_overrides: オーバーライド元/インターフェースメソッドも追跡するか
             verbose: 詳細表示（Javadocを表示）
+            use_tab: Trueの場合、ハードタブでインデントし、プレフィックスを省略
+            short_mode: Trueの場合、クラス名からパッケージ名を省いて表示
         """
         print(f"\n{'=' * 80}")
         print(f"逆引きツリー (対象: {target_method})")
@@ -565,6 +579,8 @@ class CallTreeVisualizer:
             follow_overrides,
             final_endpoints,
             verbose,
+            use_tab,
+            short_mode,
         )
 
         # 最終到達点のメソッド一覧を表示
@@ -587,8 +603,15 @@ class CallTreeVisualizer:
         is_forward: bool,
         follow_implementations: bool = True,
         verbose: bool = False,
+        use_tab: bool = False,
+        short_mode: bool = False,
+        accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
     ):
-        """ツリーを再帰的に表示"""
+        """ツリーを再帰的に表示
+
+        Args:
+            accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス情報
+        """
         if depth > max_depth:
             return
 
@@ -599,17 +622,24 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, show_sql, is_circular=True, verbose=verbose
+                method, depth, show_class, show_sql, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, show_sql, verbose=verbose)
+        self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
+
+        # 現在のメソッドで生成されるインスタンスを収集し、累積に追加
+        current_instances = self._collect_created_instances(method)
+        if accumulated_instances is None:
+            accumulated_instances = current_instances
+        else:
+            accumulated_instances = accumulated_instances | current_instances
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
-            indent = "    " * (depth + 1)
-            print(f"{indent}[配下の呼び出しを除外]")
+            indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+            print(f"{indent}〓[配下の呼び出しを除外]")
             return
 
         # 子ノードを表示
@@ -618,7 +648,7 @@ class CallTreeVisualizer:
             for callee_info in callees:
                 callee = callee_info["method"]
 
-                indent = "    " * (depth + 1)
+                indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
 
                 # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
                 if not self.exclusion_manager.should_include(callee):
@@ -626,7 +656,7 @@ class CallTreeVisualizer:
 
                 # 親クラスメソッドの情報を表示
                 if callee_info["is_parent_method"] == "Yes":
-                    print(f"{indent}↓ [親クラスメソッド]")
+                    print(f"{indent}〓↓ [親クラスメソッド]")
 
                 # 呼び出し先を再帰的に表示
                 self._print_tree_recursive(
@@ -639,6 +669,9 @@ class CallTreeVisualizer:
                     is_forward,
                     follow_implementations,
                     verbose,
+                    use_tab,
+                    short_mode,
+                    accumulated_instances,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -658,23 +691,31 @@ class CallTreeVisualizer:
                         annotations.append(f"実装: {impl_class_info}")
 
                     for annotation in annotations:
-                        indent = "    " * (depth + 1)
-                        print(f"{indent}^ [{annotation}]")
+                        indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                        print(f"{indent}〓^ [{annotation}]")
 
                     # 実装クラス候補がある場合、それらも追跡
                     if follow_implementations:
                         # implementationsの各要素は、「<クラス名> + " [<追加情報>]"」の形式かもしれないので、クラス名だけ抽出
-                        implementations = [
+                        impl_classes = [
                             impl.split(" ")[0] for impl in implementations
                         ]
 
                         # Eモード: 除外対象の場合、実装クラスへの展開を停止
                         if self.exclusion_manager.should_exclude_children(callee):
-                            indent = "    " * (depth + 1)
-                            print(f"{indent}[実装クラスへの展開を除外]")
+                            indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                            print(f"{indent}〓[実装クラスへの展開を除外]")
                             continue
 
-                        for impl_class in implementations:
+                        # 累積されたインスタンス情報に基づいてフィルタリング
+                        if accumulated_instances:
+                            filtered_impl_classes = self._filter_implementations_by_accumulated_instances(
+                                accumulated_instances, impl_classes
+                            )
+                        else:
+                            filtered_impl_classes = impl_classes
+
+                        for impl_class in filtered_impl_classes:
                             # 実装クラスの対応するメソッドを探す
                             impl_method = self._find_implementation_method(
                                 callee, impl_class
@@ -686,8 +727,8 @@ class CallTreeVisualizer:
                                 ):
                                     continue
 
-                                indent = "    " * (depth + 1)
-                                print(f"{indent}> [実装クラスへの展開: {impl_class}]")
+                                indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                                print(f"{indent}〓> [実装クラスへの展開: {impl_class}]")
 
                                 self._print_tree_recursive(
                                     impl_method,
@@ -699,6 +740,9 @@ class CallTreeVisualizer:
                                     is_forward,
                                     follow_implementations,
                                     verbose,
+                                    use_tab,
+                                    short_mode,
+                                    accumulated_instances,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -713,6 +757,9 @@ class CallTreeVisualizer:
                     is_forward,
                     follow_implementations,
                     verbose,
+                    use_tab,
+                    short_mode,
+                    accumulated_instances,
                 )
 
     def _print_reverse_tree_recursive(
@@ -725,6 +772,8 @@ class CallTreeVisualizer:
         follow_overrides: bool,
         final_endpoints: Optional[Set[str]] = None,
         verbose: bool = False,
+        use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
@@ -737,12 +786,12 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, False, is_circular=True, verbose=verbose
+                method, depth, show_class, False, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, False, verbose=verbose)
+        self._print_node(method, depth, show_class, False, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
 
         callers = self.reverse_calls.get(method, [])
 
@@ -750,8 +799,8 @@ class CallTreeVisualizer:
         if not callers and follow_overrides:
             parent_methods = self._find_parent_methods(method)
             if parent_methods:
-                indent = "    " * (depth)
-                print(f"{indent}> [オーバーライド元/インターフェースメソッドを展開]")
+                indent = "\t" * depth if use_tab else "    " * depth
+                print(f"{indent}〓> [オーバーライド元/インターフェースメソッドを展開]")
                 for parent_method in parent_methods:
                     self._print_reverse_tree_recursive(
                         parent_method,
@@ -762,6 +811,8 @@ class CallTreeVisualizer:
                         follow_overrides,
                         final_endpoints,
                         verbose,
+                        use_tab,
+                        short_mode,
                     )
             else:
                 # オーバーライド元もない場合は最終到達点
@@ -783,6 +834,8 @@ class CallTreeVisualizer:
                     follow_overrides,
                     final_endpoints,
                     verbose,
+                    use_tab,
+                    short_mode,
                 )
 
     def _print_node(
@@ -793,15 +846,25 @@ class CallTreeVisualizer:
         show_sql: bool,
         is_circular: bool = False,
         verbose: bool = False,
+        use_tab: bool = False,
+        short_mode: bool = False,
     ):
         """ノード情報を表示"""
-        indent = "    " * depth
-        prefix = "|-- " if depth > 0 else ""
+        # use_tabがTrueの場合、ハードタブでインデントし、プレフィックスを省略
+        if use_tab:
+            indent = "\t" * depth
+            prefix = ""
+        else:
+            indent = "    " * depth
+            prefix = "|-- " if depth > 0 else ""
 
         info = self.method_info.get(method, {})
 
+        # 表示するメソッド名を決定（short_modeの場合、パッケージ名を省略）
+        display_method = self._shorten_method_signature(method) if short_mode else method
+
         # メソッド名を表示
-        display = f"{indent}{prefix}{method}"
+        display = f"{indent}{prefix}{display_method}"
         if is_circular:
             display += " [循環参照]"
 
@@ -809,22 +872,71 @@ class CallTreeVisualizer:
         if verbose:
             javadoc = info.get("javadoc", "")
             if javadoc:
-                display += f"\t{javadoc}"
+                display += f"    〓{javadoc}"
 
         print(display)
 
         # クラス情報を表示
         if show_class and info.get("class"):
             class_name = info.get("class", "")
-            print(f"{indent}    クラス: {class_name}")
+            sub_indent = "    "
+            print(f"{indent}{sub_indent}〓クラス: {class_name}")
             if info.get("parent"):
                 parent_class = info.get("parent", "")
-                print(f"{indent}    親クラス: {parent_class}")
+                print(f"{indent}{sub_indent}〓親クラス: {parent_class}")
 
         # SQL情報を表示（全文表示）
         if show_sql and info.get("sql"):
             sql_text = info.get("sql", "") or ""
-            print(f"{indent}    SQL: {sql_text}")
+            sub_indent = "    "
+            print(f"{indent}{sub_indent}〓SQL: {sql_text}")
+
+    def _shorten_method_signature(self, method: str) -> str:
+        """メソッドシグネチャからパッケージ名を省いて返す
+
+        Args:
+            method: メソッドシグネチャ (例: "com.example.MyClass#myMethod(com.example.Arg)")
+
+        Returns:
+            パッケージ名を省いたメソッドシグネチャ (例: "MyClass#myMethod(Arg)")
+        """
+        if "#" not in method:
+            # メソッドシグネチャでない場合はそのまま返す
+            return method
+
+        # クラス名#メソッド名(引数) の形式を解析
+        hash_pos = method.find("#")
+        class_part = method[:hash_pos]
+        method_part = method[hash_pos + 1:]
+
+        # クラス名からパッケージ名を省略
+        short_class = class_part.split(".")[-1] if "." in class_part else class_part
+
+        # メソッド名の引数部分もパッケージ名を省略
+        paren_pos = method_part.find("(")
+        if paren_pos >= 0:
+            method_name = method_part[:paren_pos]
+            args_part = method_part[paren_pos + 1:-1]  # () 内の部分
+            if args_part:
+                # 引数をカンマで分割し、各引数のパッケージ名を省略
+                short_args = []
+                for arg in args_part.split(","):
+                    arg = arg.strip()
+                    # 配列の場合 (e.g., "String[]", "com.example.Type[]")
+                    array_suffix = ""
+                    if arg.endswith("[]"):
+                        array_suffix = "[]"
+                        arg = arg[:-2]
+                    # パッケージ名を省略
+                    short_arg = arg.split(".")[-1] if "." in arg else arg
+                    short_args.append(short_arg + array_suffix)
+                short_method_part = f"{method_name}({', '.join(short_args)})"
+            else:
+                short_method_part = f"{method_name}()"
+        else:
+            short_method_part = method_part
+
+        return f"{short_class}#{short_method_part}"
 
     def _find_parent_methods(self, method: str) -> List[str]:
         """メソッドのオーバーライド元/インターフェースメソッドを探す
@@ -955,6 +1067,57 @@ class CallTreeVisualizer:
             queue.extend(self.class_info.get(current_parent, []))
 
         return None
+
+    def _filter_implementations_by_accumulated_instances(
+        self,
+        accumulated_instances: Set[str],
+        implementations: List[str],
+    ) -> List[str]:
+        """累積されたインスタンス情報を使用して実装クラス候補をフィルタリング
+
+        Args:
+            accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス
+            implementations: 実装クラス候補のリスト
+
+        Returns:
+            フィルタリングされた実装クラスのリスト
+        """
+        if not implementations or not accumulated_instances:
+            return implementations
+
+        # 実装クラス候補が累積インスタンスに含まれるかチェック
+        filtered = [impl for impl in implementations if impl in accumulated_instances]
+
+        if filtered:
+            return filtered  # マッチするものがあればそれのみ返す
+
+        return implementations  # マッチしなければ全候補を返す
+
+    def _collect_created_instances(self, method: str) -> Set[str]:
+        """メソッドおよびそのクラスで生成されるインスタンスを収集
+
+        Args:
+            method: メソッドシグネチャ
+
+        Returns:
+            生成されるインスタンスのクラス名セット
+        """
+        created_instances: Set[str] = set()
+
+        # メソッド内で生成されたインスタンス
+        method_info = self.method_info.get(method, {})
+        created_instances.update(method_info.get("createdInstances", []))
+
+        # クラスのフィールド初期化で生成されたインスタンス
+        method_class = method_info.get("class", "")
+        if method_class:
+            class_data = self.class_data.get(method_class, {})
+            for init in class_data.get("fieldInitializers", []):
+                initialized_class = init.get("initializedClass", "")
+                if initialized_class:
+                    created_instances.add(initialized_class)
+
+        return created_instances
 
     def export_tree_to_file(
         self,
@@ -1183,100 +1346,9 @@ class CallTreeVisualizer:
             if method in all_callees:
                 continue
 
-            call_count = len(self.forward_calls.get(method, []))
-
-            # 厳密モードの場合
-            if strict:
-                if info.get("is_entry_point"):
-                    entry_type = self._determine_entry_type(method, info)
-                    entry_points.append(
-                        (
-                            method,
-                            call_count,
-                            info.get("class", ""),
-                            entry_type,
-                            info.get("annotations", ""),
-                            info.get("visibility", ""),
-                            info.get("javadoc", ""),
-                        )
-                    )
-            else:
-                # 非厳密モードの場合は呼び出し数で判定
-                if call_count >= min_calls:
-                    entry_type = self._determine_entry_type(method, info)
-                    entry_points.append(
-                        (
-                            method,
-                            call_count,
-                            info.get("class", ""),
-                            entry_type,
-                            info.get("annotations", ""),
-                            info.get("visibility", ""),
-                            info.get("javadoc", ""),
-                        )
-                    )
-
-        # エントリータイプと呼び出し数でソート
-        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
-
-        # 結果を表示
-        if not entry_points:
-            print("エントリーポイント候補が見つかりませんでした", file=sys.stderr)
-            return
-
-        for i, (
-            method,
-            call_count,
-            class_name,
-            entry_type,
-            annotations,
-            visibility,
-            javadoc,
-        ) in enumerate(entry_points, 1):
-            print(f"{i}. {method}")
-            print(f"   クラス: {class_name}")
-            print(f"   種別: {entry_type}")
-            print(f"   Javadoc: {javadoc}")
-            print(f"   可視性: {visibility}")
-            if annotations:
-                print(f"   メソッドアノテーション: {annotations}")
-
-            # クラスアノテーションも表示（親クラス・インターフェース含む）
-            info = self.method_info.get(method, {})
-            all_class_annotations = self._get_all_class_annotations(class_name)
-            if all_class_annotations:
-                print(f"   クラスアノテーション: {', '.join(all_class_annotations)}")
-
-            # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
-            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
-                endpoint_path = self._extract_endpoint_path(info, class_name)
-                if endpoint_path:
-                    print(f"   エンドポイント: {endpoint_path}")
-
-            print(f"   呼び出し数: {call_count}")
-            print()
-
-    def list_entry_points_tsv(self, min_calls: int = 1, strict: bool = True) -> None:
-        """エントリーポイント候補をTSV形式で出力
-
-        Args:
-            min_calls: 最小呼び出し数
-            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
-        """
-        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
-        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
-
-        # すべての呼び出し先を収集
-        all_callees = set()
-        for callees in self.forward_calls.values():
-            for callee_info in callees:
-                all_callees.add(callee_info["method"])
-
-        entry_points = []
-
-        for method, info in self.method_info.items():
-            # 他から呼ばれていないメソッドのみ
-            if method in all_callees:
+            # インターフェースの場合は除外
+            type = info.get("class", "")
+            if self.interface_data.get(type, ""):
                 continue
 
             call_count = len(self.forward_calls.get(method, []))
@@ -1312,8 +1384,109 @@ class CallTreeVisualizer:
                         )
                     )
 
-        # エントリータイプと呼び出し数でソート
-        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), -x[1]))
+        # エントリータイプとメソッド名でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), x[0]))
+
+        # 結果を表示
+        if not entry_points:
+            print("エントリーポイント候補が見つかりませんでした", file=sys.stderr)
+            return
+
+        for i, (
+            method,
+            call_count,
+            class_name,
+            entry_type,
+            annotations,
+            visibility,
+            javadoc,
+        ) in enumerate(entry_points, 1):
+            print(f"{i}. {method}")
+            print(f"   クラス: {class_name}")
+            print(f"   種別: {entry_type}")
+            print(f"   Javadoc: {javadoc}")
+            print(f"   可視性: {visibility}")
+            if annotations:
+                print(f"   メソッドアノテーション: {annotations}")
+
+            # クラスアノテーションも表示（親クラス・インターフェース含む）
+            info = self.method_info.get(method, {})
+            all_class_annotations = self._get_all_class_annotation_raws(class_name)
+            if all_class_annotations:
+                print(f"   クラスアノテーション: {', '.join(all_class_annotations)}")
+
+            # HTTP / SOAP の場合、アノテーション等からエンドポイントの path を抽出して表示
+            if entry_type and ("HTTP Endpoint" in entry_type or "SOAP" in entry_type):
+                endpoint_path = self._extract_endpoint_path(info, class_name)
+                if endpoint_path:
+                    print(f"   エンドポイント: {endpoint_path}")
+
+            print(f"   呼び出し数: {call_count}")
+            print()
+
+    def list_entry_points_tsv(self, min_calls: int = 1, strict: bool = True) -> None:
+        """エントリーポイント候補をTSV形式で出力
+
+        Args:
+            min_calls: 最小呼び出し数
+            strict: True の場合、アノテーションやmainメソッドなど厳密に判定（デフォルト）
+        """
+        #  clipでコピーした結果をExcelに貼り付けられるにはShift_JISで出力する
+        sys.stdout.reconfigure(encoding=self.output_tsv_encoding)
+
+        # すべての呼び出し先を収集
+        all_callees = set()
+        for callees in self.forward_calls.values():
+            for callee_info in callees:
+                all_callees.add(callee_info["method"])
+
+        entry_points = []
+
+        for method, info in self.method_info.items():
+            # 他から呼ばれていないメソッドのみ
+            if method in all_callees:
+                continue
+
+            # インターフェースの場合は除外
+            type = info.get("class", "")
+            if self.interface_data.get(type, ""):
+                continue
+
+            call_count = len(self.forward_calls.get(method, []))
+
+            # 厳密モードの場合
+            if strict:
+                if info.get("is_entry_point"):
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+            else:
+                # 非厳密モードの場合は呼び出し数で判定
+                if call_count >= min_calls:
+                    entry_type = self._determine_entry_type(method, info)
+                    entry_points.append(
+                        (
+                            method,
+                            call_count,
+                            info.get("class", ""),
+                            entry_type,
+                            info.get("annotations", ""),
+                            info.get("visibility", ""),
+                            info.get("javadoc", ""),
+                        )
+                    )
+
+        # エントリータイプとメソッド名でソート
+        entry_points.sort(key=lambda x: (self._entry_priority(x[3]), x[0]))
 
         # TSVヘッダーを出力
         print(
@@ -1362,7 +1535,7 @@ class CallTreeVisualizer:
                 endpoint_path = self._extract_endpoint_path(info, class_name)
 
             # クラスアノテーションとクラスJavadocを取得（親クラス・インターフェース含む）
-            all_class_annotations = self._get_all_class_annotations(class_name)
+            all_class_annotations = self._get_all_class_annotation_raws(class_name)
             class_annotations_str = ", ".join(all_class_annotations)
             class_javadoc = self._get_class_javadoc(class_name)
 
@@ -2074,6 +2247,7 @@ class CallTreeVisualizer:
         """
         L列以降に表示するツリー用のメソッド名を生成
         パッケージ名を除外し、SimpleClassName#methodName(params)形式
+        引数のクラス名からもパッケージ名を除去
 
         Args:
             method_signature: メソッドシグネチャ
@@ -2081,10 +2255,8 @@ class CallTreeVisualizer:
         Returns:
             ツリー表示用のメソッド名
         """
-        parts = self._extract_method_signature_parts(method_signature)
-        if parts["simple_class"]:
-            return f"{parts['simple_class']}#{parts['method']}"
-        return parts["method"]
+        # _shorten_method_signatureを再利用
+        return self._shorten_method_signature(method_signature)
 
     def _collect_tree_data(
         self,
@@ -2141,6 +2313,7 @@ class CallTreeVisualizer:
                 "sql": info.get("sql", ""),
                 "is_circular": is_circular,
                 "tree_display": self._format_tree_display(root_method),
+                "httpCalls": info.get("httpCalls", []),  # HTTPクライアント呼び出し情報
             }
         )
 
@@ -2409,6 +2582,12 @@ class CallTreeVisualizer:
             row=current_row, column=7, value="親クラス / 実装クラスへの展開"
         ).font = font
         ws.cell(row=current_row, column=8, value="SQL有無").font = font
+        #   BB列（HTTPリクエスト有無）
+        bb_col = column_index_from_string("BB")
+        ws.cell(row=current_row, column=bb_col, value="HTTP有無").font = font
+        #   BC列（HTTPリクエスト詳細）
+        bc_col = column_index_from_string("BC")
+        ws.cell(row=current_row, column=bc_col, value="HTTPリクエスト").font = font
         #   L列（呼び出しツリーを出力する場合のみ）
         if include_tree:
             ws.cell(
@@ -2439,8 +2618,9 @@ class CallTreeVisualizer:
                 # C列: パッケージ名
                 ws.cell(row=current_row, column=3, value=node["package"]).font = font
 
-                # D列: クラス名
-                ws.cell(row=current_row, column=4, value=node["class"]).font = font
+                # D列: クラス名（パッケージ名を除いたシンプルなクラス名）
+                simple_class = node["class"].split(".")[-1] if node["class"] else ""
+                ws.cell(row=current_row, column=4, value=simple_class).font = font
 
                 # E列: メソッド名（simple name）
                 ws.cell(row=current_row, column=5, value=node["simple_method"]).font = (
@@ -2458,6 +2638,19 @@ class CallTreeVisualizer:
                 # H列: SQL有無
                 sql_marker = "●" if node["sql"] else ""
                 ws.cell(row=current_row, column=8, value=sql_marker).font = font
+
+                # BB列: HTTPリクエスト有無
+                http_calls = node.get("httpCalls", [])
+                http_marker = "●" if http_calls else ""
+                ws.cell(row=current_row, column=bb_col, value=http_marker).font = font
+
+                # BC列: HTTPリクエスト詳細（HTTPメソッド - URI）
+                if http_calls:
+                    http_details = ", ".join(
+                        f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
+                        for call in http_calls
+                    )
+                    ws.cell(row=current_row, column=bc_col, value=http_details).font = font
 
                 # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
                 if include_tree:
@@ -2511,6 +2704,8 @@ def handle_forward(args, visualizer: CallTreeVisualizer) -> None:
         show_sql=args.show_sql,
         follow_implementations=args.follow_impl,
         verbose=args.verbose,
+        use_tab=args.tab,
+        short_mode=args.short,
     )
 
 
@@ -2522,6 +2717,8 @@ def handle_reverse(args, visualizer: CallTreeVisualizer) -> None:
         show_class=args.show_class,
         follow_overrides=args.follow_override,
         verbose=args.verbose,
+        use_tab=args.tab,
+        short_mode=args.short,
     )
 
 
@@ -2906,6 +3103,16 @@ def main():
         action="store_true",
         help="詳細表示（Javadocをタブ区切りで表示）",
     )
+    parser_forward.add_argument(
+        "--tab",
+        action="store_true",
+        help="ハードタブでインデントし、プレフィックス|-- を省略",
+    )
+    parser_forward.add_argument(
+        "--short",
+        action="store_true",
+        help="クラス名からパッケージ名を省いて表示",
+    )
 
     # reverse サブコマンド
     parser_reverse = subparsers.add_parser(
@@ -2931,6 +3138,16 @@ def main():
         "--verbose",
         action="store_true",
         help="詳細表示（Javadocをタブ区切りで表示）",
+    )
+    parser_reverse.add_argument(
+        "--tab",
+        action="store_true",
+        help="ハードタブでインデントし、プレフィックス|-- を省略",
+    )
+    parser_reverse.add_argument(
+        "--short",
+        action="store_true",
+        help="クラス名からパッケージ名を省いて表示",
     )
 
     # export サブコマンド
