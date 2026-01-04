@@ -76,55 +76,11 @@ shadowJar {
     // jarファイルの出力場所をプロジェクトルート直下に変更
     destinationDirectory.set(file("$rootDir"))
 
-    // 依存ライブラリの署名ファイルを除外
-    exclude 'META-INF/*.SF'
-    exclude 'META-INF/*.DSA'
-    exclude 'META-INF/*.RSA'
 }
 
 // デフォルトのbuildタスクでshadowJarを実行
 build {
     dependsOn shadowJar
-}
-
-// StubGenerator用のJAR生成タスク
-task stubGeneratorJar(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    archiveBaseName.set("stub-generator")
-    archiveClassifier.set("")
-    destinationDirectory.set(file("$rootDir"))
-
-    // 依存ライブラリの署名ファイルを除外
-    exclude 'META-INF/*.SF'
-    exclude 'META-INF/*.DSA'
-    exclude 'META-INF/*.RSA'
-
-    configurations = [project.configurations.runtimeClasspath]
-    from sourceSets.main.output
-
-    manifest {
-        attributes 'Main-Class': 'com.analyzer.StubGenerator'
-    }
-}
-
-// 生成されたスタブをコンパイル・JAR化するための設定
-def stubsDir = layout.buildDirectory.dir("generated/stubs")
-def stubsClassesDir = layout.buildDirectory.dir("classes/stubs")
-
-// スタブコンパイルタスク
-task compileStubs(type: JavaCompile) {
-    source = fileTree(dir: stubsDir, include: '**/*.java')
-    destinationDirectory.set(stubsClassesDir)
-    classpath = sourceSets.main.compileClasspath
-    options.encoding = 'UTF-8'
-}
-
-// スタブJAR生成タスク
-task stubJar(type: Jar) {
-    dependsOn compileStubs
-    archiveBaseName.set("generated-stubs")
-    archiveClassifier.set("")
-    destinationDirectory.set(file("$rootDir"))
-    from stubsClassesDir
 }
 
 tasks.withType(Test) {
