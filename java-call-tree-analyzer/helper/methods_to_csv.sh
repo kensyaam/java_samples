@@ -56,17 +56,19 @@ OUTPUT_CSV="${OUTPUT_BASENAME}.csv"
 echo "CSV出力: $OUTPUT_CSV"
 
 # ヘッダー行
-echo '"method","visibility","isEntryPoint","javadoc","annotations","sqlStatements","hitWords"' > "$OUTPUT_CSV"
+echo '"method","visibility","isEntryPoint","javadoc","annotations","sqlStatements","hitWords","httpMethod","uri"' > "$OUTPUT_CSV"
 
-# jq でデータを抽出してCSVに変換
-jq -r '.methods[] | [
+# jq でデータを抽出してCSVに変換（methodでソート）
+jq -r '.methods | sort_by(.method) | .[] | [
     .method // "",
     .visibility // "",
     (.isEntryPoint // false | tostring),
     .javadoc // "",
     ((.annotations // []) | join(",")),
     (if .sqlStatements then (.sqlStatements | join(" ||| ")) else "" end),
-    (if .hitWords then (.hitWords | join(",")) else "" end)
+    (if .hitWords then (.hitWords | join(",")) else "" end),
+    (if .httpCalls then (.httpCalls | map(.httpMethod) | join(", ")) else "" end),
+    (if .httpCalls then (.httpCalls | map(.uri) | join(", ")) else "" end)
 ] | @csv' "$INPUT_FILE" >> "$OUTPUT_CSV"
 
 # Shift-JISに変換
@@ -77,17 +79,19 @@ OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
 echo "TSV出力: $OUTPUT_TSV"
 
 # ヘッダー行
-echo -e "method\tvisibility\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords" > "$OUTPUT_TSV"
+echo -e "method\tvisibility\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords\thttpMethod\turi" > "$OUTPUT_TSV"
 
-# jq でデータを抽出してTSVに変換
-jq -r '.methods[] | [
+# jq でデータを抽出してTSVに変換（methodでソート）
+jq -r '.methods | sort_by(.method) | .[] | [
     .method // "",
     .visibility // "",
     (.isEntryPoint // false | tostring),
     (.javadoc // "" | gsub("\t"; " ") | gsub("\n"; " ")),
     ((.annotations // []) | join(",") | gsub("\t"; " ")),
     (if .sqlStatements then (.sqlStatements | join(" ||| ") | gsub("\t"; " ") | gsub("\n"; " ")) else "" end),
-    (if .hitWords then (.hitWords | join(",")) else "" end)
+    (if .hitWords then (.hitWords | join(",")) else "" end),
+    (if .httpCalls then (.httpCalls | map(.httpMethod) | join(", ")) else "" end),
+    (if .httpCalls then (.httpCalls | map(.uri) | join(", ") | gsub("\t"; " ")) else "" end)
 ] | @tsv' "$INPUT_FILE" >> "$OUTPUT_TSV"
 
 # Shift-JISに変換

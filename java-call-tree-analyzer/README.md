@@ -7,6 +7,13 @@
 - [静的解析ツール](#静的解析ツール)
   - [ビルド](#ビルド)
   - [解析実行](#解析実行)
+  - [JSON出力仕様](#json出力仕様)
+    - [methodsセクション](#methodsセクション)
+      - [httpCallsの形式](#httpcallsの形式)
+    - [classesセクション](#classesセクション)
+      - [fieldInitializersの形式](#fieldinitializersの形式)
+    - [interfacesセクション](#interfacesセクション)
+      - [implementationsの形式](#implementationsの形式)
 - [可視化ツール](#可視化ツール)
   - [事前準備](#事前準備)
   - [使い方](#使い方)
@@ -106,6 +113,120 @@ java -jar call-tree-analyzer-1.0.0.jar
   -xml ../../ext/spring-framework-petclinic/src/main/resources/spring 
   -d
 ```
+
+### JSON出力仕様
+
+解析結果のJSONファイルには以下のセクションが含まれます。
+
+#### methodsセクション
+
+各メソッドの情報を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| method | メソッドシグネチャ（fully qualified name） |
+| class | 所属クラス |
+| parentClasses | 親クラス・インターフェース一覧 |
+| visibility | 可視性（public/protected/private） |
+| isEntryPoint | エントリーポイント候補かどうか |
+| annotations | メソッドアノテーション |
+| javadoc | Javadoc要約 |
+| calls | 呼び出し先メソッド一覧 |
+| calledBy | 呼び出し元メソッド一覧 |
+| sqlStatements | 検出されたSQL文 |
+| hitWords | 検索ワードでヒットした語 |
+| createdInstances | メソッド内で`new`により生成されるインスタンスのクラス一覧 |
+| httpCalls | HTTPクライアント呼び出し情報（httpMethod, uri, clientLibrary） |
+
+##### httpCallsの形式
+
+```json
+"httpCalls": [
+  {"httpMethod": "GET", "uri": "https://api.example.com/users", "clientLibrary": "RestTemplate"},
+  {"httpMethod": "POST", "uri": "https://api.example.com/users", "clientLibrary": "Apache HttpClient 4.x"}
+]
+```
+
+**対応HTTPクライアントライブラリ**:
+
+| ライブラリ | clientLibrary値 | 検出メソッド |
+|-----------|----------------|------------|
+| Apache HttpClient 4.x | Apache HttpClient 4.x | HttpGet/HttpPost等のコンストラクタ |
+| Apache HttpClient 3.x | Apache HttpClient 3.x | GetMethod/PostMethod等のコンストラクタ |
+| Apache HttpClient 5.x | Apache HttpClient 5.x | execute() |
+| Apache CXF WebClient | CXF WebClient | get()/post()/put()/delete() |
+| Spring RestTemplate | RestTemplate | getForObject()/postForEntity()/exchange()等 |
+| Java 11+ HttpClient | Java HttpClient | send()/sendAsync() |
+| JAX-RS Client | JAX-RS Client | get()/post()/put()/delete() |
+| OkHttp | OkHttp | execute()/enqueue() |
+| Spring WebClient | Spring WebClient | get()/post()/put()/delete() |
+| HttpURLConnection | HttpURLConnection | connect() |
+
+#### classesセクション
+
+各クラスの情報を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| className | クラス名（fully qualified name） |
+| javadoc | Javadoc要約 |
+| annotations | クラスアノテーション |
+| superClass | 親クラス |
+| directInterfaces | 直接実装インターフェース |
+| allInterfaces | 全実装インターフェース |
+| hitWords | 検索ワードでヒットした語 |
+| fieldInitializers | メンバ変数の初期化時に生成されるインスタンス情報（フィールド宣言時およびコンストラクタ内での初期化を含む） |
+
+##### fieldInitializersの形式
+
+```json
+"fieldInitializers": [
+  {"fieldName": "processor", "fieldType": "DataProcessor", "initializedClass": "ConcreteProcessorA"},
+  {"fieldName": "repository", "fieldType": "UserRepository", "initializedClass": "UserRepositoryImpl"}
+]
+```
+
+#### interfacesセクション
+
+各インターフェースの情報と実装クラス一覧を出力します。
+
+| フィールド | 説明 |
+|-----------|------|
+| interfaceName | インターフェース名（fully qualified name） |
+| javadoc | Javadoc要約 |
+| annotations | アノテーション（クラス名のみ） |
+| annotationRaws | アノテーション（パス情報等を含むフル形式） |
+| superInterfaces | 親インターフェース一覧 |
+| hitWords | 検索ワードでヒットした語 |
+| implementations | 実装クラス一覧（詳細は下記参照） |
+
+##### implementationsの形式
+
+```json
+"implementations": [
+  {
+    "className": "com.example.impl.UserServiceImpl",
+    "type": "direct",
+    "javadoc": "ユーザーサービスの実装クラス",
+    "annotations": ["org.springframework.stereotype.Service"]
+  },
+  {
+    "className": "com.example.impl.UserServiceCacheImpl",
+    "type": "indirect",
+    "javadoc": "キャッシュ付きユーザーサービス",
+    "annotations": ["org.springframework.stereotype.Service"]
+  }
+]
+```
+
+| フィールド | 説明 |
+|-----------|------|
+| className | 実装クラス名（fully qualified name） |
+| type | 実装タイプ（`direct`: 直接実装、`indirect`: 間接実装） |
+| javadoc | 実装クラスのJavadoc要約 |
+| annotations | 実装クラスのアノテーション |
+
+
 
 ## 可視化ツール
 
@@ -254,7 +375,7 @@ python call_tree_visualizer.py search "$KEYWORD"
 
 ```bash
 $ python call_tree_visualizer.py forward --help
-usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] method
+usage: call_tree_visualizer.py forward [-h] [--depth DEPTH] [--show-class] [--show-sql] [--no-follow-impl] [--verbose] [--tab] [--short] method
 
 positional arguments:
   method                起点メソッド
@@ -266,6 +387,8 @@ options:
   --show-sql            SQL情報を表示
   --no-follow-impl      実装クラス候補を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
+  --tab                 ハードタブでインデントし、プレフィックス|-- を省略
+  --short               パッケージ名を省略してクラス名のみ表示
 ```
 
 ```bash
@@ -276,7 +399,24 @@ python call_tree_visualizer.py forward "$METHOD"
 python call_tree_visualizer.py forward "$METHOD" --no-follow-impl
 # Javadocを表示
 python call_tree_visualizer.py forward "$METHOD" --verbose
+# ハードタブでインデント
+python call_tree_visualizer.py forward "$METHOD" --tab
 ```
+
+###### 実装クラス候補のスマートフィルタリング
+
+インターフェースや抽象クラスのメソッド呼び出し時に、実装クラス候補が複数ある場合、呼び元メソッド（およびその呼び元を再帰的に遡る）で`new`によって生成されたインスタンスを考慮して、実装クラスを自動的に絞り込みます。
+
+例: 以下のコードでは、`processor.process()`の実装クラス候補として`ConcreteProcessorA`のみが展開されます。
+
+```java
+public void processData() {
+    DataProcessor processor = new ConcreteProcessorA();  // ← ここでの生成を検出
+    processor.process();  // ← ConcreteProcessorAのみを展開
+}
+```
+
+また、クラスのフィールド初期化（宣言時およびコンストラクタ内）も考慮されます。
 
 #### reverse : 逆引きツリー出力（誰がこのメソッドを呼んでいるか）
 
@@ -285,7 +425,7 @@ python call_tree_visualizer.py forward "$METHOD" --verbose
 
 ```bash
 $ python call_tree_visualizer.py reverse --help
-usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] method
+usage: call_tree_visualizer.py reverse [-h] [--depth DEPTH] [--show-class] [--no-follow-override] [--verbose] [--tab] [--short] method
 
 positional arguments:
   method                対象メソッド
@@ -296,6 +436,8 @@ options:
   --show-class          クラス情報を表示
   --no-follow-override  オーバーライド元を追跡しない
   --verbose             詳細表示（Javadocをタブ区切りで表示）
+  --tab                 ハードタブでインデントし、プレフィックス|-- を省略
+  --short               パッケージ名を省略してクラス名のみ表示
 ```
 
 ```bash
@@ -306,6 +448,8 @@ python call_tree_visualizer.py reverse "$METHOD"
 python call_tree_visualizer.py reverse "$METHOD" --no-follow-override
 # Javadocを表示
 python call_tree_visualizer.py reverse "$METHOD" --verbose
+# ハードタブでインデント
+python call_tree_visualizer.py reverse "$METHOD" --tab
 ```
 
 #### export : 呼び出しツリーを指定形式のファイルにエクスポート
@@ -383,13 +527,15 @@ com.example.service.OrderService#processOrder(Order)
 - **A列**: 呼び出しツリーの先頭メソッド（fully qualified name）
 - **B列**: 呼び出しメソッド（fully qualified name）
 - **C列**: 呼び出しメソッドのパッケージ名
-- **D列**: 呼び出しメソッドのクラス名
+- **D列**: 呼び出しメソッドのクラス名（パッケージ名を含めない）
 - **E列**: 呼び出しメソッドのメソッド名（simple name）
 - **F列**: 呼び出しメソッドのJavadoc
 - **G列**: 呼び出しメソッドが呼び元の親クラスのメソッドなら`親クラス`、実装クラスへ展開したものなら`実装クラスへの展開`
 - **H列**: 呼び出しメソッド内にSQL文がある場合: `●`
 - **L列以降**: 呼び出しツリー（メソッドからパッケージ名は除外、列のインデントで階層表現）
 - **AZ列**: 呼び出しメソッド内のSQL文
+- **BB列**: 呼び出しメソッド内にHTTPリクエストがある場合: `●`
+- **BC列**: HTTPリクエスト詳細（例: `GET - https://api.example.com/users, POST - https://api.example.com/orders`）
 
 その他:
 
@@ -544,8 +690,8 @@ python call_tree_visualizer.py analyze-tables | clip
 クラス階層JSONファイルを読み込み、クラスの継承関係とインターフェース実装を表示します。
 
 ```bash
-$ python call_tree_visualizer.py class-hierarchy.json class-tree --help
-usage: call_tree_visualizer.py input_file class-tree [-h] [--filter FILTER] [--root ROOT_FILTER] [--verbose]
+$ python call_tree_visualizer.py class-tree --help
+usage: call_tree_visualizer.py class-tree [-h] [--filter FILTER] [--root ROOT_FILTER] [--verbose]
 
 options:
   -h, --help            show this help message and exit
@@ -555,14 +701,14 @@ options:
 ```
 
 ```bash
-# 全体のクラス階層ツリーを表示
-python call_tree_visualizer.py class-hierarchy.json class-tree
+# 全体のクラス階層ツリーを表示（デフォルトでanalyzed_result.jsonを読み込む）
+python call_tree_visualizer.py class-tree
 
 # 特定のパッケージでフィルタリング
-python call_tree_visualizer.py class-hierarchy.json class-tree --filter "com.example.service"
+python call_tree_visualizer.py class-tree --filter "com.example.service"
 
 # 特定のクラスのみ表示
-python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.example.UserServiceImpl"
+python call_tree_visualizer.py class-tree --filter "com.example.UserServiceImpl"
 ```
 
 #### interface-impls : インターフェース実装一覧を表示
@@ -570,8 +716,8 @@ python call_tree_visualizer.py class-hierarchy.json class-tree --class "com.exam
 インターフェース実装JSONファイルを読み込み、各インターフェースの実装クラスを表示します。
 
 ```bash
-$ python call_tree_visualizer.py interface-implementations.json interface-impls --help
-usage: call_tree_visualizer.py input_file interface-impls [-h] [--interface FILTER_STR] [--verbose]
+$ python call_tree_visualizer.py interface-impls --help
+usage: call_tree_visualizer.py interface-impls [-h] [--interface FILTER_STR] [--verbose]
 
 options:
   -h, --help            show this help message and exit
@@ -581,14 +727,14 @@ options:
 ```
 
 ```bash
-# 全体のインターフェース実装一覧を表示
-python call_tree_visualizer.py interface-implementations.json interface-impls
+# 全体のインターフェース実装一覧を表示（デフォルトでanalyzed_result.jsonを読み込む）
+python call_tree_visualizer.py interface-impls
 
 # 特定のインターフェースでフィルタリング
-python call_tree_visualizer.py interface-implementations.json interface-impls --interface "com.example.UserRepository"
+python call_tree_visualizer.py interface-impls --interface "com.example.UserRepository"
 
-# 直接実装のみ表示
-python call_tree_visualizer.py interface-implementations.json interface-impls --direct-only
+# Javadocやアノテーションの詳細を表示
+python call_tree_visualizer.py interface-impls --verbose
 ```
 
 ###### 使用例
@@ -719,6 +865,11 @@ scoop install jq
 | annotations | メソッドアノテーション（カンマ区切り） |
 | sqlStatements | SQL文（複数ある場合は ` \|\|\| ` 区切り） |
 | hitWords | 検出ワード（複数ある場合はカンマ区切り） |
+| httpMethod | HTTPリクエストメソッド（GET/POST/PUT/DELETE等） |
+| uri | HTTPリクエスト先URI |
+
+> [!NOTE]
+> 出力はmethodでソートされます。
 
 ### select_method.sh : fzfでメソッドを選択
 
