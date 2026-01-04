@@ -13,7 +13,8 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Set
 
 import openpyxl
-from openpyxl.styles import Font
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import Alignment, Border, Font, NamedStyle, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 # Git Bash上でパイプを使うと、stdoutがCP932として扱われるのを防ぐ
@@ -2276,7 +2277,7 @@ class CallTreeVisualizer:
             follow_implementations: 実装クラス候補を追跡するか
             visited: 訪問済みメソッド集合（循環参照チェック用）
             depth: 現在の深度
-            parent_relation: 親との関係（"親クラス" / "実装クラスへの展開" / ""）
+            parent_relation: 呼び出し種別（"親クラスメソッド" / "インターフェース" / "実装クラス候補" / ""）
 
         Returns:
             各メソッドの情報を含む辞書のリスト
@@ -2314,6 +2315,7 @@ class CallTreeVisualizer:
                 "is_circular": is_circular,
                 "tree_display": self._format_tree_display(root_method),
                 "httpCalls": info.get("httpCalls", []),  # HTTPクライアント呼び出し情報
+                "hit_words": info.get("hit_words", ""),  # 検出ワード
             }
         )
 
@@ -2337,8 +2339,16 @@ class CallTreeVisualizer:
             if not self.exclusion_manager.should_include(callee):
                 continue
 
-            # 親クラスメソッドかどうか
-            relation = "親クラス" if callee_info["is_parent_method"] == "Yes" else ""
+            # 呼び出し種別を判定
+            # 1. 親クラスのメソッドの場合: 親クラス
+            # 2. インターフェースのメソッドの場合: 実装クラス側で「インターフェース」を設定
+            if callee_info["is_parent_method"] == "Yes":
+                relation = "親クラスメソッド"
+            elif callee_info["implementations"]:
+                # 実装がある＝インターフェースまたは抽象クラスのメソッド
+                relation = "インターフェース"
+            else:
+                relation = ""
 
             # 呼び出し先を再帰的に収集
             result.extend(
@@ -2374,7 +2384,7 @@ class CallTreeVisualizer:
                                 follow_implementations,
                                 visited_copy.copy(),
                                 depth + 1,
-                                "実装クラスへの展開",
+                                "実装クラス候補",
                             )
                         )
 
@@ -2556,48 +2566,114 @@ class CallTreeVisualizer:
         if not isinstance(ws, openpyxl.worksheet.worksheet.Worksheet):
             raise TypeError("Active sheet is not a Worksheet")
 
-        font = Font(name="Meiryo UI")
+        # 背景色（薄めのオリーブ）と罫線（破線）を定義
+        olive_fill = PatternFill(start_color="C4D79B", end_color="C4D79B", fill_type="solid")
+        dashed_border = Border(
+            left=Side(style="dashed", color="000000"),
+            right=Side(style="dashed", color="000000"),
+            top=Side(style="dashed", color="000000"),
+            bottom=Side(style="dashed", color="000000"),
+        )
+
+        # NamedStyleを作成（フォントとアライメントを定義）
+        default_style = NamedStyle(name="default_style")
+        default_style.font = Font(name="Meiryo UI")
+        default_style.alignment = Alignment(vertical="center", horizontal="left")
+        default_style.border = dashed_border
+
+        green_style = NamedStyle(name="green_style")
+        green_style.font = Font(name="Meiryo UI", color="008000")
+        green_style.alignment = Alignment(vertical="center", horizontal="left")
+        green_style.border = dashed_border
+
+        # ヘッダ用スタイル（オリーブ背景色）
+        header_style = NamedStyle(name="header_style")
+        header_style.font = Font(name="Meiryo UI")
+        header_style.alignment = Alignment(vertical="center", horizontal="left")
+        header_style.fill = olive_fill
+        header_style.border = dashed_border
+
+        # L列用スタイル（太字）
+        tree_style = NamedStyle(name="tree_style")
+        tree_style.font = Font(name="Meiryo UI", bold=True)
+        tree_style.alignment = Alignment(vertical="center", horizontal="left")
+        tree_style.border = dashed_border
+
+        # インターフェース用スタイル（斜体、グレー）
+        interface_style = NamedStyle(name="interface_style")
+        interface_style.font = Font(name="Meiryo UI", italic=True, color="808080")
+        interface_style.alignment = Alignment(vertical="center", horizontal="left")
+        interface_style.border = dashed_border
+
+        # 実装クラス候補用スタイル（下線）
+        impl_style = NamedStyle(name="impl_style")
+        impl_style.font = Font(name="Meiryo UI", underline="single")
+        impl_style.alignment = Alignment(vertical="center", horizontal="left")
+        impl_style.border = dashed_border
+
+        # F列（呼び出し種別）用スタイル（縮小して全体を表示）
+        shrink_style = NamedStyle(name="shrink_style")
+        shrink_style.font = Font(name="Meiryo UI")
+        shrink_style.alignment = Alignment(vertical="center", horizontal="left", shrink_to_fit=True)
+        shrink_style.border = dashed_border
+
+        # スタイルをワークブックに登録
+        wb.add_named_style(default_style)
+        wb.add_named_style(green_style)
+        wb.add_named_style(header_style)
+        wb.add_named_style(tree_style)
+        wb.add_named_style(interface_style)
+        wb.add_named_style(impl_style)
+        wb.add_named_style(shrink_style)
+
+        # C～E、G列の幅を30に設定
+        for col_letter in ["C", "D", "E", "G"]:
+            ws.column_dimensions[col_letter].width = 30
 
         # L列以降の列幅を5に設定
         tree_start_col = column_index_from_string("L")
-        for col_idx in range(tree_start_col, tree_start_col + 50):
+        tree_end_col = tree_start_col + max_depth - 1  # 呼び出しツリーの最終列
+        for col_idx in range(tree_start_col, tree_start_col + max_depth):
             letter = get_column_letter(col_idx)
             ws.column_dimensions[letter].width = 5
 
-        # AZ列のインデックス
-        az_col = column_index_from_string("AZ")
+        # --depthオプションに基づく動的列計算
+        # L列からmax_depth列目がSQL有無列になる（新しい順序）
+        sql_exists_col = tree_start_col + max_depth      # AF列 (depth=20の場合)
+        sql_content_col = sql_exists_col + 1             # AG列 (depth=20の場合)
+        http_exists_col = sql_content_col + 1            # AH列 (depth=20の場合)
+        http_request_col = http_exists_col + 1           # AI列 (depth=20の場合)
+        hitwords_col = http_request_col + 1              # AJ列 (depth=20の場合)
 
-        # 各エントリーポイントについてツリーを収集して出力
-        current_row = 1
-
-        # ヘッダ行を出力
-        #   A～H列
-        ws.cell(row=current_row, column=1, value="エントリーポイント").font = font
-        ws.cell(row=current_row, column=2, value="呼び出しメソッド").font = font
-        ws.cell(row=current_row, column=3, value="パッケージ名").font = font
-        ws.cell(row=current_row, column=4, value="クラス名").font = font
-        ws.cell(row=current_row, column=5, value="メソッド名").font = font
-        ws.cell(row=current_row, column=6, value="Javadoc").font = font
-        ws.cell(
-            row=current_row, column=7, value="親クラス / 実装クラスへの展開"
-        ).font = font
-        ws.cell(row=current_row, column=8, value="SQL有無").font = font
-        #   BB列（HTTPリクエスト有無）
-        bb_col = column_index_from_string("BB")
-        ws.cell(row=current_row, column=bb_col, value="HTTP有無").font = font
-        #   BC列（HTTPリクエスト詳細）
-        bc_col = column_index_from_string("BC")
-        ws.cell(row=current_row, column=bc_col, value="HTTPリクエスト").font = font
-        #   L列（呼び出しツリーを出力する場合のみ）
+        # 1行目: L1に「呼び出しツリー」を出力
         if include_tree:
-            ws.cell(
-                row=current_row, column=tree_start_col, value="呼び出しツリー"
-            ).font = font
-        #   AZ列（SQL文を出力する場合のみ）
-        if include_sql:
-            ws.cell(row=current_row, column=az_col, value="SQL文").font = font
+            ws.cell(row=1, column=tree_start_col, value="呼び出しツリー").style = "header_style"
 
-        current_row += 1
+        # 2行目: ヘッダ行
+        header_row = 2
+        #   A～G列
+        ws.cell(row=header_row, column=1, value="エントリーポイント").style = "header_style"
+        ws.cell(row=header_row, column=2, value="呼び出しメソッド").style = "header_style"
+        ws.cell(row=header_row, column=3, value="パッケージ名").style = "header_style"
+        ws.cell(row=header_row, column=4, value="クラス名").style = "header_style"
+        ws.cell(row=header_row, column=5, value="メソッド名").style = "header_style"
+        ws.cell(row=header_row, column=6, value="呼び出し種別").style = "header_style"
+        ws.cell(row=header_row, column=7, value="Javadoc").style = "header_style"
+        #   L2～呼び出しツリー最終列に連番（1,2,3...）
+        if include_tree:
+            for i, col_idx in enumerate(range(tree_start_col, tree_end_col + 1), start=1):
+                ws.cell(row=header_row, column=col_idx, value=i).style = "header_style"
+        #   動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
+        if include_sql:
+            ws.cell(row=header_row, column=sql_exists_col, value="SQL有無").style = "header_style"
+            ws.cell(row=header_row, column=sql_content_col, value="SQL文").style = "header_style"
+        #   動的列: HTTP有無、HTTPリクエスト
+        ws.cell(row=header_row, column=http_exists_col, value="HTTP有無").style = "header_style"
+        ws.cell(row=header_row, column=http_request_col, value="HTTPリクエスト").style = "header_style"
+        #   動的列: hitWords列
+        ws.cell(row=header_row, column=hitwords_col, value="検出ワード").style = "header_style"
+
+        current_row = 3  # データは3行目から
 
         for entry_point in entry_points:
             print(f"処理中: {entry_point}")
@@ -2610,47 +2686,28 @@ class CallTreeVisualizer:
             # Excelに書き込み
             for node in tree_data:
                 # A列: エントリーポイント（すべての行に出力）
-                ws.cell(row=current_row, column=1, value=entry_point).font = font
+                ws.cell(row=current_row, column=1, value=entry_point).style = "default_style"
 
                 # B列: 呼び出しメソッド（fully qualified name）
-                ws.cell(row=current_row, column=2, value=node["method"]).font = font
+                ws.cell(row=current_row, column=2, value=node["method"]).style = "default_style"
 
                 # C列: パッケージ名
-                ws.cell(row=current_row, column=3, value=node["package"]).font = font
+                ws.cell(row=current_row, column=3, value=node["package"]).style = "default_style"
 
                 # D列: クラス名（パッケージ名を除いたシンプルなクラス名）
                 simple_class = node["class"].split(".")[-1] if node["class"] else ""
-                ws.cell(row=current_row, column=4, value=simple_class).font = font
+                ws.cell(row=current_row, column=4, value=simple_class).style = "default_style"
 
                 # E列: メソッド名（simple name）
-                ws.cell(row=current_row, column=5, value=node["simple_method"]).font = (
-                    font
-                )
+                ws.cell(row=current_row, column=5, value=node["simple_method"]).style = "default_style"
 
-                # F列: Javadoc
-                ws.cell(row=current_row, column=6, value=node["javadoc"]).font = font
+                # F列: 呼び出し種別（親クラス / インターフェース / 実装クラス）、空の場合は半角スペース
+                parent_relation_value = node["parent_relation"] if node["parent_relation"] else " "
+                ws.cell(row=current_row, column=6, value=parent_relation_value).style = "shrink_style"
 
-                # G列: 親クラス / 実装クラスへの展開
-                ws.cell(
-                    row=current_row, column=7, value=node["parent_relation"]
-                ).font = font
-
-                # H列: SQL有無
-                sql_marker = "●" if node["sql"] else ""
-                ws.cell(row=current_row, column=8, value=sql_marker).font = font
-
-                # BB列: HTTPリクエスト有無
-                http_calls = node.get("httpCalls", [])
-                http_marker = "●" if http_calls else ""
-                ws.cell(row=current_row, column=bb_col, value=http_marker).font = font
-
-                # BC列: HTTPリクエスト詳細（HTTPメソッド - URI）
-                if http_calls:
-                    http_details = ", ".join(
-                        f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
-                        for call in http_calls
-                    )
-                    ws.cell(row=current_row, column=bc_col, value=http_details).font = font
+                # G列: Javadoc（緑フォント）、空の場合は半角スペース
+                javadoc_value = node["javadoc"] if node["javadoc"] else " "
+                ws.cell(row=current_row, column=7, value=javadoc_value).style = "green_style"
 
                 # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
                 if include_tree:
@@ -2658,17 +2715,79 @@ class CallTreeVisualizer:
                     tree_text = str(node["tree_display"] or "")
                     if node["is_circular"] and tree_text:
                         tree_text = tree_text + " [循環参照]"
-                    ws.cell(row=current_row, column=tree_col, value=tree_text).font = (
-                        font
-                    )
+                    # L列（depth=0）は太字、インターフェースは斜体、実装クラス候補は下線
+                    if tree_col == tree_start_col:
+                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "tree_style"
+                    elif node["parent_relation"] == "インターフェース":
+                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "interface_style"
+                    elif node["parent_relation"] == "実装クラス候補":
+                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "impl_style"
+                    else:
+                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "default_style"
 
-                # AZ列: SQL文（include_sqlがTrueの場合のみ）
-                if include_sql and node["sql"]:
-                    ws.cell(row=current_row, column=az_col, value=node["sql"]).font = (
-                        font
+                # 動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
+                if include_sql:
+                    sql_marker = "●" if node["sql"] else ""
+                    ws.cell(row=current_row, column=sql_exists_col, value=sql_marker).style = "default_style"
+                    if node["sql"]:
+                        ws.cell(row=current_row, column=sql_content_col, value=node["sql"]).style = "default_style"
+
+                # 動的列: HTTP有無、HTTPリクエスト
+                http_calls = node.get("httpCalls", [])
+                http_marker = "●" if http_calls else ""
+                ws.cell(row=current_row, column=http_exists_col, value=http_marker).style = "default_style"
+
+                if http_calls:
+                    http_details = ", ".join(
+                        f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
+                        for call in http_calls
                     )
+                    ws.cell(row=current_row, column=http_request_col, value=http_details).style = "default_style"
+
+                # 動的列: hitWords
+                hit_words = node.get("hit_words", "")
+                if hit_words:
+                    ws.cell(row=current_row, column=hitwords_col, value=hit_words).style = "default_style"
 
                 current_row += 1
+
+        # フィルターを設定（A2:AO<最終行>、ヘッダは2行目）
+        last_row = current_row - 1
+        ao_col = column_index_from_string("AO")
+        filter_range = f"A2:{get_column_letter(ao_col)}{last_row}"
+        ws.auto_filter.ref = filter_range
+
+        # 1行目の全セルにヘッダースタイルを適用
+        for col_idx in range(1, ao_col + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            if cell.style != "header_style":
+                cell.style = "header_style"
+
+        # 2行目～最終行の全セルに書式を適用（未設定のセルのみ）
+        for row_idx in range(2, last_row + 1):
+            for col_idx in range(1, ao_col + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                # スタイルが未設定（Normal）の場合のみ適用
+                if cell.style == "Normal" or cell.style is None:
+                    if row_idx == 2:
+                        cell.style = "header_style"
+                    else:
+                        cell.style = "default_style"
+
+        # 条件付き書式: L列に値がある場合は行全体の背景色をライトグレーに
+        light_gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        # データ範囲（3行目～最終行）に条件付き書式を適用
+        data_range = f"A3:{get_column_letter(ao_col)}{last_row}"
+        ws.conditional_formatting.add(
+            data_range,
+            FormulaRule(
+                formula=[f"$L3<>\"\""],
+                fill=light_gray_fill,
+            ),
+        )
+
+        # ウィンドウ枚の固定（A3セルで固定）
+        ws.freeze_panes = "A3"
 
         # Excelファイルの保存
         try:
@@ -3200,7 +3319,7 @@ def main():
         "--no-sql",
         action="store_false",
         dest="include_sql",
-        help="AZ列のSQL文を出力しない",
+        help="SQL文を出力しない（動的列）",
     )
 
     # export-csv サブコマンド

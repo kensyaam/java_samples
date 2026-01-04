@@ -285,6 +285,15 @@ public class CallTreeAnalyzer {
                         }
                     }
                 }
+
+                // Javadocが空で@Overrideアノテーションがある場合も、親メソッドからJavadocを継承
+                if ((this.javadocSummary == null || this.javadocSummary.isEmpty()) &&
+                        annotations.contains("Override")) {
+                    String inheritedDoc = getInheritedJavadoc(method);
+                    if (inheritedDoc != null && !inheritedDoc.isEmpty()) {
+                        this.javadocSummary = inheritedDoc;
+                    }
+                }
             } catch (Exception e) {
                 this.javadocSummary = "";
             }

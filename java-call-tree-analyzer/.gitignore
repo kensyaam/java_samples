@@ -23,4 +23,9 @@ call-tree-analyzer-*.jar
 *.manifest
 *.spec
 
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
 examples/
