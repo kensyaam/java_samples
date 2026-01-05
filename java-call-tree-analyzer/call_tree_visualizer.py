@@ -186,6 +186,7 @@ class CallTreeVisualizer:
         input_file: str,
         exclusion_file: Optional[str] = None,
         output_tsv_encoding: str = "Shift_JIS",
+        debug_mode: bool = False,  # デバッグモード
     ):
         """
         コンストラクタ
@@ -194,6 +195,7 @@ class CallTreeVisualizer:
             input_file: 入力ファイルのパス（JSONまたはTSV）
             exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルト）
             output_tsv_encoding: 出力TSVファイルのエンコーディング
+            debug_mode: デバッグモード（Trueの場合、インスタンス収集情報を出力）
         """
         self.input_file: str = input_file
         self.forward_calls: Dict[str, List[Dict[str, str]]] = defaultdict(list)
@@ -207,6 +209,7 @@ class CallTreeVisualizer:
             exclusion_file
         )
         self.output_tsv_encoding: str = output_tsv_encoding
+        self.debug_mode: bool = debug_mode
         self.load_data()
 
     def load_data(self):
@@ -1118,6 +1121,10 @@ class CallTreeVisualizer:
                 if initialized_class:
                     created_instances.add(initialized_class)
 
+        # デバッグモードの場合、収集したインスタンス情報を出力
+        if self.debug_mode and created_instances:
+            print(f"[DEBUG] {method} で収集したインスタンス: {', '.join(sorted(created_instances))}")
+
         return created_instances
 
     def export_tree_to_file(
@@ -1599,23 +1606,38 @@ class CallTreeVisualizer:
         elif method_path:
             return method_path
 
-        # 汎用パターンでの検索（上記で見つからない場合）
-        full_text = method_annotations + " " + class_annotations
-        general_patterns = [
-            r"[\"'](/[^\"']+)[\"']",  # 汎用: 引用された /... パス
-            r"[\"'](https?://[^\"']+)[\"']",  # フルURL
-        ]
-        for pattern in general_patterns:
-            m = re.search(pattern, full_text)
-            if m:
-                return m.group(1)
+        # WebLogic + JAX-WS（SOAP）の場合を考慮し、WebLogic特有アノテーション @WLHttpTransportのcontextPath、serviceUriの値からパスを抽出
+        # さらに、メソッドレベルの@WebMethodのoperationNameの値を結合して、SOAPのエンドポイントを生成する
+        # 例：contextPath=/foo, serviceUri=/bar, operationName=fooBar -> /foo/bar : operationName=fooBar
+        m = re.search(r"contextPath\s*=\s*[\"']([^\"']+)[\"']", class_annotations)
+        if m:
+            context_path = m.group(1)
+        m = re.search(r"serviceUri\s*=\s*[\"']([^\"']+)[\"']", class_annotations)
+        if m:
+            service_uri = m.group(1)
+        m = re.search(r"operationName\s*=\s*[\"']([^\"']+)[\"']", method_annotations)
+        if m:
+            operation_name = m.group(1)
+        if context_path and service_uri and operation_name:
+            return context_path + service_uri + " : operationName=" + operation_name
+        
+        # # 汎用パターンでの検索（上記で見つからない場合）
+        # full_text = method_annotations + " " + class_annotations
+        # general_patterns = [
+        #     r"[\"'](/[^\"']+)[\"']",  # 汎用: 引用された /... パス
+        #     r"[\"'](https?://[^\"']+)[\"']",  # フルURL
+        # ]
+        # for pattern in general_patterns:
+        #     m = re.search(pattern, full_text)
+        #     if m:
+        #         return m.group(1)
 
-        # SOAP系: class アノテーションに serviceName や targetNamespace があれば返す
-        m2 = re.search(
-            r"(?:serviceName|targetNamespace)\s*=\s*[\"']([^\"']+)[\"']", full_text
-        )
-        if m2:
-            return m2.group(1)
+        # # SOAP系: class アノテーションに serviceName や targetNamespace があれば返す
+        # m2 = re.search(
+        #     r"(?:serviceName|targetNamespace)\s*=\s*[\"']([^\"']+)[\"']", full_text
+        # )
+        # if m2:
+        #     return m2.group(1)
 
         return ""
 
@@ -2267,6 +2289,7 @@ class CallTreeVisualizer:
         visited: Optional[Set[str]] = None,
         depth: int = 0,
         parent_relation: str = "",
+        accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
     ) -> List[Dict[str, any]]:
         """
         1つの呼び出しツリーを再帰的にトラバースし、全メソッド情報を収集
@@ -2278,6 +2301,7 @@ class CallTreeVisualizer:
             visited: 訪問済みメソッド集合（循環参照チェック用）
             depth: 現在の深度
             parent_relation: 呼び出し種別（"親クラスメソッド" / "インターフェース" / "実装クラス候補" / ""）
+            accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス情報
 
         Returns:
             各メソッドの情報を含む辞書のリスト
@@ -2293,6 +2317,13 @@ class CallTreeVisualizer:
         # 除外ルールチェック
         if not self.exclusion_manager.should_include(root_method):
             return result
+
+        # 現在のメソッドで生成されるインスタンスを収集し、累積に追加
+        current_instances = self._collect_created_instances(root_method)
+        if accumulated_instances is None:
+            accumulated_instances = current_instances
+        else:
+            accumulated_instances = accumulated_instances | current_instances
 
         # 循環参照チェック
         is_circular = root_method in visited
@@ -2359,6 +2390,7 @@ class CallTreeVisualizer:
                     visited_copy.copy(),
                     depth + 1,
                     relation,
+                    accumulated_instances,  # 累積インスタンスを渡す
                 )
             )
 
@@ -2370,7 +2402,15 @@ class CallTreeVisualizer:
                     if impl.strip()
                 ]
 
-                for impl_class in implementations:
+                # 累積されたインスタンス情報に基づいてフィルタリング
+                if accumulated_instances:
+                    filtered_implementations = self._filter_implementations_by_accumulated_instances(
+                        accumulated_instances, implementations
+                    )
+                else:
+                    filtered_implementations = implementations
+
+                for impl_class in filtered_implementations:
                     impl_method = self._find_implementation_method(callee, impl_class)
                     if impl_method:
                         # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
@@ -2385,6 +2425,7 @@ class CallTreeVisualizer:
                                 visited_copy.copy(),
                                 depth + 1,
                                 "実装クラス候補",
+                                accumulated_instances,  # 累積インスタンスを渡す
                             )
                         )
 
@@ -3166,6 +3207,12 @@ def main():
         default="Shift_JIS",
         help="出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))",
     )
+    parser.add_argument(
+        "-d", "--debug",
+        action="store_true",
+        dest="debug_mode",
+        help="デバッグモード（インスタンス収集情報を出力）",
+    )
 
     # サブコマンドの作成
     subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
@@ -3420,9 +3467,9 @@ def main():
         handle_interface_impls(args)
         return
 
-    # Visualizerの初期化 (TSV処理)
+    # Visualizerの初期化
     visualizer = CallTreeVisualizer(
-        args.input_file, args.exclusion_file, args.output_tsv_encoding
+        args.input_file, args.exclusion_file, args.output_tsv_encoding, args.debug_mode
     )
 
     # サブコマンドに応じた処理を実行
