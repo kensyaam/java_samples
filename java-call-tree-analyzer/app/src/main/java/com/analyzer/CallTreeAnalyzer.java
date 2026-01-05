@@ -263,6 +263,17 @@ public class CallTreeAnalyzer {
                     doc = null;
                 }
 
+                // getDocComment()が空の場合、getComments()からJavadocを探す
+                // （アノテーションがメソッドとJavadocの間にある場合対策）
+                if ((doc == null || doc.isEmpty()) && method.getComments() != null) {
+                    for (CtComment comment : method.getComments()) {
+                        if (comment.getCommentType() == CtComment.CommentType.JAVADOC) {
+                            doc = comment.getContent();
+                            break;
+                        }
+                    }
+                }
+
                 if (doc != null) {
                     // コメントマーカーを取り除き、最初の有効な行を取得
                     String cleaned = doc.replaceAll("(?s)/\\*\\*|\\*/", "");
