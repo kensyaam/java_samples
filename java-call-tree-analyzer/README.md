@@ -161,6 +161,9 @@ java -jar call-tree-analyzer-1.0.0.jar
 | OkHttp | OkHttp | execute()/enqueue() |
 | Spring WebClient | Spring WebClient | get()/post()/put()/delete() |
 | HttpURLConnection | HttpURLConnection | connect() |
+| SSLSocketFactory | SSLSocketFactory | createSocket() |
+| Apache Axis | Apache Axis | invoke()/setTargetEndpointAddress() |
+| JAX-WS | JAX-WS | Service.create()/getPort() |
 
 #### classesセクション
 

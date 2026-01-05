@@ -2034,7 +2034,7 @@ public class CallTreeAnalyzer {
                         declaringClass.equals("java.net.URLConnection")) &&
                         methodName.equals("connect")) {
 
-                    String httpMethod = "GET"; // デフォルトGET
+                    String httpMethod = "UNKNOWN";
                     String uri = "${UNRESOLVED}";
 
                     // 同じメソッド内のsetRequestMethod()呼び出しからHTTPメソッドを抽出
@@ -2056,6 +2056,75 @@ public class CallTreeAnalyzer {
                     uri = extractUriFromHttpUrlConnection(target, method);
 
                     callInfos.add(new HttpCallInfo(httpMethod, uri, "HttpURLConnection"));
+                }
+
+                // 11. SSLSocketFactory の検出 (SSL/TLS通信)
+                if ((declaringClass.equals("javax.net.ssl.SSLSocketFactory") ||
+                        declaringClass.equals("javax.net.SocketFactory") ||
+                        declaringClass.contains("SSLSocketFactory")) &&
+                        (methodName.equals("createSocket") || methodName.equals("getDefault"))) {
+
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    // createSocket(host, port) の引数からホスト情報を抽出
+                    List<CtExpression<?>> args = invocation.getArguments();
+                    if (!args.isEmpty()) {
+                        String host = extractUriFromExpression(args.get(0));
+                        if (args.size() > 1) {
+                            String port = extractUriFromExpression(args.get(1));
+                            if (!host.contains("${UNRESOLVED}") && !port.contains("${UNRESOLVED}")) {
+                                uri = host + ":" + port;
+                            } else if (!host.contains("${UNRESOLVED}")) {
+                                uri = host;
+                            }
+                        } else if (!host.contains("${UNRESOLVED}")) {
+                            uri = host;
+                        }
+                    }
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "SSLSocketFactory"));
+                }
+
+                // 12. Apache Axis の検出 (SOAP Webサービス)
+                if ((declaringClass.equals("org.apache.axis.client.Call") ||
+                        declaringClass.equals("org.apache.axis.client.Service") ||
+                        declaringClass.equals("org.apache.axis2.client.ServiceClient") ||
+                        declaringClass.contains("axis.client") ||
+                        declaringClass.contains("axis2.client")) &&
+                        (methodName.equals("invoke") || methodName.equals("invokeBlocking") ||
+                                methodName.equals("sendReceive") || methodName.equals("setTargetEndpointAddress"))) {
+
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    // setTargetEndpointAddress(url) や invoke の引数からエンドポイントを抽出
+                    if (methodName.equals("setTargetEndpointAddress")) {
+                        List<CtExpression<?>> args = invocation.getArguments();
+                        if (!args.isEmpty()) {
+                            uri = extractUriFromExpression(args.get(0));
+                        }
+                    }
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "Apache Axis"));
+                }
+
+                // 13. JAX-WS Service の検出 (SOAP Webサービス)
+                if ((declaringClass.equals("javax.xml.ws.Service") ||
+                        declaringClass.equals("jakarta.xml.ws.Service") ||
+                        declaringClass.contains("xml.ws.Service")) &&
+                        (methodName.equals("getPort") || methodName.equals("create"))) {
+
+                    String httpMethod = "UNKNOWN";
+                    String uri = "${UNRESOLVED}";
+
+                    // Service.create(url, qname) の引数からWSDL URLを抽出
+                    List<CtExpression<?>> args = invocation.getArguments();
+                    if (!args.isEmpty()) {
+                        uri = extractUriFromExpression(args.get(0));
+                    }
+
+                    callInfos.add(new HttpCallInfo(httpMethod, uri, "JAX-WS"));
                 }
             }
 
