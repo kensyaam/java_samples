@@ -443,6 +443,11 @@ public class CallTreeAnalyzer {
                     // ここでは除外しない（必要に応じて調整可能）
                 }
 
+                // setterは除外
+                if (methodName.startsWith("set") && parameterCount == 1) {
+                    return false;
+                }
+
                 return true;
             }
 

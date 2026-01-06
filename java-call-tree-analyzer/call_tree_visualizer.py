@@ -638,7 +638,7 @@ class CallTreeVisualizer:
         if accumulated_instances is None:
             accumulated_instances = current_instances
         else:
-            accumulated_instances = accumulated_instances | current_instances
+            accumulated_instances.update(current_instances)
 
         # Eモード: 除外対象の場合、配下の展開を停止
         if self.exclusion_manager.should_exclude_children(method):
@@ -692,7 +692,8 @@ class CallTreeVisualizer:
                         impl_class = impl_class_info.split(" ")[0]
                         if not self.exclusion_manager.should_include(impl_class):
                             continue
-                        annotations.append(f"実装: {impl_class_info}")
+                        if self.debug_mode:
+                            annotations.append(f"実装: {impl_class_info}")
 
                     for annotation in annotations:
                         indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
@@ -1023,6 +1024,10 @@ class CallTreeVisualizer:
             # ここでは単純に見つかったものを返す
             found_in_parent = False
             for parent in parents:
+                # インターフェースはスキップ
+                if parent in self.interface_data:
+                    continue
+
                 # 親クラスでメソッドを探す
                 for method_sig, info in self.method_info.items():
                     if info.get("class") == parent:
@@ -1058,6 +1063,10 @@ class CallTreeVisualizer:
             if current_parent in visited_classes:
                 continue
             visited_classes.add(current_parent)
+
+            # インターフェースはスキップ
+            if current_parent in self.interface_data:
+                continue
 
             # この親クラスにメソッドがあるか確認
             for method_sig, info in self.method_info.items():
@@ -1609,6 +1618,9 @@ class CallTreeVisualizer:
         # WebLogic + JAX-WS（SOAP）の場合を考慮し、WebLogic特有アノテーション @WLHttpTransportのcontextPath、serviceUriの値からパスを抽出
         # さらに、メソッドレベルの@WebMethodのoperationNameの値を結合して、SOAPのエンドポイントを生成する
         # 例：contextPath=/foo, serviceUri=/bar, operationName=fooBar -> /foo/bar : operationName=fooBar
+        context_path = ""
+        service_uri = ""
+        operation_name = ""
         m = re.search(r"contextPath\s*=\s*[\"']([^\"']+)[\"']", class_annotations)
         if m:
             context_path = m.group(1)
@@ -1618,7 +1630,7 @@ class CallTreeVisualizer:
         m = re.search(r"operationName\s*=\s*[\"']([^\"']+)[\"']", method_annotations)
         if m:
             operation_name = m.group(1)
-        if context_path and service_uri and operation_name:
+        if context_path or service_uri or operation_name:
             return context_path + service_uri + " : operationName=" + operation_name
         
         # # 汎用パターンでの検索（上記で見つからない場合）
@@ -2323,7 +2335,7 @@ class CallTreeVisualizer:
         if accumulated_instances is None:
             accumulated_instances = current_instances
         else:
-            accumulated_instances = accumulated_instances | current_instances
+            accumulated_instances.update(current_instances)
 
         # 循環参照チェック
         is_circular = root_method in visited
@@ -2481,11 +2493,11 @@ class CallTreeVisualizer:
 
         # CSVヘッダー
         headers = [
-            "エントリーポイント",
+            "エントリーポイント（fully qualified name）",
             "エントリーポイントのパッケージ名",
             "エントリーポイントのクラス名",
             "エントリーポイントのメソッド名",
-            "呼び出しメソッド",
+            "呼び出しメソッド（fully qualified name）",
             "呼び出しメソッドのパッケージ名",
             "呼び出しメソッドのクラス名",
             "呼び出しメソッドのメソッド名",
