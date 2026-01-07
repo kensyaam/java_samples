@@ -100,4 +100,3 @@ iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_
 echo "完了!"
 echo "  CSV: $OUTPUT_CSV"
 echo "  TSV: $OUTPUT_TSV"
-
