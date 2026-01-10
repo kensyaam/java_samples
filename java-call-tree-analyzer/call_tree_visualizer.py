@@ -2419,6 +2419,7 @@ class CallTreeVisualizer:
         parent_relation: str = "",
         accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
         max_depth_reached: Optional[List[bool]] = None,  # 最大深度到達フラグ
+        caller_method: Optional[str] = None,  # 呼び元メソッド
     ) -> List[Dict[str, any]]:
         """
         1つの呼び出しツリーを再帰的にトラバースし、全メソッド情報を収集
@@ -2431,6 +2432,7 @@ class CallTreeVisualizer:
             depth: 現在の深度
             parent_relation: 呼び出し種別（"親クラスメソッド" / "インターフェース" / "実装クラス候補" / ""）
             accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス情報
+            caller_method: 呼び元メソッド
 
         Returns:
             各メソッドの情報を含む辞書のリスト
@@ -2464,6 +2466,13 @@ class CallTreeVisualizer:
         info = self.method_info.get(root_method, {})
         parts = self._extract_method_signature_parts(root_method)
 
+        # 呼び元メソッドの情報を分解
+        caller_parts = (
+            self._extract_method_signature_parts(caller_method)
+            if caller_method
+            else {"package": "", "class": "", "simple_class": "", "method": ""}
+        )
+
         # 現在のメソッドを結果に追加
         result.append(
             {
@@ -2479,6 +2488,10 @@ class CallTreeVisualizer:
                 "tree_display": self._format_tree_display(root_method),
                 "httpCalls": info.get("httpCalls", []),  # HTTPクライアント呼び出し情報
                 "hit_words": info.get("hit_words", ""),  # 検出ワード
+                "caller_method": caller_method or "",  # 呼び元メソッド
+                "caller_package": caller_parts["package"],  # 呼び元パッケージ名
+                "caller_class": caller_parts["class"],  # 呼び元クラス名
+                "caller_simple_method": caller_parts["method"],  # 呼び元メソッド名
             }
         )
 
@@ -2524,6 +2537,7 @@ class CallTreeVisualizer:
                     relation,
                     accumulated_instances,  # 累積インスタンスを渡す
                     max_depth_reached,  # 最大深度到達フラグを渡す
+                    root_method,  # 呼び元メソッドを渡す
                 )
             )
 
@@ -2562,6 +2576,7 @@ class CallTreeVisualizer:
                                 "実装クラス候補",
                                 accumulated_instances,  # 累積インスタンスを渡す
                                 max_depth_reached,  # 最大深度到達フラグを渡す
+                                root_method,  # 呼び元メソッドを渡す
                             )
                         )
 
@@ -2615,16 +2630,22 @@ class CallTreeVisualizer:
             print("警告: エントリーポイントが見つかりませんでした", file=sys.stderr)
             return
 
-        # CSVヘッダー
+        # CSVヘッダー（No. → エントリーポイント → 深度 → 呼び元メソッド → 呼び先メソッドの順）
         headers = [
+            "No.",
             "エントリーポイント（fully qualified name）",
             "エントリーポイントのパッケージ名",
             "エントリーポイントのクラス名",
             "エントリーポイントのメソッド名",
-            "呼び出しメソッド（fully qualified name）",
-            "呼び出しメソッドのパッケージ名",
-            "呼び出しメソッドのクラス名",
-            "呼び出しメソッドのメソッド名",
+            "深度",
+            "呼び元メソッド（fully qualified name）",
+            "呼び元メソッドのパッケージ名",
+            "呼び元メソッドのクラス名",
+            "呼び元メソッドのメソッド名",
+            "呼び先メソッド（fully qualified name）",
+            "呼び先メソッドのパッケージ名",
+            "呼び先メソッドのクラス名",
+            "呼び先メソッドのメソッド名",
         ]
 
         def extract_method_name_only(method_with_params: str) -> str:
@@ -2654,6 +2675,9 @@ class CallTreeVisualizer:
             # 最大深度に到達したエントリーポイントを追跡
             max_depth_reached_entries: List[str] = []
 
+            # 全体の通番
+            row_number = 0
+
             for entry_point in entry_points:
                 # エントリーポイント自身の情報を分解
                 ep_parts = self._extract_method_signature_parts(entry_point)
@@ -2676,19 +2700,39 @@ class CallTreeVisualizer:
 
                 # 各メソッドについてCSV行を出力
                 for node in tree_data:
+                    # 呼び先メソッド名（引数除去）
                     callee_method_name = extract_method_name_only(node["simple_method"])
+                    # 呼び元メソッド名（引数除去）
+                    caller_method_name = (
+                        extract_method_name_only(node["caller_simple_method"])
+                        if node["caller_simple_method"]
+                        else ""
+                    )
+                    # 呼び元クラス名（パッケージ名除去）
+                    caller_class = (
+                        node["caller_class"].split(".")[-1]
+                        if node["caller_class"]
+                        else ""
+                    )
 
+                    row_number += 1
                     row = [
+                        row_number,  # No.（全体の通番）
                         entry_point,  # エントリーポイント（fully qualified name）
                         ep_parts["package"],  # エントリーポイントのパッケージ名
                         ep_parts["simple_class"],  # エントリーポイントのクラス名
                         ep_method_name,  # エントリーポイントのメソッド名
-                        node["method"],  # 呼び出しメソッド（fully qualified name）
-                        node["package"],  # 呼び出しメソッドのパッケージ名
+                        node["depth"],  # 深度
+                        node["caller_method"],  # 呼び元メソッド（fully qualified name）
+                        node["caller_package"],  # 呼び元メソッドのパッケージ名
+                        caller_class,  # 呼び元メソッドのクラス名
+                        caller_method_name,  # 呼び元メソッドのメソッド名
+                        node["method"],  # 呼び先メソッド（fully qualified name）
+                        node["package"],  # 呼び先メソッドのパッケージ名
                         (
                             node["class"].split(".")[-1] if node["class"] else ""
-                        ),  # 呼び出しメソッドのクラス名
-                        callee_method_name,  # 呼び出しメソッドのメソッド名
+                        ),  # 呼び先メソッドのクラス名
+                        callee_method_name,  # 呼び先メソッドのメソッド名
                     ]
                     writer.writerow(row)
 
