@@ -3075,6 +3075,7 @@ public class CallTreeAnalyzer {
         if (meta != null) {
             json.append("      \"visibility\": \"")
                     .append(meta.isPublic ? "public" : (meta.isProtected ? "protected" : "private")).append("\",\n");
+            json.append("      \"isAbstract\": ").append(meta.isAbstract).append(",\n");
             json.append("      \"isStatic\": ").append(meta.isStatic).append(",\n");
             json.append("      \"isEntryPoint\": ").append(meta.isEntryPointCandidate()).append(",\n");
             json.append("      \"entryType\": \"").append(escapeJson(meta.getEntryPointType())).append("\",\n");

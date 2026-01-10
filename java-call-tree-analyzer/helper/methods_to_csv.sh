@@ -16,6 +16,7 @@
 # 出力項目:
 #   - method        : メソッドシグネチャ
 #   - visibility    : 可視性 (public/protected/private)
+#   - isAbstract    : 抽象メソッドかどうか
 #   - isEntryPoint  : エントリーポイント候補かどうか
 #   - javadoc       : メソッドのJavadoc要約
 #   - annotations   : メソッドアノテーション（カンマ区切り）
@@ -56,12 +57,13 @@ OUTPUT_CSV="${OUTPUT_BASENAME}.csv"
 echo "CSV出力: $OUTPUT_CSV"
 
 # ヘッダー行
-echo '"method","visibility","isEntryPoint","javadoc","annotations","sqlStatements","hitWords","httpMethod","uri"' > "$OUTPUT_CSV"
+echo '"method","visibility","isAbstract","isEntryPoint","javadoc","annotations","sqlStatements","hitWords","httpMethod","uri"' > "$OUTPUT_CSV"
 
 # jq でデータを抽出してCSVに変換（methodでソート）
 jq -r '.methods | sort_by(.method) | .[] | [
     .method // "",
     .visibility // "",
+    (.isAbstract // false | tostring),
     (.isEntryPoint // false | tostring),
     .javadoc // "",
     ((.annotations // []) | join(",")),
@@ -79,12 +81,13 @@ OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
 echo "TSV出力: $OUTPUT_TSV"
 
 # ヘッダー行
-echo -e "method\tvisibility\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords\thttpMethod\turi" > "$OUTPUT_TSV"
+echo -e "method\tvisibility\tisAbstract\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords\thttpMethod\turi" > "$OUTPUT_TSV"
 
 # jq でデータを抽出してTSVに変換（methodでソート）
 jq -r '.methods | sort_by(.method) | .[] | [
     .method // "",
     .visibility // "",
+    (.isAbstract // false | tostring),
     (.isEntryPoint // false | tostring),
     (.javadoc // "" | gsub("\t"; " ") | gsub("\n"; " ")),
     ((.annotations // []) | join(",") | gsub("\t"; " ")),

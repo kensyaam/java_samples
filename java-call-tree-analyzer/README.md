@@ -128,6 +128,8 @@ java -jar call-tree-analyzer-1.0.0.jar
 | class | 所属クラス |
 | parentClasses | 親クラス・インターフェース一覧 |
 | visibility | 可視性（public/protected/private） |
+| isAbstract | 抽象メソッドかどうか |
+| isStatic | 静的メソッドかどうか |
 | isEntryPoint | エントリーポイント候補かどうか |
 | annotations | メソッドアノテーション |
 | parameterAnnotations | 引数アノテーション（例: `@ModelAttribute("myDto") UserForm form, @RequestParam String id`） |
@@ -884,6 +886,7 @@ scoop install jq
 |------|------|
 | method | メソッドシグネチャ（fully qualified name） |
 | visibility | 可視性（public/protected/private） |
+| isAbstract | 抽象メソッドかどうか（true/false） |
 | isEntryPoint | エントリーポイント候補かどうか（true/false） |
 | javadoc | メソッドのJavadoc要約 |
 | annotations | メソッドアノテーション（カンマ区切り） |
