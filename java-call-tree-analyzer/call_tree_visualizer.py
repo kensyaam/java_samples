@@ -593,6 +593,8 @@ class CallTreeVisualizer:
             print(f"最終到達点のメソッド一覧 (最上位の呼び元メソッド)")
             print(f"{'=' * 80}\n")
             for endpoint in sorted(final_endpoints):
+                if short_mode:
+                    endpoint = self._shorten_method_signature(endpoint)
                 print(f"  {endpoint}")
             print()
 
