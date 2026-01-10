@@ -203,8 +203,12 @@ class CallTreeVisualizer:
         self.method_info: Dict[str, Dict[str, Optional[str]]] = {}
         self.class_info: Dict[str, List[str]] = {}
         # クラス・インターフェースのメタデータ（annotations, javadoc等）
-        self.class_data: Dict[str, Dict] = {}  # className -> {annotations, javadoc, superClass, directInterfaces, allInterfaces}
-        self.interface_data: Dict[str, Dict] = {}  # interfaceName -> {annotations, javadoc, superInterfaces}
+        self.class_data: Dict[str, Dict] = (
+            {}
+        )  # className -> {annotations, javadoc, superClass, directInterfaces, allInterfaces}
+        self.interface_data: Dict[str, Dict] = (
+            {}
+        )  # interfaceName -> {annotations, javadoc, superInterfaces}
         self.exclusion_manager: ExclusionRuleManager = ExclusionRuleManager(
             exclusion_file
         )
@@ -247,13 +251,17 @@ class CallTreeVisualizer:
                 "javadoc": method.get("javadoc", ""),
                 "class_javadoc": method.get("classJavadoc", ""),
                 "hit_words": ",".join(method.get("hitWords", [])),
-                "createdInstances": method.get("createdInstances", []),  # 生成されたインスタンス
+                "createdInstances": method.get(
+                    "createdInstances", []
+                ),  # 生成されたインスタンス
                 "httpCalls": method.get("httpCalls", []),  # HTTPクライアント呼び出し
             }
 
             # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
             if class_name and parent_classes_str:
-                parents = [p.strip() for p in parent_classes_str.split(",") if p.strip()]
+                parents = [
+                    p.strip() for p in parent_classes_str.split(",") if p.strip()
+                ]
                 # 既存の情報がない場合、または新しい情報がある場合は更新
                 if class_name not in self.class_info or not self.class_info[class_name]:
                     self.class_info[class_name] = parents
@@ -271,20 +279,26 @@ class CallTreeVisualizer:
                 if isinstance(call_item, dict):
                     callee = call_item.get("method", "")
                     if callee:
-                        is_parent = "Yes" if call_item.get("isParentMethod", False) else "No"
+                        is_parent = (
+                            "Yes" if call_item.get("isParentMethod", False) else "No"
+                        )
                         impls = call_item.get("implementations", "")
-                        self.forward_calls[method_sig].append({
-                            "method": callee,
-                            "is_parent_method": is_parent,
-                            "implementations": impls,
-                        })
+                        self.forward_calls[method_sig].append(
+                            {
+                                "method": callee,
+                                "is_parent_method": is_parent,
+                                "implementations": impls,
+                            }
+                        )
                 else:
                     # 後方互換性：文字列配列
-                    self.forward_calls[method_sig].append({
-                        "method": call_item,
-                        "is_parent_method": "No",
-                        "implementations": "",
-                    })
+                    self.forward_calls[method_sig].append(
+                        {
+                            "method": call_item,
+                            "is_parent_method": "No",
+                            "implementations": "",
+                        }
+                    )
 
             # 逆引き呼び出し関係を保存
             for caller in method.get("calledBy", []):
@@ -302,7 +316,9 @@ class CallTreeVisualizer:
                     "superClass": cls.get("superClass", ""),
                     "directInterfaces": cls.get("directInterfaces", []),
                     "allInterfaces": cls.get("allInterfaces", []),
-                    "fieldInitializers": cls.get("fieldInitializers", []),  # フィールド初期化情報
+                    "fieldInitializers": cls.get(
+                        "fieldInitializers", []
+                    ),  # フィールド初期化情報
                 }
 
         # interfacesセクションを読み込み
@@ -344,7 +360,9 @@ class CallTreeVisualizer:
             # 親クラスを辿る
             super_class = cls.get("superClass", "")
             if super_class:
-                self._collect_annotations_recursive(super_class, all_annotations, visited)
+                self._collect_annotations_recursive(
+                    super_class, all_annotations, visited
+                )
             # インターフェースを辿る
             for iface in cls.get("directInterfaces", []):
                 self._collect_annotations_recursive(iface, all_annotations, visited)
@@ -357,7 +375,9 @@ class CallTreeVisualizer:
                     all_annotations.append(ann)
             # 親インターフェースを辿る
             for super_iface in iface.get("superInterfaces", []):
-                self._collect_annotations_recursive(super_iface, all_annotations, visited)
+                self._collect_annotations_recursive(
+                    super_iface, all_annotations, visited
+                )
 
     def _get_class_javadoc(self, class_name: str) -> str:
         """クラスのJavadocを取得（なければ空文字）"""
@@ -369,7 +389,7 @@ class CallTreeVisualizer:
 
     def _get_all_class_annotation_raws(self, class_name: str) -> List[str]:
         """クラスとその親クラス・インターフェースのフル形式アノテーションを再帰的に取得
-        
+
         エンドポイントパス抽出用にannotationRaws（@RequestMapping(path = "/bill")形式）を返す
         """
         if not class_name:
@@ -397,7 +417,9 @@ class CallTreeVisualizer:
             # 親クラスを辿る
             super_class = cls.get("superClass", "")
             if super_class:
-                self._collect_annotation_raws_recursive(super_class, all_annotations, visited)
+                self._collect_annotation_raws_recursive(
+                    super_class, all_annotations, visited
+                )
             # インターフェースを辿る
             for iface in cls.get("directInterfaces", []):
                 self._collect_annotation_raws_recursive(iface, all_annotations, visited)
@@ -410,8 +432,9 @@ class CallTreeVisualizer:
                     all_annotations.append(ann)
             # 親インターフェースを辿る
             for super_iface in iface.get("superInterfaces", []):
-                self._collect_annotation_raws_recursive(super_iface, all_annotations, visited)
-
+                self._collect_annotation_raws_recursive(
+                    super_iface, all_annotations, visited
+                )
 
     def _load_tsv_data(self):
         """TSV形式からデータを読み込む（後方互換性）"""
@@ -665,12 +688,27 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, show_sql, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
+                method,
+                depth,
+                show_class,
+                show_sql,
+                is_circular=True,
+                verbose=verbose,
+                use_tab=use_tab,
+                short_mode=short_mode,
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, show_sql, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
+        self._print_node(
+            method,
+            depth,
+            show_class,
+            show_sql,
+            verbose=verbose,
+            use_tab=use_tab,
+            short_mode=short_mode,
+        )
 
         # 現在のメソッドで生成されるインスタンスを収集し、累積に追加
         current_instances = self._collect_created_instances(method)
@@ -742,20 +780,22 @@ class CallTreeVisualizer:
                     # 実装クラス候補がある場合、それらも追跡
                     if follow_implementations:
                         # implementationsの各要素は、「<クラス名> + " [<追加情報>]"」の形式かもしれないので、クラス名だけ抽出
-                        impl_classes = [
-                            impl.split(" ")[0] for impl in implementations
-                        ]
+                        impl_classes = [impl.split(" ")[0] for impl in implementations]
 
                         # Eモード: 除外対象の場合、実装クラスへの展開を停止
                         if self.exclusion_manager.should_exclude_children(callee):
-                            indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                            indent = (
+                                "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                            )
                             print(f"{indent}〓[実装クラスへの展開を除外]")
                             continue
 
                         # 累積されたインスタンス情報に基づいてフィルタリング
                         if accumulated_instances:
-                            filtered_impl_classes = self._filter_implementations_by_accumulated_instances(
-                                accumulated_instances, impl_classes
+                            filtered_impl_classes = (
+                                self._filter_implementations_by_accumulated_instances(
+                                    accumulated_instances, impl_classes
+                                )
                             )
                         else:
                             filtered_impl_classes = impl_classes
@@ -772,7 +812,11 @@ class CallTreeVisualizer:
                                 ):
                                     continue
 
-                                indent = "\t" * (depth + 1) if use_tab else "    " * (depth + 1)
+                                indent = (
+                                    "\t" * (depth + 1)
+                                    if use_tab
+                                    else "    " * (depth + 1)
+                                )
                                 print(f"{indent}〓> [実装クラスへの展開: {impl_class}]")
 
                                 self._print_tree_recursive(
@@ -837,12 +881,27 @@ class CallTreeVisualizer:
         # 循環参照チェック
         if method in visited:
             self._print_node(
-                method, depth, show_class, False, is_circular=True, verbose=verbose, use_tab=use_tab, short_mode=short_mode
+                method,
+                depth,
+                show_class,
+                False,
+                is_circular=True,
+                verbose=verbose,
+                use_tab=use_tab,
+                short_mode=short_mode,
             )
             return
 
         visited.add(method)
-        self._print_node(method, depth, show_class, False, verbose=verbose, use_tab=use_tab, short_mode=short_mode)
+        self._print_node(
+            method,
+            depth,
+            show_class,
+            False,
+            verbose=verbose,
+            use_tab=use_tab,
+            short_mode=short_mode,
+        )
 
         callers = self.reverse_calls.get(method, [])
 
@@ -914,7 +973,9 @@ class CallTreeVisualizer:
         info = self.method_info.get(method, {})
 
         # 表示するメソッド名を決定（short_modeの場合、パッケージ名を省略）
-        display_method = self._shorten_method_signature(method) if short_mode else method
+        display_method = (
+            self._shorten_method_signature(method) if short_mode else method
+        )
 
         # メソッド名を表示
         display = f"{indent}{prefix}{display_method}"
@@ -960,7 +1021,7 @@ class CallTreeVisualizer:
         # クラス名#メソッド名(引数) の形式を解析
         hash_pos = method.find("#")
         class_part = method[:hash_pos]
-        method_part = method[hash_pos + 1:]
+        method_part = method[hash_pos + 1 :]
 
         # クラス名からパッケージ名を省略
         short_class = class_part.split(".")[-1] if "." in class_part else class_part
@@ -969,7 +1030,7 @@ class CallTreeVisualizer:
         paren_pos = method_part.find("(")
         if paren_pos >= 0:
             method_name = method_part[:paren_pos]
-            args_part = method_part[paren_pos + 1:-1]  # () 内の部分
+            args_part = method_part[paren_pos + 1 : -1]  # () 内の部分
             if args_part:
                 # 引数をカンマで分割し、各引数のパッケージ名を省略
                 short_args = []
@@ -1180,7 +1241,9 @@ class CallTreeVisualizer:
 
         # デバッグモードの場合、収集したインスタンス情報を出力
         if self.debug_mode and created_instances:
-            print(f"[DEBUG] {method} で収集したインスタンス: {', '.join(sorted(created_instances))}")
+            print(
+                f"[DEBUG] {method} で収集したインスタンス: {', '.join(sorted(created_instances))}"
+            )
 
         return created_instances
 
@@ -1623,7 +1686,9 @@ class CallTreeVisualizer:
         method_annotations = str(info.get("annotations", ""))
 
         # クラスレベルのアノテーション（親クラス・インターフェース含む、フル形式）を取得
-        all_class_annotation_raws = self._get_all_class_annotation_raws(class_name) if class_name else []
+        all_class_annotation_raws = (
+            self._get_all_class_annotation_raws(class_name) if class_name else []
+        )
         class_annotations = " ".join(all_class_annotation_raws)
 
         # パス抽出パターン
@@ -1680,7 +1745,7 @@ class CallTreeVisualizer:
             operation_name = m.group(1)
         if context_path or service_uri or operation_name:
             return context_path + service_uri + " : operationName=" + operation_name
-        
+
         # # 汎用パターンでの検索（上記で見つからない場合）
         # full_text = method_annotations + " " + class_annotations
         # general_patterns = [
@@ -2469,8 +2534,10 @@ class CallTreeVisualizer:
 
                 # 累積されたインスタンス情報に基づいてフィルタリング
                 if accumulated_instances:
-                    filtered_implementations = self._filter_implementations_by_accumulated_instances(
-                        accumulated_instances, implementations
+                    filtered_implementations = (
+                        self._filter_implementations_by_accumulated_instances(
+                            accumulated_instances, implementations
+                        )
                     )
                 else:
                     filtered_implementations = implementations
@@ -2594,8 +2661,10 @@ class CallTreeVisualizer:
 
                 # ツリーデータを収集
                 tree_data = self._collect_tree_data(
-                    entry_point, max_depth, follow_implementations,
-                    max_depth_reached=max_depth_reached_flag
+                    entry_point,
+                    max_depth,
+                    follow_implementations,
+                    max_depth_reached=max_depth_reached_flag,
                 )
 
                 # 最大深度に到達した場合、エントリーポイントを記録
@@ -2607,14 +2676,16 @@ class CallTreeVisualizer:
                     callee_method_name = extract_method_name_only(node["simple_method"])
 
                     row = [
-                        entry_point,                    # エントリーポイント（fully qualified name）
-                        ep_parts["package"],            # エントリーポイントのパッケージ名
-                        ep_parts["simple_class"],       # エントリーポイントのクラス名
-                        ep_method_name,                 # エントリーポイントのメソッド名
-                        node["method"],                 # 呼び出しメソッド（fully qualified name）
-                        node["package"],                # 呼び出しメソッドのパッケージ名
-                        node["class"].split(".")[-1] if node["class"] else "",  # 呼び出しメソッドのクラス名
-                        callee_method_name,             # 呼び出しメソッドのメソッド名
+                        entry_point,  # エントリーポイント（fully qualified name）
+                        ep_parts["package"],  # エントリーポイントのパッケージ名
+                        ep_parts["simple_class"],  # エントリーポイントのクラス名
+                        ep_method_name,  # エントリーポイントのメソッド名
+                        node["method"],  # 呼び出しメソッド（fully qualified name）
+                        node["package"],  # 呼び出しメソッドのパッケージ名
+                        (
+                            node["class"].split(".")[-1] if node["class"] else ""
+                        ),  # 呼び出しメソッドのクラス名
+                        callee_method_name,  # 呼び出しメソッドのメソッド名
                     ]
                     writer.writerow(row)
 
@@ -2699,7 +2770,9 @@ class CallTreeVisualizer:
             raise TypeError("Active sheet is not a Worksheet")
 
         # 背景色（薄めのオリーブ）と罫線（破線）を定義
-        olive_fill = PatternFill(start_color="C4D79B", end_color="C4D79B", fill_type="solid")
+        olive_fill = PatternFill(
+            start_color="C4D79B", end_color="C4D79B", fill_type="solid"
+        )
         dashed_border = Border(
             left=Side(style="dashed", color="000000"),
             right=Side(style="dashed", color="000000"),
@@ -2746,7 +2819,9 @@ class CallTreeVisualizer:
         # F列（呼び出し種別）用スタイル（縮小して全体を表示）
         shrink_style = NamedStyle(name="shrink_style")
         shrink_style.font = Font(name="Meiryo UI")
-        shrink_style.alignment = Alignment(vertical="center", horizontal="left", shrink_to_fit=True)
+        shrink_style.alignment = Alignment(
+            vertical="center", horizontal="left", shrink_to_fit=True
+        )
         shrink_style.border = dashed_border
 
         # スタイルをワークブックに登録
@@ -2771,21 +2846,27 @@ class CallTreeVisualizer:
 
         # --depthオプションに基づく動的列計算
         # L列からmax_depth列目がSQL有無列になる（新しい順序）
-        sql_exists_col = tree_start_col + max_depth      # AF列 (depth=20の場合)
-        sql_content_col = sql_exists_col + 1             # AG列 (depth=20の場合)
-        http_exists_col = sql_content_col + 1            # AH列 (depth=20の場合)
-        http_request_col = http_exists_col + 1           # AI列 (depth=20の場合)
-        hitwords_col = http_request_col + 1              # AJ列 (depth=20の場合)
+        sql_exists_col = tree_start_col + max_depth  # AF列 (depth=20の場合)
+        sql_content_col = sql_exists_col + 1  # AG列 (depth=20の場合)
+        http_exists_col = sql_content_col + 1  # AH列 (depth=20の場合)
+        http_request_col = http_exists_col + 1  # AI列 (depth=20の場合)
+        hitwords_col = http_request_col + 1  # AJ列 (depth=20の場合)
 
         # 1行目: L1に「呼び出しツリー」を出力
         if include_tree:
-            ws.cell(row=1, column=tree_start_col, value="呼び出しツリー").style = "header_style"
+            ws.cell(row=1, column=tree_start_col, value="呼び出しツリー").style = (
+                "header_style"
+            )
 
         # 2行目: ヘッダ行
         header_row = 2
         #   A～G列
-        ws.cell(row=header_row, column=1, value="エントリーポイント").style = "header_style"
-        ws.cell(row=header_row, column=2, value="呼び出しメソッド").style = "header_style"
+        ws.cell(row=header_row, column=1, value="エントリーポイント").style = (
+            "header_style"
+        )
+        ws.cell(row=header_row, column=2, value="呼び出しメソッド").style = (
+            "header_style"
+        )
         ws.cell(row=header_row, column=3, value="パッケージ名").style = "header_style"
         ws.cell(row=header_row, column=4, value="クラス名").style = "header_style"
         ws.cell(row=header_row, column=5, value="メソッド名").style = "header_style"
@@ -2793,17 +2874,29 @@ class CallTreeVisualizer:
         ws.cell(row=header_row, column=7, value="Javadoc").style = "header_style"
         #   L2～呼び出しツリー最終列に連番（1,2,3...）
         if include_tree:
-            for i, col_idx in enumerate(range(tree_start_col, tree_end_col + 1), start=1):
+            for i, col_idx in enumerate(
+                range(tree_start_col, tree_end_col + 1), start=1
+            ):
                 ws.cell(row=header_row, column=col_idx, value=i).style = "header_style"
         #   動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
         if include_sql:
-            ws.cell(row=header_row, column=sql_exists_col, value="SQL有無").style = "header_style"
-            ws.cell(row=header_row, column=sql_content_col, value="SQL文").style = "header_style"
+            ws.cell(row=header_row, column=sql_exists_col, value="SQL有無").style = (
+                "header_style"
+            )
+            ws.cell(row=header_row, column=sql_content_col, value="SQL文").style = (
+                "header_style"
+            )
         #   動的列: HTTP有無、HTTPリクエスト
-        ws.cell(row=header_row, column=http_exists_col, value="HTTP有無").style = "header_style"
-        ws.cell(row=header_row, column=http_request_col, value="HTTPリクエスト").style = "header_style"
+        ws.cell(row=header_row, column=http_exists_col, value="HTTP有無").style = (
+            "header_style"
+        )
+        ws.cell(
+            row=header_row, column=http_request_col, value="HTTPリクエスト"
+        ).style = "header_style"
         #   動的列: hitWords列
-        ws.cell(row=header_row, column=hitwords_col, value="検出ワード").style = "header_style"
+        ws.cell(row=header_row, column=hitwords_col, value="検出ワード").style = (
+            "header_style"
+        )
 
         current_row = 3  # データは3行目から
 
@@ -2818,8 +2911,10 @@ class CallTreeVisualizer:
 
             # ツリーデータを収集
             tree_data = self._collect_tree_data(
-                entry_point, max_depth, follow_implementations,
-                max_depth_reached=max_depth_reached_flag
+                entry_point,
+                max_depth,
+                follow_implementations,
+                max_depth_reached=max_depth_reached_flag,
             )
 
             # 最大深度に到達した場合、エントリーポイントを記録
@@ -2829,28 +2924,44 @@ class CallTreeVisualizer:
             # Excelに書き込み
             for node in tree_data:
                 # A列: エントリーポイント（すべての行に出力）
-                ws.cell(row=current_row, column=1, value=entry_point).style = "default_style"
+                ws.cell(row=current_row, column=1, value=entry_point).style = (
+                    "default_style"
+                )
 
                 # B列: 呼び出しメソッド（fully qualified name）
-                ws.cell(row=current_row, column=2, value=node["method"]).style = "default_style"
+                ws.cell(row=current_row, column=2, value=node["method"]).style = (
+                    "default_style"
+                )
 
                 # C列: パッケージ名
-                ws.cell(row=current_row, column=3, value=node["package"]).style = "default_style"
+                ws.cell(row=current_row, column=3, value=node["package"]).style = (
+                    "default_style"
+                )
 
                 # D列: クラス名（パッケージ名を除いたシンプルなクラス名）
                 simple_class = node["class"].split(".")[-1] if node["class"] else ""
-                ws.cell(row=current_row, column=4, value=simple_class).style = "default_style"
+                ws.cell(row=current_row, column=4, value=simple_class).style = (
+                    "default_style"
+                )
 
                 # E列: メソッド名（simple name）
-                ws.cell(row=current_row, column=5, value=node["simple_method"]).style = "default_style"
+                ws.cell(
+                    row=current_row, column=5, value=node["simple_method"]
+                ).style = "default_style"
 
                 # F列: 呼び出し種別（親クラス / インターフェース / 実装クラス）、空の場合は半角スペース
-                parent_relation_value = node["parent_relation"] if node["parent_relation"] else " "
-                ws.cell(row=current_row, column=6, value=parent_relation_value).style = "shrink_style"
+                parent_relation_value = (
+                    node["parent_relation"] if node["parent_relation"] else " "
+                )
+                ws.cell(
+                    row=current_row, column=6, value=parent_relation_value
+                ).style = "shrink_style"
 
                 # G列: Javadoc（緑フォント）、空の場合は半角スペース
                 javadoc_value = node["javadoc"] if node["javadoc"] else " "
-                ws.cell(row=current_row, column=7, value=javadoc_value).style = "green_style"
+                ws.cell(row=current_row, column=7, value=javadoc_value).style = (
+                    "green_style"
+                )
 
                 # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
                 if include_tree:
@@ -2860,37 +2971,55 @@ class CallTreeVisualizer:
                         tree_text = tree_text + " [循環参照]"
                     # L列（depth=0）は太字、インターフェースは斜体、実装クラス候補は下線
                     if tree_col == tree_start_col:
-                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "tree_style"
+                        ws.cell(
+                            row=current_row, column=tree_col, value=tree_text
+                        ).style = "tree_style"
                     elif node["parent_relation"] == "インターフェース":
-                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "interface_style"
+                        ws.cell(
+                            row=current_row, column=tree_col, value=tree_text
+                        ).style = "interface_style"
                     elif node["parent_relation"] == "実装クラス候補":
-                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "impl_style"
+                        ws.cell(
+                            row=current_row, column=tree_col, value=tree_text
+                        ).style = "impl_style"
                     else:
-                        ws.cell(row=current_row, column=tree_col, value=tree_text).style = "default_style"
+                        ws.cell(
+                            row=current_row, column=tree_col, value=tree_text
+                        ).style = "default_style"
 
                 # 動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
                 if include_sql:
                     sql_marker = "●" if node["sql"] else ""
-                    ws.cell(row=current_row, column=sql_exists_col, value=sql_marker).style = "default_style"
+                    ws.cell(
+                        row=current_row, column=sql_exists_col, value=sql_marker
+                    ).style = "default_style"
                     if node["sql"]:
-                        ws.cell(row=current_row, column=sql_content_col, value=node["sql"]).style = "default_style"
+                        ws.cell(
+                            row=current_row, column=sql_content_col, value=node["sql"]
+                        ).style = "default_style"
 
                 # 動的列: HTTP有無、HTTPリクエスト
                 http_calls = node.get("httpCalls", [])
                 http_marker = "●" if http_calls else ""
-                ws.cell(row=current_row, column=http_exists_col, value=http_marker).style = "default_style"
+                ws.cell(
+                    row=current_row, column=http_exists_col, value=http_marker
+                ).style = "default_style"
 
                 if http_calls:
                     http_details = ", ".join(
                         f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
                         for call in http_calls
                     )
-                    ws.cell(row=current_row, column=http_request_col, value=http_details).style = "default_style"
+                    ws.cell(
+                        row=current_row, column=http_request_col, value=http_details
+                    ).style = "default_style"
 
                 # 動的列: hitWords
                 hit_words = node.get("hit_words", "")
                 if hit_words:
-                    ws.cell(row=current_row, column=hitwords_col, value=hit_words).style = "default_style"
+                    ws.cell(
+                        row=current_row, column=hitwords_col, value=hit_words
+                    ).style = "default_style"
 
                 current_row += 1
 
@@ -2918,13 +3047,15 @@ class CallTreeVisualizer:
                         cell.style = "default_style"
 
         # 条件付き書式: L列に値がある場合は行全体の背景色をライトグレーに
-        light_gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        light_gray_fill = PatternFill(
+            start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"
+        )
         # データ範囲（3行目～最終行）に条件付き書式を適用
         data_range = f"A3:{get_column_letter(ao_col)}{last_row}"
         ws.conditional_formatting.add(
             data_range,
             FormulaRule(
-                formula=[f"$L3<>\"\""],
+                formula=[f'$L3<>""'],
                 fill=light_gray_fill,
             ),
         )
@@ -3309,7 +3440,8 @@ def main():
     )
 
     parser.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         dest="input_file",
         default="analyzed_result.json",
         help="入力ファイル（JSONまたはTSV）のパス (デフォルト: analyzed_result.json)",
@@ -3324,7 +3456,8 @@ def main():
         help="出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))",
     )
     parser.add_argument(
-        "-d", "--debug",
+        "-d",
+        "--debug",
         action="store_true",
         dest="debug_mode",
         help="デバッグモード（インスタンス収集情報を出力）",
@@ -3334,7 +3467,9 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
 
     # entries サブコマンド
-    parser_entries = subparsers.add_parser("entries", help="エントリーポイント候補を表示")
+    parser_entries = subparsers.add_parser(
+        "entries", help="エントリーポイント候補を表示"
+    )
     parser_entries.add_argument(
         "--no-strict",
         action="store_false",
@@ -3490,7 +3625,8 @@ def main():
         "export-csv", help="呼び出しメソッド一覧をCSVにエクスポート"
     )
     parser_export_csv.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         dest="output_file",
         help="出力CSVファイル名（省略時は標準出力）",
     )
