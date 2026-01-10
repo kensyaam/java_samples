@@ -532,6 +532,9 @@ class CallTreeVisualizer:
         print(f"{'=' * 80}\n")
 
         visited: set[str] = set()
+        # 最大深度到達フラグを初期化
+        max_depth_reached: List[bool] = [False]
+
         self._print_tree_recursive(
             root_method,
             0,
@@ -545,7 +548,20 @@ class CallTreeVisualizer:
             use_tab=use_tab,
             short_mode=short_mode,
             accumulated_instances=None,  # ルートから累積開始
+            max_depth_reached=max_depth_reached,
         )
+
+        # 最大深度に到達した場合の警告を出力
+        if max_depth_reached[0]:
+            print(
+                f"\n警告: 最大深度({max_depth})に到達しました。"
+                "ツリーが切り捨てられている可能性があります。",
+                file=sys.stderr,
+            )
+            print(
+                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                file=sys.stderr,
+            )
 
     def print_reverse_tree(
         self,
@@ -574,6 +590,9 @@ class CallTreeVisualizer:
 
         visited: set[str] = set()
         final_endpoints: set[str] = set()  # 最終到達点のメソッドを収集
+        # 最大深度到達フラグを初期化
+        max_depth_reached: List[bool] = [False]
+
         self._print_reverse_tree_recursive(
             target_method,
             0,
@@ -585,6 +604,7 @@ class CallTreeVisualizer:
             verbose,
             use_tab,
             short_mode,
+            max_depth_reached,
         )
 
         # 最終到達点のメソッド一覧を表示
@@ -597,6 +617,18 @@ class CallTreeVisualizer:
                     endpoint = self._shorten_method_signature(endpoint)
                 print(f"  {endpoint}")
             print()
+
+        # 最大深度に到達した場合の警告を出力
+        if max_depth_reached[0]:
+            print(
+                f"\n警告: 最大深度({max_depth})に到達しました。"
+                "ツリーが切り捨てられている可能性があります。",
+                file=sys.stderr,
+            )
+            print(
+                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                file=sys.stderr,
+            )
 
     def _print_tree_recursive(
         self,
@@ -612,13 +644,18 @@ class CallTreeVisualizer:
         use_tab: bool = False,
         short_mode: bool = False,
         accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
+        max_depth_reached: Optional[List[bool]] = None,  # 最大深度到達フラグ
     ):
         """ツリーを再帰的に表示
 
         Args:
             accumulated_instances: 呼び出しツリーの上位から累積された生成インスタンス情報
+            max_depth_reached: 最大深度到達フラグ（[False]のリストで渡し、到達時に[True]に更新）
         """
         if depth > max_depth:
+            # 最大深度に到達した場合、フラグをセット
+            if max_depth_reached is not None:
+                max_depth_reached[0] = True
             return
 
         # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
@@ -678,6 +715,7 @@ class CallTreeVisualizer:
                     use_tab,
                     short_mode,
                     accumulated_instances,
+                    max_depth_reached,
                 )
 
                 # 実装クラス候補の情報を表示
@@ -750,6 +788,7 @@ class CallTreeVisualizer:
                                     use_tab,
                                     short_mode,
                                     accumulated_instances,
+                                    max_depth_reached,
                                 )
         else:
             callers = self.reverse_calls.get(method, [])
@@ -767,6 +806,7 @@ class CallTreeVisualizer:
                     use_tab,
                     short_mode,
                     accumulated_instances,
+                    max_depth_reached,
                 )
 
     def _print_reverse_tree_recursive(
@@ -781,9 +821,13 @@ class CallTreeVisualizer:
         verbose: bool = False,
         use_tab: bool = False,
         short_mode: bool = False,
+        max_depth_reached: Optional[List[bool]] = None,  # 最大深度到達フラグ
     ):
         """逆引きツリーを再帰的に表示"""
         if depth > max_depth:
+            # 最大深度に到達した場合、フラグをセット
+            if max_depth_reached is not None:
+                max_depth_reached[0] = True
             return
 
         # Iモード: 除外対象の場合、ノード自体を表示せずスキップ
@@ -820,6 +864,7 @@ class CallTreeVisualizer:
                         verbose,
                         use_tab,
                         short_mode,
+                        max_depth_reached,
                     )
             else:
                 # オーバーライド元もない場合は最終到達点
@@ -843,6 +888,7 @@ class CallTreeVisualizer:
                     verbose,
                     use_tab,
                     short_mode,
+                    max_depth_reached,
                 )
 
     def _print_node(
@@ -2304,6 +2350,7 @@ class CallTreeVisualizer:
         depth: int = 0,
         parent_relation: str = "",
         accumulated_instances: Optional[Set[str]] = None,  # 累積されたインスタンス情報
+        max_depth_reached: Optional[List[bool]] = None,  # 最大深度到達フラグ
     ) -> List[Dict[str, any]]:
         """
         1つの呼び出しツリーを再帰的にトラバースし、全メソッド情報を収集
@@ -2326,6 +2373,9 @@ class CallTreeVisualizer:
         result = []
 
         if depth > max_depth:
+            # 最大深度に到達した場合、フラグをセット
+            if max_depth_reached is not None:
+                max_depth_reached[0] = True
             return result
 
         # 除外ルールチェック
@@ -2405,6 +2455,7 @@ class CallTreeVisualizer:
                     depth + 1,
                     relation,
                     accumulated_instances,  # 累積インスタンスを渡す
+                    max_depth_reached,  # 最大深度到達フラグを渡す
                 )
             )
 
@@ -2440,6 +2491,7 @@ class CallTreeVisualizer:
                                 depth + 1,
                                 "実装クラス候補",
                                 accumulated_instances,  # 累積インスタンスを渡す
+                                max_depth_reached,  # 最大深度到達フラグを渡す
                             )
                         )
 
@@ -2529,15 +2581,26 @@ class CallTreeVisualizer:
             writer = csv.writer(f)
             writer.writerow(headers)
 
+            # 最大深度に到達したエントリーポイントを追跡
+            max_depth_reached_entries: List[str] = []
+
             for entry_point in entry_points:
                 # エントリーポイント自身の情報を分解
                 ep_parts = self._extract_method_signature_parts(entry_point)
                 ep_method_name = extract_method_name_only(ep_parts["method"])
 
+                # 最大深度到達フラグを初期化
+                max_depth_reached_flag: List[bool] = [False]
+
                 # ツリーデータを収集
                 tree_data = self._collect_tree_data(
-                    entry_point, max_depth, follow_implementations
+                    entry_point, max_depth, follow_implementations,
+                    max_depth_reached=max_depth_reached_flag
                 )
+
+                # 最大深度に到達した場合、エントリーポイントを記録
+                if max_depth_reached_flag[0]:
+                    max_depth_reached_entries.append(entry_point)
 
                 # 各メソッドについてCSV行を出力
                 for node in tree_data:
@@ -2557,6 +2620,20 @@ class CallTreeVisualizer:
 
             if output_file:
                 print(f"CSVを {output_file} にエクスポートしました", file=sys.stderr)
+
+            # 最大深度に到達したエントリーポイントの警告を出力
+            if max_depth_reached_entries:
+                print(
+                    f"\n警告: 以下のエントリーポイントは最大深度({max_depth})に到達しました。"
+                    "ツリーが切り捨てられている可能性があります:",
+                    file=sys.stderr,
+                )
+                for ep in max_depth_reached_entries:
+                    print(f"  - {ep}", file=sys.stderr)
+                print(
+                    f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                    file=sys.stderr,
+                )
         finally:
             if output_file and f != sys.stdout:
                 f.close()
@@ -2730,13 +2807,24 @@ class CallTreeVisualizer:
 
         current_row = 3  # データは3行目から
 
+        # 最大深度に到達したエントリーポイントを追跡
+        max_depth_reached_entries: List[str] = []
+
         for entry_point in entry_points:
             print(f"処理中: {entry_point}")
 
+            # 最大深度到達フラグを初期化
+            max_depth_reached_flag: List[bool] = [False]
+
             # ツリーデータを収集
             tree_data = self._collect_tree_data(
-                entry_point, max_depth, follow_implementations
+                entry_point, max_depth, follow_implementations,
+                max_depth_reached=max_depth_reached_flag
             )
+
+            # 最大深度に到達した場合、エントリーポイントを記録
+            if max_depth_reached_flag[0]:
+                max_depth_reached_entries.append(entry_point)
 
             # Excelに書き込み
             for node in tree_data:
@@ -2851,6 +2939,20 @@ class CallTreeVisualizer:
             print(f"総行数: {current_row - 1}")
         except Exception as e:
             print(f"エラー: Excelファイルの保存に失敗しました: {e}", file=sys.stderr)
+
+        # 最大深度に到達したエントリーポイントの警告を出力
+        if max_depth_reached_entries:
+            print(
+                f"\n警告: 以下のエントリーポイントは最大深度({max_depth})に到達しました。"
+                "ツリーが切り捨てられている可能性があります:",
+                file=sys.stderr,
+            )
+            for ep in max_depth_reached_entries:
+                print(f"  - {ep}", file=sys.stderr)
+            print(
+                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                file=sys.stderr,
+            )
 
 
 # サブコマンドハンドラー関数
