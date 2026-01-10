@@ -6,6 +6,7 @@ TSVファイルから呼び出しツリーを生成します
 """
 
 import csv
+import io
 import json
 import re
 import sys
@@ -18,7 +19,8 @@ from openpyxl.styles import Alignment, Border, Font, NamedStyle, PatternFill, Si
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 # Git Bash上でパイプを使うと、stdoutがCP932として扱われるのを防ぐ
-sys.stdout.reconfigure(encoding="utf-8")
+if isinstance(sys.stdout, io.TextIOWrapper):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 class ExclusionRuleManager:
@@ -582,7 +584,7 @@ class CallTreeVisualizer:
                 file=sys.stderr,
             )
             print(
-                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                "ヒント: --depth オプションで深度を増やすことを検討してください。",
                 file=sys.stderr,
             )
 
@@ -633,7 +635,7 @@ class CallTreeVisualizer:
         # 最終到達点のメソッド一覧を表示
         if final_endpoints:
             print(f"\n{'=' * 80}")
-            print(f"最終到達点のメソッド一覧 (最上位の呼び元メソッド)")
+            print("最終到達点のメソッド一覧 (最上位の呼び元メソッド)")
             print(f"{'=' * 80}\n")
             for endpoint in sorted(final_endpoints):
                 if short_mode:
@@ -649,7 +651,7 @@ class CallTreeVisualizer:
                 file=sys.stderr,
             )
             print(
-                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                "ヒント: --depth オプションで深度を増やすことを検討してください。",
                 file=sys.stderr,
             )
 
@@ -1131,7 +1133,6 @@ class CallTreeVisualizer:
             # 優先順位: クラス > インターフェース だが、ここでは見つかった順
             # Javaの単一継承を考えると、親クラスは1つ（+インターフェース複数）
             # ここでは単純に見つかったものを返す
-            found_in_parent = False
             for parent in parents:
                 # インターフェースはスキップ
                 if parent in self.interface_data:
@@ -1295,7 +1296,7 @@ class CallTreeVisualizer:
     ):
         """Markdown形式でエクスポート"""
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"# 呼び出しツリー\n\n")
+            f.write("# 呼び出しツリー\n\n")
             f.write(f"**起点メソッド:** `{root_method}`\n\n")
             f.write("```\n")
 
@@ -1618,7 +1619,9 @@ class CallTreeVisualizer:
 
         # TSVヘッダーを出力
         print(
-            "メソッド\tパッケージ名\tクラス名\tメソッド名\tエンドポイント\tメソッドjavadoc\tクラスjavadoc\t種別\tメソッドアノテーション\tクラスアノテーション"
+            "メソッド\tパッケージ名\tクラス名\tメソッド名\tエンドポイント\t"
+            "メソッドjavadoc\tクラスjavadoc\t種別\t"
+            "メソッドアノテーション\tクラスアノテーション"
         )
 
         # 結果をTSV形式で出力
@@ -2112,8 +2115,8 @@ class CallTreeVisualizer:
                 "OUTER JOIN",
             ]
 
-            current_alignment_indent = None
-            replacement_indent = None
+            current_alignment_indent: Optional[str] = None
+            replacement_indent: str = ""
 
             for line in lines:
                 # 整形によるインデント調整ブロック内かチェック
@@ -2237,7 +2240,7 @@ class CallTreeVisualizer:
         table_list = self._load_table_list(table_list_file)
 
         if not table_list:
-            print(f"警告: テーブル一覧が空です", file=sys.stderr)
+            print("警告: テーブル一覧が空です", file=sys.stderr)
             return
 
         # SQLファイルを走査
@@ -2702,7 +2705,7 @@ class CallTreeVisualizer:
                 for ep in max_depth_reached_entries:
                     print(f"  - {ep}", file=sys.stderr)
                 print(
-                    f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                    "ヒント: --depth オプションで深度を増やすことを検討してください。",
                     file=sys.stderr,
                 )
         finally:
@@ -3007,7 +3010,8 @@ class CallTreeVisualizer:
 
                 if http_calls:
                     http_details = ", ".join(
-                        f"{call.get('httpMethod', 'UNKNOWN')} - {call.get('uri', '${UNRESOLVED}')}"
+                        f"{call.get('httpMethod', 'UNKNOWN')} - "
+                        f"{call.get('uri', '${UNRESOLVED}')}"
                         for call in http_calls
                     )
                     ws.cell(
@@ -3055,7 +3059,7 @@ class CallTreeVisualizer:
         ws.conditional_formatting.add(
             data_range,
             FormulaRule(
-                formula=[f'$L3<>""'],
+                formula=['$L3<>""'],
                 fill=light_gray_fill,
             ),
         )
@@ -3081,7 +3085,7 @@ class CallTreeVisualizer:
             for ep in max_depth_reached_entries:
                 print(f"  - {ep}", file=sys.stderr)
             print(
-                f"ヒント: --depth オプションで深度を増やすことを検討してください。",
+                "ヒント: --depth オプションで深度を増やすことを検討してください。",
                 file=sys.stderr,
             )
 
