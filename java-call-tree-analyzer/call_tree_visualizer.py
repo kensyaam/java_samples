@@ -257,6 +257,9 @@ class CallTreeVisualizer:
                     "createdInstances", []
                 ),  # 生成されたインスタンス
                 "httpCalls": method.get("httpCalls", []),  # HTTPクライアント呼び出し
+                "parameterAnnotations": method.get(
+                    "parameterAnnotations", ""
+                ),  # 引数アノテーション
             }
 
             # クラス階層情報を保存（parentClassesから取得した全親クラス・インターフェース）
@@ -1495,6 +1498,7 @@ class CallTreeVisualizer:
                             info.get("annotations", ""),
                             info.get("visibility", ""),
                             info.get("javadoc", ""),
+                            info.get("parameterAnnotations", ""),
                         )
                     )
             else:
@@ -1510,6 +1514,7 @@ class CallTreeVisualizer:
                             info.get("annotations", ""),
                             info.get("visibility", ""),
                             info.get("javadoc", ""),
+                            info.get("parameterAnnotations", ""),
                         )
                     )
 
@@ -1529,6 +1534,7 @@ class CallTreeVisualizer:
             annotations,
             visibility,
             javadoc,
+            parameter_annotations,
         ) in enumerate(entry_points, 1):
             print(f"{i}. {method}")
             print(f"   クラス: {class_name}")
@@ -1537,6 +1543,8 @@ class CallTreeVisualizer:
             print(f"   可視性: {visibility}")
             if annotations:
                 print(f"   メソッドアノテーション: {annotations}")
+            if parameter_annotations:
+                print(f"   引数アノテーション: {parameter_annotations}")
 
             # クラスアノテーションも表示（親クラス・インターフェース含む）
             info = self.method_info.get(method, {})
@@ -1596,6 +1604,7 @@ class CallTreeVisualizer:
                             info.get("annotations", ""),
                             info.get("visibility", ""),
                             info.get("javadoc", ""),
+                            info.get("parameterAnnotations", ""),
                         )
                     )
             else:
@@ -1611,6 +1620,7 @@ class CallTreeVisualizer:
                             info.get("annotations", ""),
                             info.get("visibility", ""),
                             info.get("javadoc", ""),
+                            info.get("parameterAnnotations", ""),
                         )
                     )
 
@@ -1621,7 +1631,7 @@ class CallTreeVisualizer:
         print(
             "メソッド\tパッケージ名\tクラス名\tメソッド名\tエンドポイント\t"
             "メソッドjavadoc\tクラスjavadoc\t種別\t"
-            "メソッドアノテーション\tクラスアノテーション"
+            "メソッドアノテーション\t引数アノテーション\tクラスアノテーション"
         )
 
         # 結果をTSV形式で出力
@@ -1633,6 +1643,7 @@ class CallTreeVisualizer:
             annotations,
             visibility,
             javadoc,
+            parameter_annotations,
         ) in entry_points:
             # パッケージ名とクラス名（パッケージ除く）を分離
             package_name = ""
@@ -1672,7 +1683,7 @@ class CallTreeVisualizer:
 
             # TSV行を出力
             print(
-                f"{method}\t{package_name}\t{class_name_only}\t{method_name_only}\t{endpoint_path}\t{javadoc}\t{class_javadoc}\t{entry_type}\t{annotations}\t{class_annotations_str}"
+                f"{method}\t{package_name}\t{class_name_only}\t{method_name_only}\t{endpoint_path}\t{javadoc}\t{class_javadoc}\t{entry_type}\t{annotations}\t{parameter_annotations}\t{class_annotations_str}"
             )
 
     def _extract_endpoint_path(self, info: dict, class_name: str = "") -> str:

@@ -209,6 +209,8 @@ public class CallTreeAnalyzer {
         String superClass;
         Set<String> interfaces = new HashSet<>();
         String javadocSummary;
+        // 引数アノテーション情報（例: "@ModelAttribute("myDto") UserForm form"）
+        String parameterAnnotations;
 
         public MethodMetadata(CtMethod<?> method, ClassMetadata classMeta, boolean debugMode) {
             this.isPublic = method.isPublic();
@@ -319,6 +321,39 @@ public class CallTreeAnalyzer {
             if (declaringType != null) {
                 this.declaringClass = declaringType.getQualifiedName();
             }
+
+            // 引数アノテーションを収集
+            // 例: "@ModelAttribute("myDto") UserForm form, @RequestParam String id"
+            List<String> paramAnnotations = new ArrayList<>();
+            for (CtParameter<?> param : method.getParameters()) {
+                StringBuilder paramStr = new StringBuilder();
+
+                // 引数に付与されたアノテーションを収集
+                List<CtAnnotation<?>> paramAnns = param.getAnnotations();
+                for (CtAnnotation<?> ann : paramAnns) {
+                    paramStr.append(ann.toString()).append(" ");
+                }
+
+                // 型名（シンプル名のみ）
+                String typeName = param.getType().getSimpleName();
+                paramStr.append(typeName);
+
+                // 変数名
+                paramStr.append(" ");
+                paramStr.append(param.getSimpleName());
+
+                paramAnnotations.add(paramStr.toString().trim());
+            }
+
+            // アノテーション付きの引数のみをフィルタして出力
+            // アノテーションが付いている引数（@で始まるもの）のみ出力
+            List<String> annotatedParams = new ArrayList<>();
+            for (String p : paramAnnotations) {
+                if (p.startsWith("@")) {
+                    annotatedParams.add(p);
+                }
+            }
+            this.parameterAnnotations = String.join(", ", annotatedParams);
         }
 
         public boolean isEntryPointCandidate() {
@@ -3054,6 +3089,9 @@ public class CallTreeAnalyzer {
             json.append("],\n");
             json.append("      \"javadoc\": \"")
                     .append(escapeJson(meta.javadocSummary != null ? meta.javadocSummary : ""))
+                    .append("\",\n");
+            json.append("      \"parameterAnnotations\": \"")
+                    .append(escapeJson(meta.parameterAnnotations != null ? meta.parameterAnnotations : ""))
                     .append("\",\n");
         }
 

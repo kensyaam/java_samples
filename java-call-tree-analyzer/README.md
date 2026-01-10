@@ -130,6 +130,7 @@ java -jar call-tree-analyzer-1.0.0.jar
 | visibility | 可視性（public/protected/private） |
 | isEntryPoint | エントリーポイント候補かどうか |
 | annotations | メソッドアノテーション |
+| parameterAnnotations | 引数アノテーション（例: `@ModelAttribute("myDto") UserForm form, @RequestParam String id`） |
 | javadoc | Javadoc要約 |
 | calls | 呼び出し先メソッド一覧 |
 | calledBy | 呼び出し元メソッド一覧 |
@@ -352,6 +353,7 @@ python call_tree_visualizer.py entries --tsv
 | クラスjavadoc | クラスのJavadoc要約 |
 | 種別 | エントリーポイントの種別（HTTP Endpoint、Main Method等） |
 | メソッドアノテーション | メソッドのアノテーション（親インターフェースのアノテーション含む） |
+| 引数アノテーション | メソッド引数のアノテーション（例: `@ModelAttribute("myDto") UserForm form`） |
 | クラスアノテーション | クラス・インターフェースのアノテーション（親を含む） |
 
 > **Note**: エンドポイントパスは、インターフェース（例: `@RequestMapping("/bill")`）とメソッド（例: `@PostMapping("/generateReport")`）のパスを自動的に結合して `/bill/generateReport` のように出力します。
