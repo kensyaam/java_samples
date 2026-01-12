@@ -49,6 +49,28 @@ shadowJar {
     destinationDirectory.set(file("$rootDir"))
 }
 
+// ResponseAnalyzer用のshadowJar（別途実行可能なJAR）
+task responseAnalyzerJar(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    archiveBaseName.set('response-analyzer')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+    mergeServiceFiles()
+    destinationDirectory.set(file("$rootDir"))
+    
+    // 署名ファイルを除外（SecurityException回避）
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    
+    manifest {
+        attributes 'Main-Class': 'com.parser.ResponseAnalyzer'
+    }
+    
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+

@@ -1,3 +1,30 @@
+
+<!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=2 orderedList=false} -->
+
+<!-- code_chunk_output -->
+
+- [Model Parser CLI](#model-parser-cli)
+  - [特徴](#特徴)
+  - [必要条件](#必要条件)
+  - [ビルド方法](#ビルド方法)
+  - [使用方法](#使用方法)
+  - [使用例](#使用例)
+  - [出力フォーマット](#出力フォーマット)
+  - [型変換ルール](#型変換ルール)
+  - [必須判定](#必須判定)
+- [Response Analyzer CLI](#response-analyzer-cli)
+  - [特徴](#特徴-1)
+  - [ビルド方法](#ビルド方法-1)
+  - [使用方法](#使用方法-1)
+  - [使用例](#使用例-1)
+  - [出力フォーマット](#出力フォーマット-1)
+  - [検出パターン](#検出パターン)
+  - [フレームワーク型の除外](#フレームワーク型の除外)
+
+<!-- /code_chunk_output -->
+
+
+----
 # Model Parser CLI
 
 JavaモデルクラスをパースしてAPI仕様書の元ネタとなるExcelファイルを生成するCLIツールです。
@@ -26,7 +53,7 @@ Spring MVCなどのレガシーシステムのモデルクラス（DTOなど）�
 ./gradlew shadowJar
 ```
 
-ビルド成果物は `build/libs/model-parser.jar` に生成されます。
+ビルド成果物はプロジェクトルート直下に `model-parser.jar` が生成されます。
 
 ## 使用方法
 
@@ -132,6 +159,153 @@ Excelファイルに「ResourceDef」シートが作成され、以下のカラ�
 - `@NotEmpty` (javax.validation / jakarta.validation)
 - `@NotBlank` (javax.validation / jakarta.validation)
 
-## ライセンス
 
-MIT License
+---
+
+# Response Analyzer CLI
+
+Spring MVC ControllerとJSPを解析して、レスポンス（画面表示）で**実際に使用されているフィールド**を特定するCLIツールです。
+
+## 特徴
+
+- **Controller解析**: `addAttribute`, `put`, `addObject` のメソッド呼び出しと `@ModelAttribute` 引数を検出
+- **View名の定数解決**: `return VIEW_USER_DETAIL;` のような定数参照を自動解決
+- **複数return対応**: `if/else`等で複数のreturn文がある場合、それぞれのViewを解析
+- **変数追跡**: `return viewName;` のような変数returnの場合、宣言時初期化と全代入文の値を候補として解析
+- **JSP解析**: EL式 `${xxx.yyy}` を抽出し、インクルードファイルも再帰的に解析
+- **使用状況判定**: 各フィールドがJSPで参照されているか（USED/UNUSED）を判定
+- **継承対応**: Controllerの親クラス・インターフェースも再帰的に走査
+
+## ビルド方法
+
+```bash
+# Response Analyzer用のJARを生成
+./gradlew responseAnalyzerJar
+```
+
+ビルド成果物はプロジェクトルート直下に `response-analyzer.jar` として生成されます。
+
+## 使用方法
+
+```bash
+java -jar response-analyzer.jar [options]
+```
+
+### オプション
+
+| オプション | 説明 | 必須 | デフォルト |
+| :--- | :--- | :--- | :--- |
+| `-s <dirs>` | ソースディレクトリ（カンマ区切りで複数指定可） | ○ | - |
+| `-j <dir>` | JSPルートディレクトリ | ○ | - |
+| `-c <file>` | 対象Controllerリストファイル | ○ | - |
+| `-cp <paths>` | クラスパスエントリ（カンマ区切りで複数指定可） | - | - |
+| `-cl <level>` | Javaコンプライアンスレベル | - | 21 |
+| `-e <encoding>` | ソースコードのエンコーディング | - | UTF-8 |
+| `-o <file>` | 出力Excelファイル名 | - | response-analysis.xlsx |
+| `-h, --help` | ヘルプメッセージを表示 | - | - |
+
+### 対象Controllerリストファイル（-c）
+
+解析対象のControllerを1行1クラスで記載したテキストファイルを指定します。
+
+```text
+# コメント行
+com.example.controller.UserController
+com.example.controller.OrderController
+```
+
+## 使用例
+
+```bash
+java -jar response-analyzer.jar \
+  -s src/main/java \
+  -j src/main/webapp/WEB-INF/jsp \
+  -c controllers.txt \
+  -o response-analysis.xlsx
+```
+
+## 出力フォーマット
+
+Excelファイルに「ResponseAnalysis」シートが作成され、以下のカラムが出力されます。
+
+| 列 | ヘッダー名 | 説明 |
+| :--- | :--- | :--- |
+| A | Controller | コントローラ名 |
+| B | Method | メソッド名 |
+| C | View Path | View名（定数解決後） |
+| D | Attribute Name | `addAttribute` のキーまたは引数名 |
+| E | JSP Reference | 発見されたEL式 |
+| F | Java Class | Javaクラス名 |
+| G | Java Field | フィールド名 |
+| H | 使用状況 | **USED** または **UNUSED** |
+| I | 属性の由来 | addAttribute / put / Argument 等 |
+| J | 警告/備考 | インクルード情報、スクリプトレット警告等 |
+
+## 検出パターン
+
+### Model属性の追加
+
+以下のパターンが検出されます。
+
+```java
+// パターン1: Model.addAttribute
+model.addAttribute("userDto", userDto);
+
+// パターン2: ModelMap.put
+modelMap.put("orderDto", orderDto);
+
+// パターン3: ModelAndView.addObject
+mav.addObject("itemDto", itemDto);
+
+// パターン4: メソッド引数（@ModelAttribute）
+public String edit(@ModelAttribute("userForm") UserDto userDto) { ... }
+```
+
+### View名の定数解決
+
+```java
+private static final String VIEW_USER_DETAIL = "user/detail";
+
+@GetMapping("/detail")
+public String showDetail(Model model) {
+    return VIEW_USER_DETAIL;  // → "user/detail" に解決される
+}
+```
+
+## フレームワーク型の除外
+
+メソッド引数から暗黙的にModel属性を抽出する際、以下の型は除外されます。
+
+- `Model`, `ModelMap`, `Map`, `ModelAndView`
+- `HttpServletRequest`, `HttpServletResponse`, `HttpSession`
+- `BindingResult`, `Errors`, `RedirectAttributes`
+- `Principal`, `Authentication`, `Locale`
+- プリミティブ型（`String`, `int`, `Integer` 等）
+
+### 複数return対応
+
+```java
+@GetMapping("/conditional")
+public String showConditional(Model model, boolean isVip) {
+    model.addAttribute("userDto", userDto);
+    if (isVip) {
+        return "user/vip";    // → 解析対象
+    } else {
+        return "user/normal"; // → 解析対象
+    }
+}
+```
+
+### 変数追跡
+
+```java
+@GetMapping("/variable-return")
+public String showVariableReturn(Model model, int userType) {
+    model.addAttribute("userDto", userDto);
+    String viewName = "user/default";  // → 候補1
+    if (userType == 1) {
+        viewName = "user/special";     // → 候補2
+    }
+    return viewName;  // 全候補が解析対象
+}
+```

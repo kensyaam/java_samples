@@ -7,6 +7,8 @@ bin/
 
 dist/
 model-parser*.jar
+response-analyzer*.jar
 *.txt
 *.xlsx
 
+sample/

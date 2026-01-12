@@ -569,6 +569,9 @@ public class ModelParser {
         String fieldName = field.getSimpleName();
         CtTypeReference<?> fieldType = field.getType();
 
+        // アノテーションからJSONキーを取得（なければフィールド名を使用）
+        String jsonKey = extractJsonKey(field, fieldName);
+
         // Javadoc解析
         String[] javadocParts = parseFieldJavadoc(field);
         String logicalName = javadocParts[0];
@@ -589,7 +592,7 @@ public class ModelParser {
         String javaType = fieldType != null ? simplifyJavaType(fieldType.toString()) : "unknown";
 
         return new FieldMetadata(
-                fieldName, // JSONキー
+                jsonKey, // JSONキー（アノテーションまたはフィールド名）
                 logicalName, // 論理名
                 description, // 説明
                 jsonType, // JSON型
@@ -599,6 +602,72 @@ public class ModelParser {
                 fieldName, // Javaフィールド名
                 javaType // Java型
         );
+    }
+
+    /**
+     * フィールドのアノテーションからJSONキー（パラメータ名）を抽出する。
+     * 
+     * <p>
+     * 対応アノテーション:
+     * <ul>
+     * <li>@JsonProperty("name") - Jackson</li>
+     * <li>@SerializedName("name") - Gson</li>
+     * <li>@XmlElement(name="name") - JAXB</li>
+     * </ul>
+     */
+    private String extractJsonKey(CtField<?> field, String defaultName) {
+        for (CtAnnotation<?> annotation : field.getAnnotations()) {
+            String annotationName = annotation.getAnnotationType().getSimpleName();
+
+            switch (annotationName) {
+                case "JsonProperty":
+                    // @JsonProperty("name") または @JsonProperty(value = "name")
+                    String jsonPropertyValue = getAnnotationValue(annotation, "value");
+                    if (jsonPropertyValue != null && !jsonPropertyValue.isEmpty()) {
+                        return jsonPropertyValue;
+                    }
+                    break;
+
+                case "SerializedName":
+                    // @SerializedName("name") または @SerializedName(value = "name")
+                    String serializedNameValue = getAnnotationValue(annotation, "value");
+                    if (serializedNameValue != null && !serializedNameValue.isEmpty()) {
+                        return serializedNameValue;
+                    }
+                    break;
+
+                case "XmlElement":
+                    // @XmlElement(name = "name")
+                    String xmlElementName = getAnnotationValue(annotation, "name");
+                    if (xmlElementName != null && !xmlElementName.isEmpty()
+                            && !xmlElementName.equals("##default")) {
+                        return xmlElementName;
+                    }
+                    break;
+            }
+        }
+
+        return defaultName;
+    }
+
+    /**
+     * アノテーションから指定されたキーの値を取得する。
+     */
+    private String getAnnotationValue(CtAnnotation<?> annotation, String key) {
+        try {
+            Object value = annotation.getValue(key);
+            if (value != null) {
+                String strValue = value.toString();
+                // 文字列リテラルの引用符を除去
+                if (strValue.startsWith("\"") && strValue.endsWith("\"")) {
+                    return strValue.substring(1, strValue.length() - 1);
+                }
+                return strValue;
+            }
+        } catch (Exception e) {
+            // 値が取得できない場合は無視
+        }
+        return null;
     }
 
     /**
