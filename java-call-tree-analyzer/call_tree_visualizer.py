@@ -2099,17 +2099,19 @@ class CallTreeVisualizer:
             sql_text = re.sub(r"/\*[\s\S]*?\*/", "", sql_text)
 
             # 1. sqlparseで基本整形
+            # wrap_afterを大きめに設定し、FOR UPDATEなどが途中で改行されないようにする
             formatted = sqlparse.format(
                 sql_text,
                 reindent=True,
                 keyword_case="upper",
                 indent_width=2,
-                wrap_after=80,
+                wrap_after=200,
             )
 
             # 2. カスタムルール適用（キーワード後の改行とインデント調整）
             lines = formatted.splitlines()
             new_lines = []
+            # 注意: キーワードは長いものから先にチェックされるよう順序づける
             keywords = [
                 "SELECT",
                 "FROM",
@@ -2119,11 +2121,14 @@ class CallTreeVisualizer:
                 "HAVING",
                 "SET",
                 "VALUES",
-                "JOIN",
+                "LEFT OUTER JOIN",
+                "RIGHT OUTER JOIN",
                 "LEFT JOIN",
                 "RIGHT JOIN",
                 "INNER JOIN",
                 "OUTER JOIN",
+                "JOIN",
+                "FOR UPDATE",
             ]
 
             current_alignment_indent: Optional[str] = None
