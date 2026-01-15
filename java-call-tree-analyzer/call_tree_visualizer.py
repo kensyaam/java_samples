@@ -24,7 +24,13 @@ if isinstance(sys.stdout, io.TextIOWrapper):
 
 
 class ExclusionRuleManager:
-    """除外ルールを管理するクラス"""
+    """除外ルールを管理するクラス
+
+    除外ルールは以下の2つの形式をサポート：
+    - 完全一致: 対象がルールと完全に一致する場合に除外
+    - 前方一致: ルールの末尾に * を付けることで、そのプレフィックスで始まる対象を除外
+      例: org.springframework.* → org.springframework.で始まるすべてのクラス/メソッドを除外
+    """
 
     def __init__(self, exclusion_file: Optional[str] = None):
         """
@@ -33,8 +39,13 @@ class ExclusionRuleManager:
         Args:
             exclusion_file: 除外ルールファイルのパス（Noneの場合はデフォルトファイルを使用）
         """
-        self.include_exclusions: Set[str] = set()  # Iモード: 対象自体を除外
-        self.exclude_children: Set[str] = set()  # Eモード: 配下のみ除外
+        # Iモード: 対象自体を除外
+        self.include_exclusions: Set[str] = set()  # 完全一致ルール
+        self.include_exclusion_prefixes: Set[str] = set()  # 前方一致ルール
+
+        # Eモード: 配下のみ除外
+        self.exclude_children: Set[str] = set()  # 完全一致ルール
+        self.exclude_children_prefixes: Set[str] = set()  # 前方一致ルール
 
         # デフォルトファイル名
         if exclusion_file is None:
@@ -52,7 +63,15 @@ class ExclusionRuleManager:
 
         Args:
             file_path: 除外ルールファイルのパス
+
+        ルールのフォーマット:
+            <対象>\t<モード>
+            - 対象: メソッドシグネチャ、クラス名、またはパッケージプレフィックス
+            - 対象の末尾に * を付けると前方一致として扱う
+            - モード: I (対象自体を除外) または E (配下のみ除外)
         """
+        prefix_counts = {"I": 0, "E": 0}  # 前方一致ルールのカウント
+
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
@@ -73,27 +92,64 @@ class ExclusionRuleManager:
                     target = target.strip()
                     mode = mode.strip().upper()
 
+                    # 前方一致ルール（末尾が * の場合）
+                    is_prefix = target.endswith("*")
+                    if is_prefix:
+                        # * を除去してプレフィックスとして登録
+                        target = target[:-1]
+
                     if mode == "I":
-                        self.include_exclusions.add(target)
+                        if is_prefix:
+                            self.include_exclusion_prefixes.add(target)
+                            prefix_counts["I"] += 1
+                        else:
+                            self.include_exclusions.add(target)
                     elif mode == "E":
-                        self.exclude_children.add(target)
+                        if is_prefix:
+                            self.exclude_children_prefixes.add(target)
+                            prefix_counts["E"] += 1
+                        else:
+                            self.exclude_children.add(target)
                     else:
                         print(
                             f"警告: 行 {line_num} の除外モードが不正です: {mode} (I または E を指定してください)",
                             file=sys.stderr,
                         )
 
+            total_i = len(self.include_exclusions) + len(
+                self.include_exclusion_prefixes
+            )
+            total_e = len(self.exclude_children) + len(self.exclude_children_prefixes)
+
             print(f"除外ルールを読み込みました: {file_path}", file=sys.stderr)
             print(
-                f"  Iモード(対象除外): {len(self.include_exclusions)} 件",
+                f"  Iモード(対象除外): {total_i} 件 (完全一致: {len(self.include_exclusions)}, 前方一致: {prefix_counts['I']})",
                 file=sys.stderr,
             )
             print(
-                f"  Eモード(配下除外): {len(self.exclude_children)} 件", file=sys.stderr
+                f"  Eモード(配下除外): {total_e} 件 (完全一致: {len(self.exclude_children)}, 前方一致: {prefix_counts['E']})",
+                file=sys.stderr,
             )
 
         except Exception as e:
             print(f"除外ルールファイルの読み込みに失敗しました: {e}", file=sys.stderr)
+
+    def _matches_prefix(self, target: str, prefixes: Set[str]) -> bool:
+        """
+        対象が前方一致ルールのいずれかにマッチするかチェック
+
+        Args:
+            target: チェック対象の文字列
+            prefixes: 前方一致用プレフィックスのセット
+
+        Returns:
+            True: いずれかのプレフィックスにマッチする
+            False: どのプレフィックスにもマッチしない
+        """
+        for prefix in prefixes:
+            if target.startswith(prefix):
+                return True
+        return False
 
     def should_include(self, method_or_class: str) -> bool:
         """
@@ -106,19 +162,30 @@ class ExclusionRuleManager:
             True: 表示すべき（除外対象ではない）
             False: 除外すべき（除外対象）
         """
-        # メソッドシグネチャ全体が除外対象か
+        # 完全一致チェック: メソッドシグネチャ全体が除外対象か
         if method_or_class in self.include_exclusions:
+            return False
+
+        # 前方一致チェック: メソッドシグネチャ全体がプレフィックスにマッチするか
+        if self._matches_prefix(method_or_class, self.include_exclusion_prefixes):
             return False
 
         # クラス名を抽出して除外対象かチェック
         class_name = self._extract_class_name(method_or_class)
-        if class_name and class_name in self.include_exclusions:
-            return False
+        if class_name:
+            # 完全一致チェック
+            if class_name in self.include_exclusions:
+                return False
+            # 前方一致チェック
+            if self._matches_prefix(class_name, self.include_exclusion_prefixes):
+                return False
 
         # クラス名を除くメソッド部分のみを抽出して除外対象かチェック
         method_part = self._extract_method_part(method_or_class)
-        if method_part and method_part in self.include_exclusions:
-            return False
+        if method_part:
+            # 完全一致チェック（メソッド部分は完全一致のみ）
+            if method_part in self.include_exclusions:
+                return False
 
         return True
 
@@ -133,19 +200,30 @@ class ExclusionRuleManager:
             True: 配下を除外すべき
             False: 配下も展開すべき
         """
-        # メソッドシグネチャ全体が除外対象か
+        # 完全一致チェック: メソッドシグネチャ全体が除外対象か
         if method_or_class in self.exclude_children:
+            return True
+
+        # 前方一致チェック: メソッドシグネチャ全体がプレフィックスにマッチするか
+        if self._matches_prefix(method_or_class, self.exclude_children_prefixes):
             return True
 
         # クラス名を抽出して除外対象かチェック
         class_name = self._extract_class_name(method_or_class)
-        if class_name and class_name in self.exclude_children:
-            return True
+        if class_name:
+            # 完全一致チェック
+            if class_name in self.exclude_children:
+                return True
+            # 前方一致チェック
+            if self._matches_prefix(class_name, self.exclude_children_prefixes):
+                return True
 
         # クラス名を除くメソッド部分のみを抽出して除外対象かチェック
         method_part = self._extract_method_part(method_or_class)
-        if method_part and method_part in self.exclude_children:
-            return True
+        if method_part:
+            # 完全一致チェック（メソッド部分は完全一致のみ）
+            if method_part in self.exclude_children:
+                return True
 
         return False
 

@@ -815,21 +815,59 @@ done
 - **I (Include) モード**: 対象自体を除外（そのメソッド/クラスおよび配下のツリー全体を除外）
 - **E (Exclude) モード**: 対象は出力するが、配下の呼び出しを除外（そのメソッド/クラスまでは出力するが、それ以降の展開をスキップ）
 
+###### 完全一致と前方一致
+
+除外ルールは以下の2つのマッチング方法をサポートしています：
+
+| マッチング方法 | 記法 | 説明 |
+|---------------|------|------|
+| 完全一致 | そのまま記述 | 対象がルールと完全に一致する場合に除外 |
+| 前方一致 | 末尾に `*` を付ける | 指定したプレフィックスで始まるすべての対象を除外 |
+
+前方一致を使用すると、パッケージ名やクラス名のプレフィックスを指定して、そのプレフィックスで始まるすべてのクラス/メソッドをまとめて除外できます。
+
 ###### 除外ルールの設定例
 
 ```txt
+# ===== 完全一致ルール =====
+
 # Iモード: INFOログ出力を除外
-org.slf4j.Logger#info(String)<TAB>I
+org.slf4j.Logger#info(String)	I
 
 # Iモード: ログ出力関連を完全に除外
-org.slf4j.Logger<TAB>I
+org.slf4j.Logger	I
 
 # Iモード: クラスを問わず、debug(String)を除外
-debug(String)<TAB>I
+debug(String)	I
 
 # Eモード: com.example.Foo, com.example.Bar#method(Object) は出力するが、その配下は展開しない
-com.example.Foo<TAB>E
-com.example.Bar#method(Object)<TAB>E
+com.example.Foo	E
+com.example.Bar#method(Object)	E
+
+# ===== 前方一致ルール（パッケージプレフィックス） =====
+
+# Iモード: Spring Frameworkのクラスをすべて除外
+org.springframework.*	I
+
+# Iモード: Apache Commons関連をすべて除外
+org.apache.commons.*	I
+
+# Eモード: 特定のユーティリティパッケージ配下をまとめて除外
+com.example.util.*	E
+```
+
+> [!TIP]
+> 前方一致ルールは、特に外部ライブラリやフレームワークのパッケージをまとめて除外したい場合に便利です。
+> 例えば `org.springframework.*` と指定すると、`org.springframework.web.bind.annotation.RequestMapping` や `org.springframework.stereotype.Service` など、該当パッケージ配下のすべてのクラス・メソッドが除外対象となります。
+
+###### 除外ルールの読み込みログ
+
+除外ルールファイルを読み込むと、完全一致と前方一致の件数が分けて表示されます：
+
+```
+除外ルールを読み込みました: exclusion_rules.txt
+  Iモード(対象除外): 5 件 (完全一致: 2, 前方一致: 3)
+  Eモード(配下除外): 4 件 (完全一致: 2, 前方一致: 2)
 ```
 
 ###### 除外ルールファイルの使用例
