@@ -19,7 +19,6 @@
   - [使用例](#使用例-1)
   - [出力フォーマット](#出力フォーマット-1)
   - [検出パターン](#検出パターン)
-  - [フレームワーク型の除外](#フレームワーク型の除外)
 
 <!-- /code_chunk_output -->
 
@@ -261,6 +260,16 @@ mav.addObject("itemDto", itemDto);
 public String edit(@ModelAttribute("userForm") UserDto userDto) { ... }
 ```
 
+### フレームワーク型の除外
+
+メソッド引数から暗黙的にModel属性を抽出する際、以下の型は除外されます。
+
+- `Model`, `ModelMap`, `Map`, `ModelAndView`
+- `HttpServletRequest`, `HttpServletResponse`, `HttpSession`
+- `BindingResult`, `Errors`, `RedirectAttributes`
+- `Principal`, `Authentication`, `Locale`
+- プリミティブ型（`String`, `int`, `Integer` 等）
+
 ### View名の定数解決
 
 ```java
@@ -272,17 +281,7 @@ public String showDetail(Model model) {
 }
 ```
 
-## フレームワーク型の除外
-
-メソッド引数から暗黙的にModel属性を抽出する際、以下の型は除外されます。
-
-- `Model`, `ModelMap`, `Map`, `ModelAndView`
-- `HttpServletRequest`, `HttpServletResponse`, `HttpSession`
-- `BindingResult`, `Errors`, `RedirectAttributes`
-- `Principal`, `Authentication`, `Locale`
-- プリミティブ型（`String`, `int`, `Integer` 等）
-
-### 複数return対応
+### View名の複数return対応
 
 ```java
 @GetMapping("/conditional")
@@ -296,7 +295,7 @@ public String showConditional(Model model, boolean isVip) {
 }
 ```
 
-### 変数追跡
+### View名の変数追跡
 
 ```java
 @GetMapping("/variable-return")
@@ -309,3 +308,42 @@ public String showVariableReturn(Model model, int userType) {
     return viewName;  // 全候補が解析対象
 }
 ```
+
+### スコープ参照の検出
+
+JSP内でのスコープ参照を検出し、「属性の由来」列に情報を付加します。
+
+#### 検出対象パターン
+
+**EL式でのスコープ参照**:
+
+```jsp
+${requestScope.errorMessage}
+${sessionScope.loginUser.name}
+${applicationScope.config.setting}
+${pageScope.tempData}
+```
+
+**スクリプトレット内での参照**:
+
+```jsp
+<% request.getAttribute("errorMessage") %>
+<% session.getAttribute("loginUser") %>
+<% application.getAttribute("config") %>
+<% pageContext.getAttribute("tempData") %>
+```
+
+**チェーン呼び出し**:
+
+```jsp
+<% request.getSession().getAttribute("user") %>
+```
+
+#### 出力例
+
+スコープ参照が検出されると、「属性の由来」列にスコープ情報が追記されます。
+
+| 属性の由来 |
+| :--- |
+| addAttribute (requestScope) |
+| Argument (sessionScope/requestScope) |

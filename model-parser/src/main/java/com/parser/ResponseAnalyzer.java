@@ -85,10 +85,10 @@ public class ResponseAnalyzer {
     private static final String UNUSED = "UNUSED";
 
     /** 属性の由来 */
-    private static final String ORIGIN_ADD_ATTRIBUTE = "addAttribute";
-    private static final String ORIGIN_PUT = "put";
-    private static final String ORIGIN_ADD_OBJECT = "addObject";
-    private static final String ORIGIN_ARGUMENT = "Argument";
+    private static final String ORIGIN_ADD_ATTRIBUTE = "モデル:addAttribute";
+    private static final String ORIGIN_PUT = "モデル:put";
+    private static final String ORIGIN_ADD_OBJECT = "モデル:addObject";
+    private static final String ORIGIN_ARGUMENT = "モデル:Argument";
 
     /** フレームワーク型（メソッド引数から除外） */
     private static final Set<String> FRAMEWORK_TYPES = new HashSet<>(Arrays.asList(
@@ -113,6 +113,18 @@ public class ResponseAnalyzer {
 
     /** スクリプトレットパターン */
     private static final Pattern SCRIPTLET_PATTERN = Pattern.compile("<%[^@=][^%]*%>");
+
+    /** EL式でのスコープ参照パターン（requestScope, sessionScope, applicationScope, pageScope） */
+    private static final Pattern EL_SCOPE_PATTERN = Pattern.compile(
+            "\\$\\{(requestScope|sessionScope|applicationScope|pageScope)\\.([^}]+)\\}");
+
+    /** スクリプトレット内でのスコープ参照パターン（request.getAttribute, session.getAttribute等） */
+    private static final Pattern SCRIPTLET_SCOPE_PATTERN = Pattern.compile(
+            "(request|session|application|pageContext)\\.getAttribute\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)");
+
+    /** チェーン呼び出しパターン（request.getSession().getAttribute） */
+    private static final Pattern CHAIN_SCOPE_PATTERN = Pattern.compile(
+            "request\\.getSession\\(\\)\\.getAttribute\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)");
 
     // ==========================================================================
     // 内部データクラス
@@ -159,8 +171,26 @@ public class ResponseAnalyzer {
         boolean hasScriptlets = false;
         final List<String> includedJsps = new ArrayList<>();
 
+        // スコープ参照情報（元の表現、スコープ名、属性名を保持）
+        final List<ScopeReference> scopeReferenceDetails = new ArrayList<>();
+
         JspAnalysisResult(String jspPath) {
             this.jspPath = jspPath;
+        }
+    }
+
+    /**
+     * スコープ参照の詳細情報を保持するクラス。
+     */
+    private static class ScopeReference {
+        final String expression; // 元の表現（例: "${requestScope.userDto.userId}"）
+        final String scopeName; // スコープ名（例: "requestスコープ"）
+        final String attributeName; // 属性名（例: "userDto"）
+
+        ScopeReference(String expression, String scopeName, String attributeName) {
+            this.expression = expression;
+            this.scopeName = scopeName;
+            this.attributeName = attributeName;
         }
     }
 
@@ -513,6 +543,21 @@ public class ResponseAnalyzer {
                     List<ResponseAnalysisResult> attrResults = matchAttributeToJsp(
                             methodInfo, attr, jspResult, viewPath, warningStr);
                     results.addAll(attrResults);
+                }
+
+                // スコープ参照を独立した行として追加
+                for (ScopeReference scopeRef : jspResult.scopeReferenceDetails) {
+                    results.add(new ResponseAnalysisResult(
+                            methodInfo.controllerName,
+                            methodInfo.methodName,
+                            viewPath,
+                            scopeRef.attributeName, // Attribute Name: 属性名
+                            scopeRef.expression, // JSP Reference: 元の表現
+                            "", // Java Class: 空
+                            "", // Java Field: 空
+                            "", // 使用状況: 空（スコープ参照なので判定しない）
+                            scopeRef.scopeName, // 属性の由来: "requestスコープ"等
+                            warningStr));
                 }
             }
         }
@@ -940,8 +985,39 @@ public class ResponseAnalyzer {
                         if (includedResult.hasScriptlets) {
                             result.hasScriptlets = true;
                         }
+                        // スコープ参照をマージ
+                        result.scopeReferenceDetails.addAll(includedResult.scopeReferenceDetails);
                     }
                 }
+            }
+
+            // EL式でのスコープ参照を抽出
+            Matcher elScopeMatcher = EL_SCOPE_PATTERN.matcher(content);
+            while (elScopeMatcher.find()) {
+                String fullMatch = elScopeMatcher.group(0); // ${requestScope.userDto.userId}
+                String scope = elScopeMatcher.group(1); // requestScope
+                String attrExpr = elScopeMatcher.group(2); // userDto.userId
+                String attrName = attrExpr.contains(".") ? attrExpr.substring(0, attrExpr.indexOf('.')) : attrExpr;
+                String scopeNameJp = toJapaneseScopeName(scope);
+                result.scopeReferenceDetails.add(new ScopeReference(fullMatch, scopeNameJp, attrName));
+            }
+
+            // スクリプトレット内でのスコープ参照を抽出
+            Matcher scriptletScopeMatcher = SCRIPTLET_SCOPE_PATTERN.matcher(content);
+            while (scriptletScopeMatcher.find()) {
+                String fullMatch = scriptletScopeMatcher.group(0); // request.getAttribute("userDto")
+                String scopeObj = scriptletScopeMatcher.group(1); // request
+                String attrName = scriptletScopeMatcher.group(2); // userDto
+                String scopeNameJp = toJapaneseScopeName(mapObjectToScope(scopeObj));
+                result.scopeReferenceDetails.add(new ScopeReference(fullMatch, scopeNameJp, attrName));
+            }
+
+            // チェーン呼び出しパターン（request.getSession().getAttribute）
+            Matcher chainMatcher = CHAIN_SCOPE_PATTERN.matcher(content);
+            while (chainMatcher.find()) {
+                String fullMatch = chainMatcher.group(0); // request.getSession().getAttribute("userDto")
+                String attrName = chainMatcher.group(1); // userDto
+                result.scopeReferenceDetails.add(new ScopeReference(fullMatch, "sessionスコープ", attrName));
             }
 
         } catch (IOException e) {
@@ -956,6 +1032,42 @@ public class ResponseAnalyzer {
     // ==========================================================================
     // マッピングロジック
     // ==========================================================================
+
+    /**
+     * スクリプトレットのオブジェクト名をEL式のスコープ名に変換する。
+     */
+    private String mapObjectToScope(String objectName) {
+        switch (objectName) {
+            case "request":
+                return "requestScope";
+            case "session":
+                return "sessionScope";
+            case "application":
+                return "applicationScope";
+            case "pageContext":
+                return "pageScope";
+            default:
+                return objectName + "Scope";
+        }
+    }
+
+    /**
+     * スコープ名を日本語に変換する。
+     */
+    private String toJapaneseScopeName(String scopeName) {
+        switch (scopeName) {
+            case "requestScope":
+                return "requestスコープ";
+            case "sessionScope":
+                return "sessionスコープ";
+            case "applicationScope":
+                return "applicationスコープ";
+            case "pageScope":
+                return "pageスコープ";
+            default:
+                return scopeName;
+        }
+    }
 
     /**
      * 属性とJSPのEL式を突き合わせる。
@@ -1075,7 +1187,7 @@ public class ResponseAnalyzer {
             // ヘッダー
             String[] headers = {
                     "Controller", "Method", "View Path", "Attribute Name",
-                    "JSP Reference", "Java Class", "Java Field",
+                    "JSP Reference", "モデルクラス", "モデルクラスのフィールド",
                     "使用状況", "属性の由来", "警告/備考"
             };
 
