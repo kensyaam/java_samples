@@ -19,6 +19,7 @@
   - [使用例](#使用例-1)
   - [出力フォーマット](#出力フォーマット-1)
   - [検出パターン](#検出パターン)
+  - [リクエスト解析（RequestAnalysisシート）](#リクエスト解析requestanalysisシート)
 
 <!-- /code_chunk_output -->
 
@@ -347,3 +348,63 @@ ${pageScope.tempData}
 | :--- |
 | addAttribute (requestScope) |
 | Argument (sessionScope/requestScope) |
+
+## リクエスト解析（RequestAnalysisシート）
+
+Response Analyzerは、JSP内のフォーム定義と入力要素も解析し、REST APIリクエストボディの設計に必要な情報を抽出します。
+
+### 対象タグ
+
+以下のフォーム・入力要素タグを検出します。
+
+**HTML標準**:
+- `<form>`, `<input>`, `<select>`, `<textarea>`, `<button>`
+
+**Spring Form Tag**:
+- `<form:form>`, `<form:input>`, `<form:password>`, `<form:hidden>`, `<form:checkbox>`, `<form:radiobutton>`, `<form:select>`, `<form:textarea>` 等
+
+**Struts HTML Tag**:
+- `<html:form>`, `<html:text>`, `<html:password>`, `<html:hidden>`, `<html:checkbox>`, `<html:radio>`, `<html:select>`, `<html:textarea>` 等
+
+### 出力フォーマット
+
+Excelファイルに「RequestAnalysis」シートが追加され、以下のカラムが出力されます。
+
+| 列 | ヘッダー名 | 説明 |
+| :--- | :--- | :--- |
+| A | JSP File Path | JSPファイルの相対パス |
+| B | Form Action | フォームの送信先URL |
+| C | Form Method | HTTPメソッド（GET/POST） |
+| D | Root Model | `modelAttribute`または`commandName`の値 |
+| E | Input Tag | 使用されているタグ名 |
+| F | Parameter Name | `name`/`path`/`property`属性の値 |
+| G | Input Type | `type`属性の値または推定タイプ |
+| H | Max Length | `maxlength`属性の値 |
+| I | Required | 必須属性の有無（true/空白） |
+| J | JSON Key Estimate | パラメータ名の末尾（ネスト時の参考値） |
+| K | Nest Path | パラメータ名の親パス（ネスト構造の参考値） |
+
+### ドット記法によるネスト構造
+
+パラメータ名がドット区切り（例: `user.address.zipCode`）の場合、JSONのネスト構造として識別されます。
+
+```jsp
+<form:input path="user.address.zipCode" />
+```
+
+上記の場合、出力は以下のようになります:
+- **Parameter Name**: `user.address.zipCode`
+- **JSON Key Estimate**: `zipCode`
+- **Nest Path**: `user.address`
+
+これにより、以下のようなJSON構造を設計する際の参考になります:
+
+```json
+{
+  "user": {
+    "address": {
+      "zipCode": "1234567"
+    }
+  }
+}
+```

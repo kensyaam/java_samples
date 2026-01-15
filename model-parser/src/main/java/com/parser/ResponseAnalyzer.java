@@ -127,6 +127,45 @@ public class ResponseAnalyzer {
             "request\\.getSession\\(\\)\\.getAttribute\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)");
 
     // ==========================================================================
+    // フォーム解析用定数
+    // ==========================================================================
+
+    /** Excelシート名（リクエスト解析用） */
+    private static final String REQUEST_SHEET_NAME = "RequestAnalysis";
+
+    /** HTML標準フォームタグ */
+    private static final Pattern HTML_FORM_PATTERN = Pattern.compile(
+            "<form\\b([^>]*)>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** Spring Form Tagフォーム */
+    private static final Pattern SPRING_FORM_PATTERN = Pattern.compile(
+            "<form:form\\b([^>]*)>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** Struts HTML Tagフォーム */
+    private static final Pattern STRUTS_FORM_PATTERN = Pattern.compile(
+            "<html:form\\b([^>]*)>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** 入力要素パターン（HTML標準） */
+    private static final Pattern HTML_INPUT_PATTERN = Pattern.compile(
+            "<(input|select|textarea|button)\\b([^>]*)(?:/?>|>)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** 入力要素パターン（Spring Form Tag） */
+    private static final Pattern SPRING_INPUT_PATTERN = Pattern.compile(
+            "<form:(input|password|hidden|checkbox|checkboxes|radiobutton|radiobuttons|"
+                    + "select|option|options|textarea|errors)\\b([^>]*)(?:/?>|>)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** 入力要素パターン（Struts HTML Tag） */
+    private static final Pattern STRUTS_INPUT_PATTERN = Pattern.compile(
+            "<html:(text|password|hidden|checkbox|radio|select|option|textarea|file|submit|reset|button)\\b([^>]*)(?:/?>|>)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** 属性抽出用パターン */
+    private static final Pattern ATTR_PATTERN = Pattern.compile(
+            "(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", Pattern.DOTALL);
+
+    // ==========================================================================
     // 内部データクラス
     // ==========================================================================
 
@@ -236,6 +275,58 @@ public class ResponseAnalyzer {
         String jspRoot = null;
         String controllersFile = null;
         String outputFile = "response-analysis.xlsx";
+    }
+
+    /**
+     * フォーム情報を保持するクラス。
+     */
+    private static class FormInfo {
+        final String jspFilePath; // JSPファイルパス（相対パス）
+        final String action; // action属性
+        final String method; // method属性（GET/POST）
+        final String rootModel; // modelAttribute/commandName
+        final String formTag; // 使用しているタグ名（<form>, <form:form>等）
+        final List<InputElementInfo> inputs = new ArrayList<>();
+
+        FormInfo(String jspFilePath, String action, String method,
+                String rootModel, String formTag) {
+            this.jspFilePath = jspFilePath;
+            this.action = action != null ? action : "";
+            this.method = method != null ? method.toUpperCase() : "";
+            this.rootModel = rootModel != null ? rootModel : "";
+            this.formTag = formTag;
+        }
+    }
+
+    /**
+     * 入力要素情報を保持するクラス。
+     */
+    private static class InputElementInfo {
+        final String inputTag; // タグ名（<input>, <form:input>等）
+        final String parameterName; // name/path/property属性
+        final String inputType; // type属性
+        final String maxLength; // maxlength属性
+        final boolean required; // required属性の有無
+        final String jsonKeyEstimate; // パラメータ名の末尾（参考）
+        final String nestPath; // パラメータ名の親パス（参考）
+
+        InputElementInfo(String inputTag, String parameterName, String inputType,
+                String maxLength, boolean required) {
+            this.inputTag = inputTag;
+            this.parameterName = parameterName != null ? parameterName : "";
+            this.inputType = inputType != null ? inputType : "";
+            this.maxLength = maxLength != null ? maxLength : "";
+            this.required = required;
+            // ドット記法を解析
+            if (parameterName != null && parameterName.contains(".")) {
+                int lastDot = parameterName.lastIndexOf('.');
+                this.nestPath = parameterName.substring(0, lastDot);
+                this.jsonKeyEstimate = parameterName.substring(lastDot + 1);
+            } else {
+                this.nestPath = "";
+                this.jsonKeyEstimate = parameterName != null ? parameterName : "";
+            }
+        }
     }
 
     // ==========================================================================
@@ -566,9 +657,17 @@ public class ResponseAnalyzer {
 
         System.out.println("[INFO] 解析完了: " + results.size() + " 件の結果");
 
+        // JSPフォーム解析
+        System.out.println();
+        System.out.println("[INFO] JSPフォーム解析を開始...");
+        List<FormInfo> formResults = analyzeAllJspForms();
+        int inputCount = formResults.stream().mapToInt(f -> f.inputs.size()).sum();
+        System.out.println("[INFO] フォーム解析完了: " + formResults.size() + " 件のフォーム, " + inputCount + " 件の入力要素");
+
         // Excelファイルを生成
+        System.out.println();
         System.out.println("[INFO] Excelファイルを生成中...");
-        generateExcel(results, options.outputFile);
+        generateExcel(results, formResults, options.outputFile);
         System.out.println("[INFO] Excelファイル生成完了: " + options.outputFile);
     }
 
@@ -1030,6 +1129,222 @@ public class ResponseAnalyzer {
     }
 
     // ==========================================================================
+    // フォーム解析ロジック
+    // ==========================================================================
+
+    /**
+     * 指定ディレクトリ配下のJSPファイルを全走査してフォームを解析する。
+     */
+    private List<FormInfo> analyzeAllJspForms() {
+        List<FormInfo> allForms = new ArrayList<>();
+        try {
+            Files.walk(jspRootPath)
+                    .filter(p -> p.toString().toLowerCase().endsWith(".jsp"))
+                    .forEach(jspPath -> {
+                        List<FormInfo> forms = analyzeJspForms(jspPath);
+                        allForms.addAll(forms);
+                    });
+        } catch (IOException e) {
+            System.out.println("[ERROR] JSPディレクトリの走査に失敗: " + e.getMessage());
+        }
+        return allForms;
+    }
+
+    /**
+     * 単一JSPファイル内のフォームを解析する。
+     */
+    private List<FormInfo> analyzeJspForms(Path jspPath) {
+        List<FormInfo> forms = new ArrayList<>();
+
+        // 相対パスを取得
+        String relativePath = jspRootPath.relativize(jspPath).toString().replace("\\", "/");
+
+        try {
+            String content = Files.readString(jspPath, StandardCharsets.UTF_8);
+
+            // HTML標準フォーム
+            forms.addAll(extractFormsWithPattern(content, relativePath,
+                    HTML_FORM_PATTERN, "</form>", "<form>", "html"));
+
+            // Spring Form Tag
+            forms.addAll(extractFormsWithPattern(content, relativePath,
+                    SPRING_FORM_PATTERN, "</form:form>", "<form:form>", "spring"));
+
+            // Struts HTML Tag
+            forms.addAll(extractFormsWithPattern(content, relativePath,
+                    STRUTS_FORM_PATTERN, "</html:form>", "<html:form>", "struts"));
+
+        } catch (IOException e) {
+            System.out.println("  [ERROR] JSPファイル読み込みエラー: " + jspPath + " - " + e.getMessage());
+        }
+
+        return forms;
+    }
+
+    /**
+     * 指定パターンでフォームを抽出する。
+     */
+    private List<FormInfo> extractFormsWithPattern(String content, String relativePath,
+            Pattern formPattern, String endTag, String formTagDisplay, String tagType) {
+        List<FormInfo> forms = new ArrayList<>();
+
+        Matcher formMatcher = formPattern.matcher(content);
+        while (formMatcher.find()) {
+            int formStart = formMatcher.end();
+            String formAttrs = formMatcher.group(1);
+            Map<String, String> attrs = extractAttributes(formAttrs);
+
+            // 属性取得
+            String action = attrs.get("action");
+            String method = attrs.getOrDefault("method", "GET");
+
+            // ルートモデル（Spring: modelAttribute/commandName）
+            String rootModel = attrs.get("modelattribute");
+            if (rootModel == null) {
+                rootModel = attrs.get("commandname");
+            }
+
+            FormInfo formInfo = new FormInfo(relativePath, action, method, rootModel, formTagDisplay);
+
+            // フォーム終了位置を探す
+            int formEnd = content.toLowerCase().indexOf(endTag.toLowerCase(), formStart);
+            if (formEnd == -1) {
+                formEnd = content.length();
+            }
+            String formContent = content.substring(formStart, formEnd);
+
+            // 入力要素を抽出
+            extractInputElements(formContent, formInfo, tagType);
+
+            forms.add(formInfo);
+        }
+
+        return forms;
+    }
+
+    /**
+     * フォーム内の入力要素を抽出する。
+     */
+    private void extractInputElements(String formContent, FormInfo formInfo, String tagType) {
+        // HTML標準入力要素
+        extractInputsWithPattern(formContent, formInfo, HTML_INPUT_PATTERN, "html");
+
+        // Spring Form Tag入力要素
+        if ("spring".equals(tagType) || "html".equals(tagType)) {
+            extractInputsWithPattern(formContent, formInfo, SPRING_INPUT_PATTERN, "spring");
+        }
+
+        // Struts HTML Tag入力要素
+        if ("struts".equals(tagType) || "html".equals(tagType)) {
+            extractInputsWithPattern(formContent, formInfo, STRUTS_INPUT_PATTERN, "struts");
+        }
+    }
+
+    /**
+     * 指定パターンで入力要素を抽出する。
+     */
+    private void extractInputsWithPattern(String formContent, FormInfo formInfo,
+            Pattern inputPattern, String tagType) {
+        Matcher inputMatcher = inputPattern.matcher(formContent);
+        while (inputMatcher.find()) {
+            String tagName = inputMatcher.group(1);
+            String inputAttrs = inputMatcher.group(2);
+            Map<String, String> attrs = extractAttributes(inputAttrs);
+
+            // タグ表示名
+            String inputTag;
+            switch (tagType) {
+                case "spring":
+                    inputTag = "<form:" + tagName + ">";
+                    break;
+                case "struts":
+                    inputTag = "<html:" + tagName + ">";
+                    break;
+                default:
+                    inputTag = "<" + tagName + ">";
+            }
+
+            // パラメータ名（優先順位: path > property > name）
+            String parameterName = attrs.get("path");
+            if (parameterName == null) {
+                parameterName = attrs.get("property");
+            }
+            if (parameterName == null) {
+                parameterName = attrs.get("name");
+            }
+
+            // 入力タイプ
+            String inputType = attrs.get("type");
+            if (inputType == null) {
+                // タグ名から推定
+                switch (tagName.toLowerCase()) {
+                    case "select":
+                    case "option":
+                    case "options":
+                        inputType = "select";
+                        break;
+                    case "textarea":
+                        inputType = "textarea";
+                        break;
+                    case "checkbox":
+                    case "checkboxes":
+                        inputType = "checkbox";
+                        break;
+                    case "radiobutton":
+                    case "radiobuttons":
+                    case "radio":
+                        inputType = "radio";
+                        break;
+                    case "password":
+                        inputType = "password";
+                        break;
+                    case "hidden":
+                        inputType = "hidden";
+                        break;
+                    case "file":
+                        inputType = "file";
+                        break;
+                    case "submit":
+                    case "reset":
+                    case "button":
+                        inputType = tagName.toLowerCase();
+                        break;
+                    default:
+                        inputType = "text";
+                }
+            }
+
+            // maxlength
+            String maxLength = attrs.get("maxlength");
+
+            // required属性
+            boolean required = attrs.containsKey("required");
+
+            // 入力要素を追加（name/path/propertyがある場合のみ）
+            if (parameterName != null && !parameterName.isEmpty()) {
+                formInfo.inputs.add(new InputElementInfo(inputTag, parameterName, inputType, maxLength, required));
+            }
+        }
+    }
+
+    /**
+     * タグ文字列から属性を抽出する。
+     */
+    private Map<String, String> extractAttributes(String tagContent) {
+        Map<String, String> attrs = new HashMap<>();
+        if (tagContent == null) {
+            return attrs;
+        }
+        Matcher matcher = ATTR_PATTERN.matcher(tagContent);
+        while (matcher.find()) {
+            String name = matcher.group(1).toLowerCase();
+            String value = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+            attrs.put(name, value);
+        }
+        return attrs;
+    }
+
+    // ==========================================================================
     // マッピングロジック
     // ==========================================================================
 
@@ -1175,74 +1490,144 @@ public class ResponseAnalyzer {
     /**
      * Excelファイルを生成する。
      */
-    private void generateExcel(List<ResponseAnalysisResult> results, String outputFile) throws IOException {
+    private void generateExcel(List<ResponseAnalysisResult> results, List<FormInfo> formResults,
+            String outputFile) throws IOException {
         try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet(SHEET_NAME);
-
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle usedStyle = createUsedStyle(workbook);
             CellStyle unusedStyle = createUnusedStyle(workbook);
 
-            // ヘッダー
-            String[] headers = {
-                    "Controller", "Method", "View Path", "Attribute Name",
-                    "JSP Reference", "モデルクラス", "モデルクラスのフィールド",
-                    "使用状況", "属性の由来", "警告/備考"
-            };
+            // ResponseAnalysisシートを生成
+            generateResponseAnalysisSheet(workbook, results, headerStyle, dataStyle, usedStyle, unusedStyle);
 
-            Row headerRow = sheet.createRow(0);
-            for (int i = 0; i < headers.length; i++) {
-                Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-                cell.setCellStyle(headerStyle);
-            }
-
-            // データ行
-            int rowNum = 1;
-            for (ResponseAnalysisResult result : results) {
-                Row row = sheet.createRow(rowNum++);
-
-                createCell(row, 0, result.controller, dataStyle);
-                createCell(row, 1, result.method, dataStyle);
-                createCell(row, 2, result.viewPath, dataStyle);
-                createCell(row, 3, result.attributeName, dataStyle);
-                createCell(row, 4, result.jspReference, dataStyle);
-                createCell(row, 5, result.javaClass, dataStyle);
-                createCell(row, 6, result.javaField, dataStyle);
-
-                // 使用状況セル（色分け）
-                Cell usageCell = row.createCell(7);
-                usageCell.setCellValue(result.usageStatus);
-                if (USED.equals(result.usageStatus)) {
-                    usageCell.setCellStyle(usedStyle);
-                } else if (UNUSED.equals(result.usageStatus)) {
-                    usageCell.setCellStyle(unusedStyle);
-                } else {
-                    usageCell.setCellStyle(dataStyle);
-                }
-
-                createCell(row, 8, result.attributeOrigin, dataStyle);
-                createCell(row, 9, result.warning, dataStyle);
-            }
-
-            // 列幅を自動調整
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-                int currentWidth = sheet.getColumnWidth(i);
-                if (currentWidth < 3000) {
-                    sheet.setColumnWidth(i, 3000);
-                }
-            }
-
-            // オートフィルターを設定
-            sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                    0, rowNum - 1, 0, headers.length - 1));
+            // RequestAnalysisシートを生成
+            generateRequestAnalysisSheet(workbook, formResults, headerStyle, dataStyle);
 
             // ファイルに書き出し
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
                 workbook.write(fos);
             }
+        }
+    }
+
+    /**
+     * ResponseAnalysisシートを生成する。
+     */
+    private void generateResponseAnalysisSheet(Workbook workbook, List<ResponseAnalysisResult> results,
+            CellStyle headerStyle, CellStyle dataStyle, CellStyle usedStyle, CellStyle unusedStyle) {
+        Sheet sheet = workbook.createSheet(SHEET_NAME);
+
+        // ヘッダー
+        String[] headers = {
+                "Controller", "Method", "View Path", "Attribute Name",
+                "JSP Reference", "モデルクラス", "モデルクラスのフィールド",
+                "使用状況", "属性の由来", "警告/備考"
+        };
+
+        Row headerRow = sheet.createRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(headerStyle);
+        }
+
+        // データ行
+        int rowNum = 1;
+        for (ResponseAnalysisResult result : results) {
+            Row row = sheet.createRow(rowNum++);
+
+            createCell(row, 0, result.controller, dataStyle);
+            createCell(row, 1, result.method, dataStyle);
+            createCell(row, 2, result.viewPath, dataStyle);
+            createCell(row, 3, result.attributeName, dataStyle);
+            createCell(row, 4, result.jspReference, dataStyle);
+            createCell(row, 5, result.javaClass, dataStyle);
+            createCell(row, 6, result.javaField, dataStyle);
+
+            // 使用状況セル（色分け）
+            Cell usageCell = row.createCell(7);
+            usageCell.setCellValue(result.usageStatus);
+            if (USED.equals(result.usageStatus)) {
+                usageCell.setCellStyle(usedStyle);
+            } else if (UNUSED.equals(result.usageStatus)) {
+                usageCell.setCellStyle(unusedStyle);
+            } else {
+                usageCell.setCellStyle(dataStyle);
+            }
+
+            createCell(row, 8, result.attributeOrigin, dataStyle);
+            createCell(row, 9, result.warning, dataStyle);
+        }
+
+        // 列幅を自動調整
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+            int currentWidth = sheet.getColumnWidth(i);
+            if (currentWidth < 3000) {
+                sheet.setColumnWidth(i, 3000);
+            }
+        }
+
+        // オートフィルターを設定
+        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
+                0, rowNum - 1, 0, headers.length - 1));
+    }
+
+    /**
+     * RequestAnalysisシートを生成する。
+     */
+    private void generateRequestAnalysisSheet(Workbook workbook, List<FormInfo> formResults,
+            CellStyle headerStyle, CellStyle dataStyle) {
+        Sheet sheet = workbook.createSheet(REQUEST_SHEET_NAME);
+
+        // ヘッダー
+        String[] headers = {
+                "JSP File Path", "Form Action", "Form Method", "Root Model",
+                "Input Tag", "Parameter Name", "Input Type", "Max Length",
+                "Required", "JSON Key Estimate", "Nest Path"
+        };
+
+        Row headerRow = sheet.createRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(headerStyle);
+        }
+
+        // データ行
+        int rowNum = 1;
+        for (FormInfo form : formResults) {
+            for (InputElementInfo input : form.inputs) {
+                Row row = sheet.createRow(rowNum++);
+
+                createCell(row, 0, form.jspFilePath, dataStyle);
+                createCell(row, 1, form.action, dataStyle);
+                createCell(row, 2, form.method, dataStyle);
+                createCell(row, 3, form.rootModel, dataStyle);
+                createCell(row, 4, input.inputTag, dataStyle);
+                createCell(row, 5, input.parameterName, dataStyle);
+                createCell(row, 6, input.inputType, dataStyle);
+                createCell(row, 7, input.maxLength, dataStyle);
+                createCell(row, 8, input.required ? "true" : "", dataStyle);
+                createCell(row, 9, input.jsonKeyEstimate, dataStyle);
+                createCell(row, 10, input.nestPath, dataStyle);
+            }
+        }
+
+        // 列幅を自動調整
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+            int currentWidth = sheet.getColumnWidth(i);
+            if (currentWidth < 3000) {
+                sheet.setColumnWidth(i, 3000);
+            }
+        }
+
+        // オートフィルターを設定
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
+                    0, rowNum - 1, 0, headers.length - 1));
         }
     }
 
