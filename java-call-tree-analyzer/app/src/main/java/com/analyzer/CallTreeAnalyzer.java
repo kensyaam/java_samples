@@ -353,6 +353,15 @@ public class CallTreeAnalyzer {
                     annotatedParams.add(p);
                 }
             }
+
+            // アノテーション付き引数がない場合、親クラス・インターフェースから継承
+            if (annotatedParams.isEmpty()) {
+                List<String> inheritedParams = collectInheritedParameterAnnotations(method, new HashSet<>());
+                if (!inheritedParams.isEmpty()) {
+                    annotatedParams = inheritedParams;
+                }
+            }
+
             this.parameterAnnotations = String.join(", ", annotatedParams);
         }
 
@@ -942,6 +951,151 @@ public class CallTreeAnalyzer {
             } catch (Exception e) {
                 // 無視
             }
+        }
+
+        /**
+         * 親クラス・インターフェースから引数アノテーションを継承
+         * 
+         * @param method       対象のメソッド
+         * @param visitedTypes 訪問済み型（循環防止）
+         * @return 継承した引数アノテーションのリスト（例: "@RequestParam("id") String id"）
+         */
+        private List<String> collectInheritedParameterAnnotations(CtMethod<?> method, Set<String> visitedTypes) {
+            if (method == null || method.getDeclaringType() == null) {
+                return Collections.emptyList();
+            }
+
+            CtType<?> declaringType = method.getDeclaringType();
+
+            // 親クラスから継承
+            if (declaringType instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) declaringType;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                if (superClassRef != null) {
+                    try {
+                        CtType<?> superType = superClassRef.getTypeDeclaration();
+                        if (superType != null) {
+                            List<String> result = collectParamAnnotationsFromType(method, superType, visitedTypes);
+                            if (!result.isEmpty()) {
+                                return result;
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 型解決できない場合は無視
+                    }
+                }
+            }
+
+            // インターフェースから継承
+            try {
+                for (CtTypeReference<?> iface : declaringType.getSuperInterfaces()) {
+                    try {
+                        CtType<?> ifaceType = iface.getTypeDeclaration();
+                        if (ifaceType != null) {
+                            List<String> result = collectParamAnnotationsFromType(method, ifaceType, visitedTypes);
+                            if (!result.isEmpty()) {
+                                return result;
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 型解決できない場合は無視
+                    }
+                }
+            } catch (Exception e) {
+                // 無視
+            }
+
+            return Collections.emptyList();
+        }
+
+        /**
+         * 指定された型から対応するメソッドを探し、その引数アノテーションを収集
+         */
+        private List<String> collectParamAnnotationsFromType(CtMethod<?> method, CtType<?> targetType,
+                Set<String> visitedTypes) {
+            if (targetType == null) {
+                return Collections.emptyList();
+            }
+
+            String typeName = targetType.getQualifiedName();
+            if (visitedTypes.contains(typeName)) {
+                return Collections.emptyList();
+            }
+            visitedTypes.add(typeName);
+
+            // 対応するメソッドを検索
+            CtMethod<?> parentMethod = findParentMethod(method, targetType);
+            if (parentMethod != null) {
+                // 親メソッドの引数アノテーションを収集
+                List<String> annotatedParams = new ArrayList<>();
+                for (CtParameter<?> param : parentMethod.getParameters()) {
+                    StringBuilder paramStr = new StringBuilder();
+
+                    // 引数に付与されたアノテーションを収集
+                    List<CtAnnotation<?>> paramAnns = param.getAnnotations();
+                    for (CtAnnotation<?> ann : paramAnns) {
+                        paramStr.append(ann.toString()).append(" ");
+                    }
+
+                    // アノテーションがある場合のみ追加
+                    if (!paramAnns.isEmpty()) {
+                        // 型名（シンプル名のみ）
+                        String paramTypeName = param.getType().getSimpleName();
+                        paramStr.append(paramTypeName);
+
+                        // 変数名
+                        paramStr.append(" ");
+                        paramStr.append(param.getSimpleName());
+
+                        annotatedParams.add(paramStr.toString().trim());
+                    }
+                }
+
+                if (!annotatedParams.isEmpty()) {
+                    return annotatedParams;
+                }
+            }
+
+            // さらに親を辿る（再帰）
+            // 親クラス
+            if (targetType instanceof CtClass) {
+                CtClass<?> ctClass = (CtClass<?>) targetType;
+                CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+                if (superClassRef != null) {
+                    try {
+                        CtType<?> superType = superClassRef.getTypeDeclaration();
+                        if (superType != null) {
+                            List<String> result = collectParamAnnotationsFromType(method, superType, visitedTypes);
+                            if (!result.isEmpty()) {
+                                return result;
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 無視
+                    }
+                }
+            }
+
+            // インターフェース
+            try {
+                for (CtTypeReference<?> iface : targetType.getSuperInterfaces()) {
+                    try {
+                        CtType<?> ifaceType = iface.getTypeDeclaration();
+                        if (ifaceType != null) {
+                            List<String> result = collectParamAnnotationsFromType(method, ifaceType, visitedTypes);
+                            if (!result.isEmpty()) {
+                                return result;
+                            }
+                        }
+                    } catch (Exception e) {
+                        // 無視
+                    }
+                }
+            } catch (Exception e) {
+                // 無視
+            }
+
+            return Collections.emptyList();
         }
     }
 
