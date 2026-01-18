@@ -73,8 +73,8 @@ jq -r '.methods | sort_by(.method) | .[] | [
     (if .httpCalls then (.httpCalls | map(.uri) | join(", ")) else "" end)
 ] | @csv' "$INPUT_FILE" >> "$OUTPUT_CSV"
 
-# Shift-JISに変換
-iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_CSV" > "${OUTPUT_CSV}.tmp" && mv "${OUTPUT_CSV}.tmp" "$OUTPUT_CSV"
+# cp932に変換
+iconv -f UTF-8 -t cp932 "$OUTPUT_CSV" > "${OUTPUT_CSV}.tmp" && mv "${OUTPUT_CSV}.tmp" "$OUTPUT_CSV"
 
 # TSV形式で出力（タブ区切り）
 OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
@@ -97,8 +97,8 @@ jq -r '.methods | sort_by(.method) | .[] | [
     (if .httpCalls then (.httpCalls | map(.uri) | join(", ") | gsub("\t"; " ")) else "" end)
 ] | @tsv' "$INPUT_FILE" >> "$OUTPUT_TSV"
 
-# Shift-JISに変換
-iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}.tmp" "$OUTPUT_TSV"
+# cp932に変換
+iconv -f UTF-8 -t cp932 "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}.tmp" "$OUTPUT_TSV"
 
 echo "完了!"
 echo "  CSV: $OUTPUT_CSV"

@@ -56,13 +56,13 @@ echo '"interfaceName","javadoc","annotations","superInterfaces","hitWords"' > "$
 jq -r '.interfaces[] | [
     .interfaceName // "",
     .javadoc // "",
-    ((.annotations // []) | join(",")),
+    ((.annotationRaws // []) | join(",")),
     ((.superInterfaces // []) | join(",")),
     ((.hitWords // []) | join(","))
 ] | @csv' "$INPUT_FILE" >> "$OUTPUT_CSV"
 
-# Shift-JISに変換
-iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_CSV" > "${OUTPUT_CSV}.tmp" && mv "${OUTPUT_CSV}.tmp" "$OUTPUT_CSV"
+# cp932に変換
+iconv -f UTF-8 -t cp932 "$OUTPUT_CSV" > "${OUTPUT_CSV}.tmp" && mv "${OUTPUT_CSV}.tmp" "$OUTPUT_CSV"
 
 # TSV形式で出力（タブ区切り）
 OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
@@ -74,13 +74,13 @@ echo -e "interfaceName\tjavadoc\tannotations\tsuperInterfaces\thitWords" > "$OUT
 jq -r '.interfaces[] | [
     .interfaceName // "",
     (.javadoc // "" | gsub("\t"; " ") | gsub("\n"; " ")),
-    ((.annotations // []) | join(",") | gsub("\t"; " ")),
+    ((.annotationRaws // []) | join(",") | gsub("\t"; " ")),
     ((.superInterfaces // []) | join(",")),
     ((.hitWords // []) | join(","))
 ] | @tsv' "$INPUT_FILE" >> "$OUTPUT_TSV"
 
-# Shift-JISに変換
-iconv -f UTF-8 -t SHIFT-JIS "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}.tmp" "$OUTPUT_TSV"
+# cp932に変換
+iconv -f UTF-8 -t cp932 "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}.tmp" "$OUTPUT_TSV"
 
 echo "完了!"
 echo "  CSV: $OUTPUT_CSV"
