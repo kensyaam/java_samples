@@ -36,6 +36,8 @@
   - [select_method.sh : fzfでメソッドを選択](#select_methodsh--fzfでメソッドを選択)
   - [classes_to_csv.sh : クラス一覧をCSV/TSVに変換](#classes_to_csvsh--クラス一覧をcsvtsvに変換)
   - [interfaces_to_csv.sh : インターフェース一覧をCSV/TSVに変換](#interfaces_to_csvsh--インターフェース一覧をcsvtsvに変換)
+  - [reverse_batch.sh : 逆引き最終到達点を一括CSV出力](#reverse_batchsh--逆引き最終到達点を一括csv出力)
+  - [reverse_batch.py : 逆引き最終到達点を一括CSV出力（Python版）](#reverse_batchpy--逆引き最終到達点を一括csv出力python版)
 
 <!-- /code_chunk_output -->
 
@@ -442,7 +444,7 @@ options:
   --depth DEPTH         ツリーの最大深度 (デフォルト: 50)
   --show-class          クラス情報を表示
   --no-follow-override  オーバーライド元を追跡しない
-  --verbose             詳細表示（Javadocをタブ区切りで表示）
+  --verbose             詳細表示（Javadocを「<スペースx4>〓」 区切りで表示）
   --tab                 ハードタブでインデントし、プレフィックス|-- を省略
   --short               パッケージ名を省略してクラス名のみ表示
 ```
@@ -1028,3 +1030,87 @@ $ ./helper/interfaces_to_csv.sh --help
 | annotations | インターフェースアノテーション（カンマ区切り） |
 | superInterfaces | 親インターフェース（カンマ区切り） |
 | hitWords | 検出ワード（カンマ区切り） |
+
+### reverse_batch.sh : 逆引き最終到達点を一括CSV出力
+
+対象メソッドをテキストファイルで指定し、`reverse`サブコマンドを実行して各メソッドの逆引き最終到達点（最上位呼び元メソッド）とそのJavadocをCSVに出力します。
+
+```bash
+$ ./helper/reverse_batch.sh --help
+使用方法: ./reverse_batch.sh [入力JSONファイル] <対象メソッドリストファイル> <出力CSVファイル>
+
+引数:
+  入力JSONファイル       解析結果JSONファイル (デフォルト: analyzed_result.json)
+  対象メソッドリストファイル  対象メソッドを改行区切りで記載したファイル
+  出力CSVファイル        出力先CSVファイルパス
+
+例:
+  ./reverse_batch.sh analyzed_result.json target_methods.txt output.csv
+  ./reverse_batch.sh target_methods.txt output.csv  # デフォルトのJSONファイルを使用
+```
+
+**使用例**:
+
+```bash
+# 基本的な使い方
+./helper/reverse_batch.sh target_methods.txt output.csv
+
+# 入力JSONファイルを指定
+./helper/reverse_batch.sh custom.json target_methods.txt output.csv
+```
+
+**対象メソッドリストファイルのフォーマット**:
+
+1行に1つのメソッドシグネチャを記載する。空行と`#`で始まるコメント行はスキップされます。
+
+```txt
+# コメント行
+com.example.service.UserService#getUser(Long)
+com.example.dao.UserDao#findById(Long)
+com.example.util.StringUtils#trim(String)
+```
+
+**出力フォーマット**:
+
+| 列 | 内容 |
+|---|---|
+| 対象メソッド | 入力ファイルで指定したメソッドシグネチャ |
+| 最終到達点のメソッド | 逆引きツリーの最上位呼び元メソッド |
+| 最終到達点のメソッドのjavadoc | 最終到達点メソッドのJavadocコメント |
+
+- エンコーディング: cp932（Excelへの貼り付けを考慮、iconvがない場合はUTF-8）
+
+> [!TIP]
+> Python版の `reverse_batch.py` も用意されています。こちらはJSONを直接読み込むため、大量のメソッドを処理する場合に高速です。
+
+### reverse_batch.py : 逆引き最終到達点を一括CSV出力（Python版）
+
+シェルスクリプト版と同等の機能をPythonで実装したスクリプトです。JSONを直接読み込むため高速に処理できます。
+
+```bash
+$ python helper/reverse_batch.py --help
+usage: reverse_batch.py [-h] [-i INPUT_FILE] -m METHODS_FILE -o OUTPUT_FILE [--depth DEPTH] [--no-follow-override]
+
+逆引き呼び出し元の最終到達点を一括CSV出力
+
+options:
+  -h, --help            show this help message and exit
+  -i, --input INPUT_FILE
+                        入力JSONファイルのパス (デフォルト: analyzed_result.json)
+  -m, --methods METHODS_FILE
+                        対象メソッドリストファイル（改行区切り）
+  -o, --output OUTPUT_FILE
+                        出力CSVファイルのパス
+  --depth DEPTH         ツリーの最大深度 (デフォルト: 50)
+  --no-follow-override  オーバーライド元を追跡しない
+```
+
+**使用例**:
+
+```bash
+# 基本的な使い方
+python helper/reverse_batch.py -m target_methods.txt -o output.csv
+
+# 入力JSONファイルを指定
+python helper/reverse_batch.py -i custom.json -m target_methods.txt -o output.csv
+```

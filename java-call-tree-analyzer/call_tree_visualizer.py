@@ -719,9 +719,18 @@ class CallTreeVisualizer:
             print("最終到達点のメソッド一覧 (最上位の呼び元メソッド)")
             print(f"{'=' * 80}\n")
             for endpoint in sorted(final_endpoints):
-                if short_mode:
-                    endpoint = self._shorten_method_signature(endpoint)
-                print(f"  {endpoint}")
+                display_endpoint = (
+                    self._shorten_method_signature(endpoint) if short_mode else endpoint
+                )
+                if verbose:
+                    info = self.method_info.get(endpoint, {})
+                    javadoc = info.get("javadoc", "")
+                    if javadoc:
+                        print(f"  {display_endpoint}\t〓{javadoc}")
+                    else:
+                        print(f"  {display_endpoint}")
+                else:
+                    print(f"  {display_endpoint}")
             print()
 
         # 最大深度に到達した場合の警告を出力
@@ -1065,7 +1074,7 @@ class CallTreeVisualizer:
         if is_circular:
             display += " [循環参照]"
 
-        # verboseモードの場合、Javadocをタブ区切りで追加
+        # verboseモードの場合、Javadocを追加
         if verbose:
             javadoc = info.get("javadoc", "")
             if javadoc:
