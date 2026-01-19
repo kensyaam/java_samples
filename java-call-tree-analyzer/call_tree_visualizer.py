@@ -2694,6 +2694,7 @@ class CallTreeVisualizer:
         output_file: Optional[str],
         max_depth: int = 20,
         follow_implementations: bool = True,
+        unique: bool = False,
     ) -> None:
         """
         CSV形式でエントリーポイントからの呼び出しメソッド一覧をエクスポート
@@ -2703,6 +2704,7 @@ class CallTreeVisualizer:
             output_file: 出力ファイル名（Noneの場合は標準出力）
             max_depth: 最大深度
             follow_implementations: 実装クラス候補を追跡するか
+            unique: 同じ呼び元・呼び先の組み合わせは一度しか出力しないか
         """
         # エントリーポイントの決定
         entry_points: List[str] = []
@@ -2785,6 +2787,8 @@ class CallTreeVisualizer:
             row_number = 0
 
             for entry_point in entry_points:
+                # 出力済みの呼び元・呼び先の組み合わせ（エントリーポイント毎に初期化）
+                seen_pairs: Set[tuple] = set()
                 # エントリーポイント自身の情報を分解
                 ep_parts = self._extract_method_signature_parts(entry_point)
                 ep_method_name = extract_method_name_only(ep_parts["method"])
@@ -2806,6 +2810,13 @@ class CallTreeVisualizer:
 
                 # 各メソッドについてCSV行を出力
                 for node in tree_data:
+                    # ユニークオプションが指定されている場合、既に出力済みの組み合わせはスキップ
+                    if unique:
+                        pair = (node["caller_method"], node["method"])
+                        if pair in seen_pairs:
+                            continue
+                        seen_pairs.add(pair)
+
                     # 呼び先メソッド名（引数除去）
                     callee_method_name = extract_method_name_only(node["simple_method"])
                     # 呼び元メソッド名（引数除去）
@@ -3313,6 +3324,7 @@ def handle_export_csv(args, visualizer: CallTreeVisualizer) -> None:
         args.output_file,
         args.depth,
         args.follow_impl,
+        unique=args.unique,
     )
 
 
@@ -3796,6 +3808,12 @@ def main():
         action="store_false",
         dest="follow_impl",
         help="実装クラス候補を追跡しない",
+    )
+    parser_export_csv.add_argument(
+        "-u",
+        "--unique",
+        action="store_true",
+        help="同じ呼び元・呼び先の組み合わせは一度しか出力しない",
     )
 
     # extract-sql サブコマンド
