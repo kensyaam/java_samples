@@ -2195,6 +2195,9 @@ class CallTreeVisualizer:
                 wrap_after=200,
             )
 
+            # sqlparse.format()で"FOR UPDATE"がFORの後ろで改行されてしまうので、それを一行に戻す
+            formatted = re.sub(r"FOR\s\nUPDATE", "FOR UPDATE", formatted)
+
             # 2. カスタムルール適用（キーワード後の改行とインデント調整）
             lines = formatted.splitlines()
             new_lines = []
