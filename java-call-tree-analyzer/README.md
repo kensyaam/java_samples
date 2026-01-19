@@ -925,6 +925,9 @@ scoop install jq
 | 項目 | 説明 |
 |------|------|
 | method | メソッドシグネチャ（fully qualified name） |
+| package | パッケージ名 |
+| className | クラス名（パッケージ名を含めない） |
+| methodName | メソッド名（引数を含めない） |
 | visibility | 可視性（public/protected/private） |
 | isAbstract | 抽象メソッドかどうか（true/false） |
 | isEntryPoint | エントリーポイント候補かどうか（true/false） |

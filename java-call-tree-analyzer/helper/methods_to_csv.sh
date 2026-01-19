@@ -14,7 +14,10 @@
 #   <output_basename>.tsv : TSV形式のファイル
 #
 # 出力項目:
-#   - method        : メソッドシグネチャ
+#   - method        : メソッドシグネチャ（完全修飾名）
+#   - package       : パッケージ名
+#   - className     : クラス名（シンプル名）
+#   - methodName    : メソッド名（シンプル名）
 #   - visibility    : 可視性 (public/protected/private)
 #   - isAbstract    : 抽象メソッドかどうか
 #   - isEntryPoint  : エントリーポイント候補かどうか
@@ -57,11 +60,31 @@ OUTPUT_CSV="${OUTPUT_BASENAME}.csv"
 echo "CSV出力: $OUTPUT_CSV"
 
 # ヘッダー行
-echo '"method","visibility","isAbstract","isEntryPoint","javadoc","annotations","sqlStatements","hitWords","httpMethod","uri"' > "$OUTPUT_CSV"
+echo '"method","package","className","methodName","visibility","isAbstract","isEntryPoint","javadoc","annotations","sqlStatements","hitWords","httpMethod","uri"' > "$OUTPUT_CSV"
 
 # jq でデータを抽出してCSVに変換（methodでソート）
-jq -r '.methods | sort_by(.method) | .[] | [
+# 完全修飾名 (例: com.example.MyClass#myMethod(String, int)) から
+# パッケージ名、クラス名、メソッド名を抽出
+jq -r '.methods | sort_by(.method) | .[] | 
+    # メソッドシグネチャから「(」の前の部分を取得
+    (.method // "" | split("(")[0]) as $fqn |
+    # 「#」でクラス部分とメソッド名を分割
+    ($fqn | split("#")) as $classAndMethod |
+    # メソッド名は「#」の後の部分
+    (if ($classAndMethod | length) >= 2 then $classAndMethod[1] else "" end) as $methodName |
+    # クラス完全修飾名は「#」の前の部分
+    ($classAndMethod[0] // "") as $fqClassName |
+    # ドットで分割
+    ($fqClassName | split(".")) as $parts |
+    # クラス名は最後の要素
+    ($parts | last // "") as $className |
+    # パッケージ名は最後の1つを除いた部分を結合
+    (if ($parts | length) >= 2 then ($parts[0:-1] | join(".")) else "" end) as $package |
+[
     .method // "",
+    $package,
+    $className,
+    $methodName,
     .visibility // "",
     (.isAbstract // false | tostring),
     (.isEntryPoint // false | tostring),
@@ -81,11 +104,30 @@ OUTPUT_TSV="${OUTPUT_BASENAME}.tsv"
 echo "TSV出力: $OUTPUT_TSV"
 
 # ヘッダー行
-echo -e "method\tvisibility\tisAbstract\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords\thttpMethod\turi" > "$OUTPUT_TSV"
+echo -e "method\tpackage\tclassName\tmethodName\tvisibility\tisAbstract\tisEntryPoint\tjavadoc\tannotations\tsqlStatements\thitWords\thttpMethod\turi" > "$OUTPUT_TSV"
 
 # jq でデータを抽出してTSVに変換（methodでソート）
-jq -r '.methods | sort_by(.method) | .[] | [
+# 完全修飾名から パッケージ名、クラス名、メソッド名を抽出
+jq -r '.methods | sort_by(.method) | .[] | 
+    # メソッドシグネチャから「(」の前の部分を取得
+    (.method // "" | split("(")[0]) as $fqn |
+    # 「#」でクラス部分とメソッド名を分割
+    ($fqn | split("#")) as $classAndMethod |
+    # メソッド名は「#」の後の部分
+    (if ($classAndMethod | length) >= 2 then $classAndMethod[1] else "" end) as $methodName |
+    # クラス完全修飾名は「#」の前の部分
+    ($classAndMethod[0] // "") as $fqClassName |
+    # ドットで分割
+    ($fqClassName | split(".")) as $parts |
+    # クラス名は最後の要素
+    ($parts | last // "") as $className |
+    # パッケージ名は最後の1つを除いた部分を結合
+    (if ($parts | length) >= 2 then ($parts[0:-1] | join(".")) else "" end) as $package |
+[
     .method // "",
+    $package,
+    $className,
+    $methodName,
     .visibility // "",
     (.isAbstract // false | tostring),
     (.isEntryPoint // false | tostring),
