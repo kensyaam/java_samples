@@ -2747,6 +2747,14 @@ public class CallTreeAnalyzer {
      * 実行可能参照からシグネチャを取得
      */
     private String getExecutableSignature(CtExecutableReference<?> executable) {
+        CtExecutable<?> declaration = executable.getExecutableDeclaration();
+
+        // 宣言が取得でき、かつCtMethodの場合
+        if (declaration != null && declaration instanceof CtMethod<?>) {
+            return getMethodSignature((CtMethod<?>) declaration);
+        }
+
+        // CtMethodでない場合(コンストラクタなど)や取得できない場合のフォールバック
         String className = executable.getDeclaringType().getQualifiedName();
         String methodName = executable.getSimpleName();
 
