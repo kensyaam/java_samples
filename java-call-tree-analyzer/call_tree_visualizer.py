@@ -2786,10 +2786,9 @@ class CallTreeVisualizer:
             # 全体の通番
             row_number = 0
 
-            # 出力済みの呼び元・呼び先の組み合わせ
-            seen_pairs: Set[tuple] = set()
-
             for entry_point in entry_points:
+                # 出力済みの呼び元・呼び先の組み合わせ（エントリーポイント毎に初期化）
+                seen_pairs: Set[tuple] = set()
                 # エントリーポイント自身の情報を分解
                 ep_parts = self._extract_method_signature_parts(entry_point)
                 ep_method_name = extract_method_name_only(ep_parts["method"])
