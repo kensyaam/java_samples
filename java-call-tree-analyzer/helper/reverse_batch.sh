@@ -62,10 +62,22 @@ fi
 
 # スクリプトのディレクトリを取得
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ctv.exe（exe化されたcall_tree_visualizer.py）を優先使用
+CTV_EXE="${SCRIPT_DIR}/../ctv.exe"
 VISUALIZER="${SCRIPT_DIR}/../call_tree_visualizer.py"
 
-if [ ! -f "$VISUALIZER" ]; then
-    echo "エラー: call_tree_visualizer.py が見つかりません: $VISUALIZER" >&2
+if [ -f "$CTV_EXE" ]; then
+    # ctv.exeが存在する場合はそれを使用
+    VISUALIZER_CMD="$CTV_EXE"
+    echo "ctv.exe を使用します: $CTV_EXE"
+elif [ -f "$VISUALIZER" ]; then
+    # Pythonスクリプトを使用
+    VISUALIZER_CMD="python $VISUALIZER"
+    echo "call_tree_visualizer.py を使用します: $VISUALIZER"
+else
+    echo "エラー: ctv.exe も call_tree_visualizer.py も見つかりません" >&2
+    echo "  期待される場所: $CTV_EXE または $VISUALIZER" >&2
     exit 1
 fi
 
@@ -91,7 +103,7 @@ while IFS= read -r method || [ -n "$method" ]; do
     # --verbose で Javadoc を表示
     # --tab でタブ区切りにして解析しやすくする
     # CRを除去してWindows改行に対応
-    output=$(python "$VISUALIZER" -i "$INPUT_JSON" reverse "$method" --verbose --tab 2>/dev/null | tr -d '\r' || true)
+    output=$($VISUALIZER_CMD -i "$INPUT_JSON" reverse "$method" --verbose --tab 2>/dev/null | tr -d '\r' || true)
 
     # 「最終到達点のメソッド一覧」セクションを抽出
     # セクションの開始を検出し、その後の行を収集
