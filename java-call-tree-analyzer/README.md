@@ -495,7 +495,7 @@ python call_tree_visualizer.py export "$METHOD" tree.html --format html
 
 ```bash
 $ python call_tree_visualizer.py export-excel --help
-usage: call_tree_visualizer.py export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] [--no-tree] [--no-sql]
+usage: call_tree_visualizer.py export-excel [-h] [--entry-points ENTRY_POINTS] [--depth DEPTH] [--no-follow-impl] [--no-tree] [--no-sql] [--single-file]
                                                      output_file
 
 positional arguments:
@@ -509,11 +509,21 @@ options:
   --no-follow-impl      実装クラス候補を追跡しない
   --no-tree             L列以降の呼び出しツリーを出力しない
   --no-sql              AI列（動的列）のSQL文を出力しない
+  --single-file         単一ファイルに出力（デフォルトはクラス単位で分割）
 ```
 
+> [!NOTE]
+> デフォルトではエントリーポイントのクラス単位でExcelファイルが分割保存されます。
+> これはメモリ消費を抑え、大規模プロジェクトでも安定して動作させるためです。
+> 出力ファイル名は `{元のファイル名}_{クラスの完全修飾名}.xlsx` 形式になります。
+> 例: `output.xlsx` → `output_com.example.controller.UserController.xlsx`
+
 ```bash
-# エントリーポイントファイルを指定する場合
+# エントリーポイントファイルを指定（クラス単位で分割出力：デフォルト）
 python call_tree_visualizer.py export-excel call_trees.xlsx --entry-points entry_points.txt
+
+# 単一ファイルに出力
+python call_tree_visualizer.py export-excel call_trees.xlsx --entry-points entry_points.txt --single-file
 
 # エントリーポイントファイルを指定しない場合（厳密モードで検出されるすべてのエントリーポイントが対象）
 python call_tree_visualizer.py export-excel call_trees.xlsx

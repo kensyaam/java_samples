@@ -2884,6 +2884,7 @@ class CallTreeVisualizer:
         follow_implementations: bool = True,
         include_tree: bool = True,
         include_sql: bool = True,
+        split_by_class: bool = True,
     ) -> None:
         """
         Excel形式でツリーをエクスポート
@@ -2895,6 +2896,7 @@ class CallTreeVisualizer:
             follow_implementations: 実装クラス候補を追跡するか
             include_tree: L列以降の呼び出しツリーを出力するか
             include_sql: AZ列のSQL文を出力するか
+            split_by_class: クラス単位でファイルを分割するか（デフォルト: True）
         """
         # エントリーポイントの決定
         entry_points: List[str] = []
@@ -2930,7 +2932,137 @@ class CallTreeVisualizer:
 
         print(f"エントリーポイント数: {len(entry_points)}")
 
-        # Excelワークブックの作成
+        # クラス単位でエントリーポイントをグループ化
+        from collections import defaultdict
+
+        class_to_entries: Dict[str, List[str]] = defaultdict(list)
+        for ep in entry_points:
+            if "#" in ep:
+                class_name = ep.split("#")[0]
+            else:
+                class_name = "unknown"
+            class_to_entries[class_name].append(ep)
+
+        print(f"クラス数: {len(class_to_entries)}")
+
+        # 出力ファイル名のベースと拡張子を分離
+        import os
+
+        base_name, ext = os.path.splitext(output_file)
+        if not ext:
+            ext = ".xlsx"
+
+        # 最大深度に到達したエントリーポイントを追跡（全体）
+        all_max_depth_reached_entries: List[str] = []
+
+        # サマリー情報
+        summary_info: List[tuple[str, str, int]] = []  # (クラス名, ファイル名, 行数)
+
+        if split_by_class:
+            # === 分割モード: クラスごとに別ファイルに保存 ===
+            for class_name, class_entries in class_to_entries.items():
+                # ファイル名を生成（クラスの完全修飾名を使用）
+                safe_class_name = class_name.replace("$", "_")  # 内部クラスの$を_に変換
+                class_output_file = f"{base_name}_{safe_class_name}{ext}"
+
+                print(f"\n処理中: {class_name} ({len(class_entries)}メソッド)")
+
+                # ワークブックを作成
+                wb, ws = self._create_excel_workbook_with_styles(
+                    max_depth, include_tree, include_sql
+                )
+
+                # エントリーポイントをExcelに書き込み
+                current_row, max_depth_reached_entries = self._write_entries_to_excel(
+                    ws,
+                    class_entries,
+                    max_depth,
+                    follow_implementations,
+                    include_tree,
+                    include_sql,
+                )
+                all_max_depth_reached_entries.extend(max_depth_reached_entries)
+
+                # ワークブックを仕上げて保存
+                self._finalize_excel_workbook(
+                    wb, ws, current_row, max_depth, class_output_file
+                )
+
+                # サマリー情報を記録
+                summary_info.append((class_name, class_output_file, current_row - 1))
+
+                # メモリを解放
+                del wb
+                del ws
+
+            # サマリーを標準出力に表示
+            print("\n" + "=" * 60)
+            print("出力サマリー")
+            print("=" * 60)
+            total_rows = 0
+            for class_name, file_name, row_count in summary_info:
+                print(f"  {class_name}")
+                print(f"    -> {file_name} ({row_count}行)")
+                total_rows += row_count
+            print("-" * 60)
+            print(f"総ファイル数: {len(summary_info)}")
+            print(f"総行数: {total_rows}")
+            print("=" * 60)
+
+        else:
+            # === 単一ファイルモード: 従来の動作 ===
+            wb, ws = self._create_excel_workbook_with_styles(
+                max_depth, include_tree, include_sql
+            )
+
+            # すべてのエントリーポイントをExcelに書き込み
+            current_row, max_depth_reached_entries = self._write_entries_to_excel(
+                ws,
+                entry_points,
+                max_depth,
+                follow_implementations,
+                include_tree,
+                include_sql,
+            )
+            all_max_depth_reached_entries.extend(max_depth_reached_entries)
+
+            # ワークブックを仕上げて保存
+            self._finalize_excel_workbook(wb, ws, current_row, max_depth, output_file)
+
+            print(f"ツリーを {output_file} にエクスポートしました")
+            print(f"総行数: {current_row - 1}")
+
+        # 最大深度に到達したエントリーポイントの警告を出力
+        if all_max_depth_reached_entries:
+            print(
+                f"\n警告: 以下のエントリーポイントは最大深度({max_depth})に到達しました。"
+                "ツリーが切り捨てられている可能性があります:",
+                file=sys.stderr,
+            )
+            for ep in all_max_depth_reached_entries:
+                print(f"  - {ep}", file=sys.stderr)
+            print(
+                "ヒント: --depth オプションで深度を増やすことを検討してください。",
+                file=sys.stderr,
+            )
+
+    def _create_excel_workbook_with_styles(
+        self,
+        max_depth: int,
+        include_tree: bool,
+        include_sql: bool,
+    ) -> tuple[openpyxl.Workbook, openpyxl.worksheet.worksheet.Worksheet]:
+        """
+        スタイル設定済みのExcelワークブックを作成
+
+        Args:
+            max_depth: 最大深度
+            include_tree: 呼び出しツリーを出力するか
+            include_sql: SQL文を出力するか
+
+        Returns:
+            (ワークブック, ワークシート)のタプル
+        """
         wb = openpyxl.Workbook()
         ws = wb.active
         if not isinstance(ws, openpyxl.worksheet.worksheet.Worksheet):
@@ -3012,12 +3144,11 @@ class CallTreeVisualizer:
             ws.column_dimensions[letter].width = 5
 
         # --depthオプションに基づく動的列計算
-        # L列からmax_depth列目がSQL有無列になる（新しい順序）
-        sql_exists_col = tree_start_col + max_depth  # AF列 (depth=20の場合)
-        sql_content_col = sql_exists_col + 1  # AG列 (depth=20の場合)
-        http_exists_col = sql_content_col + 1  # AH列 (depth=20の場合)
-        http_request_col = http_exists_col + 1  # AI列 (depth=20の場合)
-        hitwords_col = http_request_col + 1  # AJ列 (depth=20の場合)
+        sql_exists_col = tree_start_col + max_depth
+        sql_content_col = sql_exists_col + 1
+        http_exists_col = sql_content_col + 1
+        http_request_col = http_exists_col + 1
+        hitwords_col = http_request_col + 1
 
         # 1行目: L1に「呼び出しツリー」を出力
         if include_tree:
@@ -3027,7 +3158,6 @@ class CallTreeVisualizer:
 
         # 2行目: ヘッダ行
         header_row = 2
-        #   A～G列
         ws.cell(row=header_row, column=1, value="エントリーポイント").style = (
             "header_style"
         )
@@ -3039,13 +3169,15 @@ class CallTreeVisualizer:
         ws.cell(row=header_row, column=5, value="メソッド名").style = "header_style"
         ws.cell(row=header_row, column=6, value="呼び出し種別").style = "header_style"
         ws.cell(row=header_row, column=7, value="Javadoc").style = "header_style"
-        #   L2～呼び出しツリー最終列に連番（1,2,3...）
+
+        # L2～呼び出しツリー最終列に連番（1,2,3...）
         if include_tree:
             for i, col_idx in enumerate(
                 range(tree_start_col, tree_end_col + 1), start=1
             ):
                 ws.cell(row=header_row, column=col_idx, value=i).style = "header_style"
-        #   動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
+
+        # 動的列: SQL有無、SQL文
         if include_sql:
             ws.cell(row=header_row, column=sql_exists_col, value="SQL有無").style = (
                 "header_style"
@@ -3053,25 +3185,57 @@ class CallTreeVisualizer:
             ws.cell(row=header_row, column=sql_content_col, value="SQL文").style = (
                 "header_style"
             )
-        #   動的列: HTTP有無、HTTPリクエスト
+
+        # 動的列: HTTP有無、HTTPリクエスト
         ws.cell(row=header_row, column=http_exists_col, value="HTTP有無").style = (
             "header_style"
         )
         ws.cell(
             row=header_row, column=http_request_col, value="HTTPリクエスト"
         ).style = "header_style"
-        #   動的列: hitWords列
+
+        # 動的列: hitWords列
         ws.cell(row=header_row, column=hitwords_col, value="検出ワード").style = (
             "header_style"
         )
 
-        current_row = 3  # データは3行目から
+        return wb, ws
 
-        # 最大深度に到達したエントリーポイントを追跡
+    def _write_entries_to_excel(
+        self,
+        ws: openpyxl.worksheet.worksheet.Worksheet,
+        entry_points: List[str],
+        max_depth: int,
+        follow_implementations: bool,
+        include_tree: bool,
+        include_sql: bool,
+    ) -> tuple[int, List[str]]:
+        """
+        エントリーポイントをExcelワークシートに書き込み
+
+        Args:
+            ws: ワークシート
+            entry_points: エントリーポイントのリスト
+            max_depth: 最大深度
+            follow_implementations: 実装クラス候補を追跡するか
+            include_tree: 呼び出しツリーを出力するか
+            include_sql: SQL文を出力するか
+
+        Returns:
+            (最終行番号, 最大深度に到達したエントリーポイントのリスト)のタプル
+        """
+        tree_start_col = column_index_from_string("L")
+        sql_exists_col = tree_start_col + max_depth
+        sql_content_col = sql_exists_col + 1
+        http_exists_col = sql_content_col + 1
+        http_request_col = http_exists_col + 1
+        hitwords_col = http_request_col + 1
+
+        current_row = 3  # データは3行目から
         max_depth_reached_entries: List[str] = []
 
         for entry_point in entry_points:
-            print(f"処理中: {entry_point}")
+            print(f"  処理中: {entry_point}")
 
             # 最大深度到達フラグを初期化
             max_depth_reached_flag: List[bool] = [False]
@@ -3090,7 +3254,7 @@ class CallTreeVisualizer:
 
             # Excelに書き込み
             for node in tree_data:
-                # A列: エントリーポイント（すべての行に出力）
+                # A列: エントリーポイント
                 ws.cell(row=current_row, column=1, value=entry_point).style = (
                     "default_style"
                 )
@@ -3116,7 +3280,7 @@ class CallTreeVisualizer:
                     row=current_row, column=5, value=node["simple_method"]
                 ).style = "default_style"
 
-                # F列: 呼び出し種別（親クラス / インターフェース / 実装クラス）、空の場合は半角スペース
+                # F列: 呼び出し種別
                 parent_relation_value = (
                     node["parent_relation"] if node["parent_relation"] else " "
                 )
@@ -3124,19 +3288,18 @@ class CallTreeVisualizer:
                     row=current_row, column=6, value=parent_relation_value
                 ).style = "shrink_style"
 
-                # G列: Javadoc（緑フォント）、空の場合は半角スペース
+                # G列: Javadoc（緑フォント）
                 javadoc_value = node["javadoc"] if node["javadoc"] else " "
                 ws.cell(row=current_row, column=7, value=javadoc_value).style = (
                     "green_style"
                 )
 
-                # L列以降: 呼び出しツリー（include_treeがTrueの場合のみ）
+                # L列以降: 呼び出しツリー
                 if include_tree:
                     tree_col = tree_start_col + node["depth"]
                     tree_text = str(node["tree_display"] or "")
                     if node["is_circular"] and tree_text:
                         tree_text = tree_text + " [循環参照]"
-                    # L列（depth=0）は太字、インターフェースは斜体、実装クラス候補は下線
                     if tree_col == tree_start_col:
                         ws.cell(
                             row=current_row, column=tree_col, value=tree_text
@@ -3154,7 +3317,7 @@ class CallTreeVisualizer:
                             row=current_row, column=tree_col, value=tree_text
                         ).style = "default_style"
 
-                # 動的列: SQL有無、SQL文（include_sqlがTrueの場合のみ）
+                # 動的列: SQL有無、SQL文
                 if include_sql:
                     sql_marker = "●" if node["sql"] else ""
                     ws.cell(
@@ -3191,10 +3354,34 @@ class CallTreeVisualizer:
 
                 current_row += 1
 
-        # フィルターを設定（A2:AO<最終行>、ヘッダは2行目）
+        return current_row, max_depth_reached_entries
+
+    def _finalize_excel_workbook(
+        self,
+        wb: openpyxl.Workbook,
+        ws: openpyxl.worksheet.worksheet.Worksheet,
+        current_row: int,
+        max_depth: int,
+        output_file: str,
+    ) -> None:
+        """
+        Excelワークブックの仕上げ処理（書式設定、フィルター、保存）
+
+        Args:
+            wb: ワークブック
+            ws: ワークシート
+            current_row: 現在の行（最終行+1）
+            max_depth: 最大深度
+            output_file: 出力ファイル名
+        """
         last_row = current_row - 1
         ao_col = column_index_from_string("AO")
         filter_range = f"A2:{get_column_letter(ao_col)}{last_row}"
+
+        # データがない場合は最小限の範囲を設定
+        if last_row < 3:
+            filter_range = f"A2:{get_column_letter(ao_col)}3"
+
         ws.auto_filter.ref = filter_range
 
         # 1行目の全セルにヘッダースタイルを適用
@@ -3204,10 +3391,9 @@ class CallTreeVisualizer:
                 cell.style = "header_style"
 
         # 2行目～最終行の全セルに書式を適用（未設定のセルのみ）
-        for row_idx in range(2, last_row + 1):
+        for row_idx in range(2, max(last_row + 1, 3)):
             for col_idx in range(1, ao_col + 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
-                # スタイルが未設定（Normal）の場合のみ適用
                 if cell.style == "Normal" or cell.style is None:
                     if row_idx == 2:
                         cell.style = "header_style"
@@ -3215,18 +3401,18 @@ class CallTreeVisualizer:
                         cell.style = "default_style"
 
         # 条件付き書式: L列に値がある場合は行全体の背景色をライトグレーに
-        light_gray_fill = PatternFill(
-            start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"
-        )
-        # データ範囲（3行目～最終行）に条件付き書式を適用
-        data_range = f"A3:{get_column_letter(ao_col)}{last_row}"
-        ws.conditional_formatting.add(
-            data_range,
-            FormulaRule(
-                formula=['$L3<>""'],
-                fill=light_gray_fill,
-            ),
-        )
+        if last_row >= 3:
+            light_gray_fill = PatternFill(
+                start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"
+            )
+            data_range = f"A3:{get_column_letter(ao_col)}{last_row}"
+            ws.conditional_formatting.add(
+                data_range,
+                FormulaRule(
+                    formula=['$L3<>""'],
+                    fill=light_gray_fill,
+                ),
+            )
 
         # ウィンドウ枚の固定（A3セルで固定）
         ws.freeze_panes = "A3"
@@ -3234,24 +3420,8 @@ class CallTreeVisualizer:
         # Excelファイルの保存
         try:
             wb.save(output_file)
-            print(f"ツリーを {output_file} にエクスポートしました")
-            print(f"総行数: {current_row - 1}")
         except Exception as e:
             print(f"エラー: Excelファイルの保存に失敗しました: {e}", file=sys.stderr)
-
-        # 最大深度に到達したエントリーポイントの警告を出力
-        if max_depth_reached_entries:
-            print(
-                f"\n警告: 以下のエントリーポイントは最大深度({max_depth})に到達しました。"
-                "ツリーが切り捨てられている可能性があります:",
-                file=sys.stderr,
-            )
-            for ep in max_depth_reached_entries:
-                print(f"  - {ep}", file=sys.stderr)
-            print(
-                "ヒント: --depth オプションで深度を増やすことを検討してください。",
-                file=sys.stderr,
-            )
 
 
 # サブコマンドハンドラー関数
@@ -3317,6 +3487,7 @@ def handle_export_excel(args, visualizer: CallTreeVisualizer) -> None:
         args.follow_impl,
         args.include_tree,
         args.include_sql,
+        split_by_class=not args.single_file,  # --single-file指定時はFalse
     )
 
 
@@ -3787,6 +3958,11 @@ def main():
         action="store_false",
         dest="include_sql",
         help="SQL文を出力しない（動的列）",
+    )
+    parser_export_excel.add_argument(
+        "--single-file",
+        action="store_true",
+        help="単一ファイルに出力（デフォルトはクラス単位で分割）",
     )
 
     # export-csv サブコマンド
