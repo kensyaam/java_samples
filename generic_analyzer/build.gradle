@@ -1,0 +1,50 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'analyzer'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Spoon - Java静的解析ライブラリ
+    implementation 'fr.inria.gforge.spoon:spoon-core:11.2.1'
+    
+    // SLF4J - ロギング（Spoonの依存関係で必要）
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+}
+
+application {
+    mainClass = 'analyzer.Main'
+}
+
+// コマンドライン引数をrunタスクに渡す設定
+run {
+    standardInput = System.in
+    if (project.hasProperty('args')) {
+        args project.args.split(',')
+    }
+}
+
+// タスク: コマンドライン引数を直接渡せるようにする
+tasks.register('execute', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'analyzer.Main'
+    args = project.hasProperty('execArgs') ? project.execArgs.split(' ') : []
+    standardInput = System.in
+}
+
+// エンコーディング設定
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
