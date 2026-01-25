@@ -3132,8 +3132,8 @@ class CallTreeVisualizer:
         wb.add_named_style(impl_style)
         wb.add_named_style(shrink_style)
 
-        # C～E、G列の幅を30に設定
-        for col_letter in ["C", "D", "E", "G"]:
+        # C～E列の幅を30に設定
+        for col_letter in ["C", "D", "E"]:
             ws.column_dimensions[col_letter].width = 30
 
         # L列以降の列幅を5に設定
@@ -3143,12 +3143,16 @@ class CallTreeVisualizer:
             letter = get_column_letter(col_idx)
             ws.column_dimensions[letter].width = 5
 
-        # --depthオプションに基づく動的列計算
-        sql_exists_col = tree_start_col + max_depth
+        # --depthオプションに基づく動的列計算（呼び出しツリーの後に配置）
+        javadoc_col = tree_start_col + max_depth  # Javadoc列（呼び出しツリーの直後）
+        sql_exists_col = javadoc_col + 1
         sql_content_col = sql_exists_col + 1
         http_exists_col = sql_content_col + 1
         http_request_col = http_exists_col + 1
         hitwords_col = http_request_col + 1
+
+        # Javadoc列の幅を30に設定
+        ws.column_dimensions[get_column_letter(javadoc_col)].width = 30
 
         # 1行目: L1に「呼び出しツリー」を出力
         if include_tree:
@@ -3168,7 +3172,6 @@ class CallTreeVisualizer:
         ws.cell(row=header_row, column=4, value="クラス名").style = "header_style"
         ws.cell(row=header_row, column=5, value="メソッド名").style = "header_style"
         ws.cell(row=header_row, column=6, value="呼び出し種別").style = "header_style"
-        ws.cell(row=header_row, column=7, value="Javadoc").style = "header_style"
 
         # L2～呼び出しツリー最終列に連番（1,2,3...）
         if include_tree:
@@ -3176,6 +3179,11 @@ class CallTreeVisualizer:
                 range(tree_start_col, tree_end_col + 1), start=1
             ):
                 ws.cell(row=header_row, column=col_idx, value=i).style = "header_style"
+
+        # 動的列: Javadoc（呼び出しツリーの直後）
+        ws.cell(row=header_row, column=javadoc_col, value="Javadoc").style = (
+            "header_style"
+        )
 
         # 動的列: SQL有無、SQL文
         if include_sql:
@@ -3225,7 +3233,8 @@ class CallTreeVisualizer:
             (最終行番号, 最大深度に到達したエントリーポイントのリスト)のタプル
         """
         tree_start_col = column_index_from_string("L")
-        sql_exists_col = tree_start_col + max_depth
+        javadoc_col = tree_start_col + max_depth  # Javadoc列（呼び出しツリーの直後）
+        sql_exists_col = javadoc_col + 1
         sql_content_col = sql_exists_col + 1
         http_exists_col = sql_content_col + 1
         http_request_col = http_exists_col + 1
@@ -3280,19 +3289,13 @@ class CallTreeVisualizer:
                     row=current_row, column=5, value=node["simple_method"]
                 ).style = "default_style"
 
-                # F列: 呼び出し種別
+                # F列: 呼び出し種別（親クラス / インターフェース / 実装クラス）、空の場合は半角スペース
                 parent_relation_value = (
                     node["parent_relation"] if node["parent_relation"] else " "
                 )
                 ws.cell(
                     row=current_row, column=6, value=parent_relation_value
                 ).style = "shrink_style"
-
-                # G列: Javadoc（緑フォント）
-                javadoc_value = node["javadoc"] if node["javadoc"] else " "
-                ws.cell(row=current_row, column=7, value=javadoc_value).style = (
-                    "green_style"
-                )
 
                 # L列以降: 呼び出しツリー
                 if include_tree:
@@ -3316,6 +3319,12 @@ class CallTreeVisualizer:
                         ws.cell(
                             row=current_row, column=tree_col, value=tree_text
                         ).style = "default_style"
+
+                # 動的列: Javadoc（緑フォント）、空の場合は半角スペース
+                javadoc_value = node["javadoc"] if node["javadoc"] else " "
+                ws.cell(
+                    row=current_row, column=javadoc_col, value=javadoc_value
+                ).style = "green_style"
 
                 # 動的列: SQL有無、SQL文
                 if include_sql:
