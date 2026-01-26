@@ -159,10 +159,12 @@ public class ModelParser {
         final String sampleValue;
         final String javaFieldName;
         final String javaType;
+        final String sourceClass; // フィールドの定義元クラス（親クラスの場合は親クラス名）
 
         FieldMetadata(String jsonKey, String logicalName, String description,
                 String jsonType, String innerRef, String required,
-                String sampleValue, String javaFieldName, String javaType) {
+                String sampleValue, String javaFieldName, String javaType,
+                String sourceClass) {
             this.jsonKey = jsonKey;
             this.logicalName = logicalName;
             this.description = description;
@@ -172,6 +174,7 @@ public class ModelParser {
             this.sampleValue = sampleValue;
             this.javaFieldName = javaFieldName;
             this.javaType = javaType;
+            this.sourceClass = sourceClass;
         }
     }
 
@@ -524,6 +527,7 @@ public class ModelParser {
 
     /**
      * クラスを解析してクラスメタデータを抽出する。
+     * 親クラスも再帰的に辿ってフィールドを収集する。
      */
     private ClassMetadata analyzeClass(CtType<?> type) {
         List<FieldMetadata> metadataList = new ArrayList<>();
@@ -531,18 +535,73 @@ public class ModelParser {
         String qualifiedName = type.getQualifiedName();
         String javadocSummary = parseClassJavadoc(type);
 
-        // フィールドを走査
+        // 自クラスのフィールドを走査
+        collectFieldsFromClass(type, className, metadataList);
+
+        // 親クラスを再帰的に辿ってフィールドを収集
+        collectParentClassFields(type, metadataList);
+
+        return new ClassMetadata(className, qualifiedName, javadocSummary, metadataList);
+    }
+
+    /**
+     * クラスからフィールドを収集する。
+     * 
+     * @param type         解析対象のクラス
+     * @param sourceClass  フィールドの定義元クラス名
+     * @param metadataList 収集先のリスト
+     */
+    private void collectFieldsFromClass(CtType<?> type, String sourceClass, List<FieldMetadata> metadataList) {
         for (CtField<?> field : type.getFields()) {
             // staticフィールドをスキップ
             if (field.isStatic()) {
                 continue;
             }
 
-            FieldMetadata metadata = analyzeField(field);
+            FieldMetadata metadata = analyzeField(field, sourceClass);
             metadataList.add(metadata);
         }
+    }
 
-        return new ClassMetadata(className, qualifiedName, javadocSummary, metadataList);
+    /**
+     * 親クラスを再帰的に辿ってフィールドを収集する。
+     * 
+     * @param type         解析対象のクラス
+     * @param metadataList 収集先のリスト
+     */
+    private void collectParentClassFields(CtType<?> type, List<FieldMetadata> metadataList) {
+        if (!(type instanceof CtClass)) {
+            return;
+        }
+
+        CtClass<?> ctClass = (CtClass<?>) type;
+        CtTypeReference<?> superClassRef = ctClass.getSuperclass();
+
+        if (superClassRef == null) {
+            return;
+        }
+
+        // Object クラスは除外
+        String superClassName = superClassRef.getQualifiedName();
+        if ("java.lang.Object".equals(superClassName)) {
+            return;
+        }
+
+        // 親クラスの型宣言を取得
+        CtType<?> superType = superClassRef.getTypeDeclaration();
+        if (superType != null) {
+            String parentClassName = superType.getSimpleName();
+            System.out.println("         -> 親クラス " + parentClassName + " のフィールドを収集中...");
+
+            // 親クラスのフィールドを収集
+            collectFieldsFromClass(superType, parentClassName, metadataList);
+
+            // さらに親を再帰的に辿る
+            collectParentClassFields(superType, metadataList);
+        } else {
+            // 型宣言が取得できない場合（NoClasspathモードで親クラスがソースにない場合）
+            System.out.println("         -> [WARNING] 親クラス " + superClassName + " の解析はスキップされました（ソースが見つかりません）");
+        }
     }
 
     /**
@@ -564,8 +623,11 @@ public class ModelParser {
 
     /**
      * フィールドを解析してメタデータを抽出する。
+     * 
+     * @param field       解析対象のフィールド
+     * @param sourceClass フィールドの定義元クラス名
      */
-    private FieldMetadata analyzeField(CtField<?> field) {
+    private FieldMetadata analyzeField(CtField<?> field, String sourceClass) {
         String fieldName = field.getSimpleName();
         CtTypeReference<?> fieldType = field.getType();
 
@@ -600,7 +662,8 @@ public class ModelParser {
                 required, // 必須
                 sampleValue, // サンプル値
                 fieldName, // Javaフィールド名
-                javaType // Java型
+                javaType, // Java型
+                sourceClass // 定義元クラス
         );
     }
 
@@ -864,19 +927,23 @@ public class ModelParser {
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle classTitleStyle = createClassTitleStyle(workbook);
 
-            // ヘッダー定義（Javaクラス名列を削除）
+            // ヘッダー定義（定義元クラス列を追加）
             String[] headers = {
                     "JSONキー", "論理名", "説明", "JSON型", "内部要素/参照",
-                    "必須", "サンプル値", "Javaフィールド名", "Java型"
+                    "必須", "サンプル値", "Javaフィールド名", "Java型", "定義元クラス"
             };
 
             int rowNum = 0;
 
-            // 1パス目: クラス名と行番号のマップを作成
+            // 1パス目: クラス名と行番号のマップを作成（完全修飾名をキーとして使用）
             Map<String, Integer> classRowMap = new HashMap<>();
             int tempRowNum = 0;
             for (ClassMetadata classMeta : classMetadataList) {
-                classRowMap.put(classMeta.className, tempRowNum);
+                classRowMap.put(classMeta.qualifiedName, tempRowNum);
+                // 単純名でも検索できるように（重複がない場合のみ）
+                if (!classRowMap.containsKey(classMeta.className)) {
+                    classRowMap.put(classMeta.className, tempRowNum);
+                }
                 tempRowNum++; // クラス名見出し行
                 tempRowNum++; // ヘッダー行
                 tempRowNum += classMeta.fields.size(); // データ行
@@ -890,7 +957,7 @@ public class ModelParser {
             for (ClassMetadata classMeta : classMetadataList) {
                 // クラス名見出し行を作成（ヘッダーの1行上）
                 Row classTitleRow = sheet.createRow(rowNum);
-                String classTitle = classMeta.className;
+                String classTitle = classMeta.qualifiedName;
                 String classSummary = "";
                 if (classMeta.javadocSummary != null && !classMeta.javadocSummary.isEmpty()) {
                     classSummary = classMeta.javadocSummary;
@@ -898,16 +965,21 @@ public class ModelParser {
                 Cell titleCell = classTitleRow.createCell(0);
                 titleCell.setCellValue(classTitle);
                 titleCell.setCellStyle(classTitleStyle);
-                Cell titleSummaryCell = classTitleRow.createCell(1);
+                Cell titleSummaryCell = classTitleRow.createCell(2);
                 titleSummaryCell.setCellValue(classSummary);
                 titleSummaryCell.setCellStyle(classTitleStyle);
 
-                // 名前付き範囲を作成（クラス名をそのまま使用、無効な文字は置換）
-                String namedRangeName = "Class_" + classMeta.className.replaceAll("[^a-zA-Z0-9_]", "_");
-                org.apache.poi.ss.usermodel.Name namedRange = workbook.createName();
-                namedRange.setNameName(namedRangeName);
-                String cellRef = "'" + SHEET_NAME + "'!$A$" + (rowNum + 1);
-                namedRange.setRefersToFormula(cellRef);
+                // 名前付き範囲を作成（完全修飾名を使用して重複を回避）
+                String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
+                try {
+                    org.apache.poi.ss.usermodel.Name namedRange = workbook.createName();
+                    namedRange.setNameName(namedRangeName);
+                    String cellRef = "'" + SHEET_NAME + "'!$A$" + (rowNum + 1);
+                    namedRange.setRefersToFormula(cellRef);
+                } catch (Exception e) {
+                    // 名前付き範囲の作成に失敗しても処理を継続（同名クラスが存在する場合など）
+                    System.out.println("         -> [WARNING] 名前付き範囲 " + namedRangeName + " の作成をスキップしました");
+                }
 
                 rowNum++;
 
@@ -947,6 +1019,10 @@ public class ModelParser {
                     createCell(row, 6, metadata.sampleValue, dataStyle);
                     createCell(row, 7, metadata.javaFieldName, dataStyle);
                     createCell(row, 8, metadata.javaType, dataStyle);
+                    // 定義元クラス（自クラスの場合は空欄、親クラスの場合は親クラス名を表示）
+                    String sourceClassDisplay = classMeta.className.equals(metadata.sourceClass) ? ""
+                            : metadata.sourceClass;
+                    createCell(row, 9, sourceClassDisplay, dataStyle);
                 }
 
                 // クラス間に空行を追加
