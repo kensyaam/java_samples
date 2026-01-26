@@ -2056,12 +2056,15 @@ class CallTreeVisualizer:
             print(f"   クラス: {class_name}")
             print()
 
-    def extract_sql_to_files(self, output_dir: str = "./found_sql") -> None:
+    def extract_sql_to_files(
+        self, output_dir: str = "./found_sql", raw_mode: bool = False
+    ) -> None:
         """
         SQL文を抽出してファイルに出力
 
         Args:
             output_dir: SQL出力先ディレクトリ
+            raw_mode: Trueの場合、整形せずにそのまま出力
         """
         import os
         from pathlib import Path
@@ -2090,12 +2093,16 @@ class CallTreeVisualizer:
 
             if len(sqls) == 1:
                 filename = f"{safe_name}.sql"
-                self._write_sql_file(os.path.join(output_dir, filename), sqls[0])
+                self._write_sql_file(
+                    os.path.join(output_dir, filename), sqls[0], raw_mode
+                )
                 file_count += 1
             else:
                 for idx, sql in enumerate(sqls, 1):
                     filename = f"{safe_name}_{idx}.sql"
-                    self._write_sql_file(os.path.join(output_dir, filename), sql)
+                    self._write_sql_file(
+                        os.path.join(output_dir, filename), sql, raw_mode
+                    )
                     file_count += 1
 
         print(f"\n{file_count} 個のSQLファイルを {output_dir} に出力しました")
@@ -2319,18 +2326,25 @@ class CallTreeVisualizer:
             print(f"警告: SQL整形中にエラーが発生しました: {e}", file=sys.stderr)
             return sql_text
 
-    def _write_sql_file(self, filepath: str, sql_text: str) -> None:
+    def _write_sql_file(
+        self, filepath: str, sql_text: str, raw_mode: bool = False
+    ) -> None:
         """
         SQL文をファイルに書き込み
 
         Args:
             filepath: 出力ファイルパス
             sql_text: SQL文
+            raw_mode: Trueの場合、整形せずにそのまま出力
         """
         try:
-            formatted_sql = self._format_sql(sql_text)
+            if raw_mode:
+                content = sql_text
+            else:
+                content = self._format_sql(sql_text)
+
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(formatted_sql)
+                f.write(content)
         except Exception as e:
             print(
                 f"警告: SQLファイルの書き込みに失敗しました ({filepath}): {e}",
@@ -3525,7 +3539,7 @@ def handle_export_csv(args, visualizer: CallTreeVisualizer) -> None:
 
 def handle_extract_sql(args, visualizer: CallTreeVisualizer) -> None:
     """extract-sqlサブコマンドの処理"""
-    visualizer.extract_sql_to_files(args.output_dir)
+    visualizer.extract_sql_to_files(args.output_dir, args.raw)
 
 
 def handle_analyze_tables(args, visualizer: CallTreeVisualizer) -> None:
@@ -4024,6 +4038,12 @@ def main():
         "--output-dir",
         default="./found_sql",
         help="SQL出力先ディレクトリ (デフォルト: ./found_sql)",
+    )
+    parser_extract_sql.add_argument(
+        "-r",
+        "--raw",
+        action="store_true",
+        help="整形せずにそのままのSQL文で出力",
     )
 
     # analyze-tables サブコマンド
