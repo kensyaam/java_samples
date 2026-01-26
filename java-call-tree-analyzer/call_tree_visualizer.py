@@ -2233,10 +2233,16 @@ class CallTreeVisualizer:
                     if line.startswith(current_alignment_indent):
                         content = line[len(current_alignment_indent) :]
 
+                        # 元の行が末尾にカンマを持っていたか確認
+                        has_trailing_comma = content.rstrip().endswith(",")
+
                         # 括弧の外側のカンマのみで分割して1行1つにする
                         parts = self._split_by_comma_outside_parens(content)
                         for i, part in enumerate(parts):
                             if i < len(parts) - 1:
+                                new_lines.append(replacement_indent + part + ",")
+                            elif has_trailing_comma:
+                                # 元々末尾にカンマがあった場合は保持
                                 new_lines.append(replacement_indent + part + ",")
                             else:
                                 new_lines.append(replacement_indent + part)
@@ -2272,6 +2278,9 @@ class CallTreeVisualizer:
                         # キーワード行を出力
                         new_lines.append(base_indent + prefix + matched_keyword)
 
+                        # 元の行が末尾にカンマを持っていたか確認
+                        has_trailing_comma = content.rstrip().endswith(",")
+
                         # 括弧の外側のカンマのみで分割して1行1つにする
                         parts = self._split_by_comma_outside_parens(content)
 
@@ -2280,6 +2289,9 @@ class CallTreeVisualizer:
 
                         for i, part in enumerate(parts):
                             if i < len(parts) - 1:
+                                new_lines.append(new_indent + part + ",")
+                            elif has_trailing_comma:
+                                # 元々末尾にカンマがあった場合は保持
                                 new_lines.append(new_indent + part + ",")
                             else:
                                 new_lines.append(new_indent + part)
