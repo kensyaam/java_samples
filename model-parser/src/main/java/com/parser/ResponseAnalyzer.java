@@ -44,6 +44,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtAssignment;
+import spoon.reflect.code.CtBinaryOperator;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtFieldRead;
 import spoon.reflect.code.CtInvocation;
@@ -53,12 +54,15 @@ import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.declaration.CtAnnotation;
+import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtField;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.declaration.CtType;
+import spoon.reflect.reference.CtExecutableReference;
 import spoon.reflect.reference.CtFieldReference;
 import spoon.reflect.reference.CtLocalVariableReference;
+import spoon.reflect.reference.CtParameterReference;
 import spoon.reflect.reference.CtTypeReference;
 import spoon.reflect.visitor.filter.TypeFilter;
 
@@ -867,6 +871,20 @@ public class ResponseAnalyzer {
      * @param method 変数追跡用のメソッドコンテキスト（nullの場合は変数追跡しない）
      */
     private List<String> resolveAllExpressions(CtExpression<?> expr, CtMethod<?> method) {
+        return resolveAllExpressions(expr, method, new HashMap<>());
+    }
+
+    /**
+     * 式を解決して全ての候補文字列値を取得する（引数マッピング付き）。
+     * 変数の場合は、宣言時の初期化と全ての代入文の値を候補として返す。
+     * メソッド呼び出しの場合は、引数をパラメータにマッピングして追跡する。
+     * 
+     * @param expr        解析対象の式
+     * @param method      変数追跡用のメソッドコンテキスト（nullの場合は変数追跡しない）
+     * @param paramValues パラメータ名から値へのマッピング（メソッド引数の追跡用）
+     */
+    private List<String> resolveAllExpressions(CtExpression<?> expr, CtMethod<?> method,
+            Map<String, List<String>> paramValues) {
         List<String> results = new ArrayList<>();
 
         // リテラルの場合
@@ -878,6 +896,32 @@ public class ResponseAnalyzer {
             return results;
         }
 
+        // 二項演算子（文字列連結など）の場合
+        if (expr instanceof CtBinaryOperator<?>) {
+            CtBinaryOperator<?> binOp = (CtBinaryOperator<?>) expr;
+            // 文字列連結の場合（PLUS演算子）
+            if (binOp.getKind() == spoon.reflect.code.BinaryOperatorKind.PLUS) {
+                List<String> leftValues = resolveAllExpressions(binOp.getLeftHandOperand(), method, paramValues);
+                List<String> rightValues = resolveAllExpressions(binOp.getRightHandOperand(), method, paramValues);
+
+                // 両辺の値を組み合わせて連結
+                if (!leftValues.isEmpty() && !rightValues.isEmpty()) {
+                    for (String left : leftValues) {
+                        for (String right : rightValues) {
+                            results.add(left + right);
+                        }
+                    }
+                } else if (!leftValues.isEmpty()) {
+                    // 右辺が解決できない場合は左辺のみ
+                    results.addAll(leftValues);
+                } else if (!rightValues.isEmpty()) {
+                    // 左辺が解決できない場合は右辺のみ
+                    results.addAll(rightValues);
+                }
+                return results;
+            }
+        }
+
         // フィールド参照（定数）の場合
         if (expr instanceof CtFieldRead<?>) {
             CtFieldRead<?> fieldRead = (CtFieldRead<?>) expr;
@@ -885,10 +929,23 @@ public class ResponseAnalyzer {
             if (fieldRef != null) {
                 CtField<?> field = fieldRef.getFieldDeclaration();
                 if (field != null && field.getDefaultExpression() != null) {
-                    return resolveAllExpressions(field.getDefaultExpression(), method);
+                    return resolveAllExpressions(field.getDefaultExpression(), method, paramValues);
                 }
             }
             return results;
+        }
+
+        // パラメータ参照の場合 - 引数マッピングから値を取得
+        if (expr instanceof CtVariableRead<?>) {
+            CtVariableRead<?> varRead = (CtVariableRead<?>) expr;
+            if (varRead.getVariable() instanceof CtParameterReference<?>) {
+                CtParameterReference<?> paramRef = (CtParameterReference<?>) varRead.getVariable();
+                String paramName = paramRef.getSimpleName();
+                if (paramValues.containsKey(paramName)) {
+                    results.addAll(paramValues.get(paramName));
+                    return results;
+                }
+            }
         }
 
         // ローカル変数参照の場合 - 変数への代入をすべて追跡
@@ -902,7 +959,8 @@ public class ResponseAnalyzer {
                 List<CtLocalVariable<?>> localVars = method.getElements(new TypeFilter<>(CtLocalVariable.class));
                 for (CtLocalVariable<?> localVar : localVars) {
                     if (localVar.getSimpleName().equals(varName) && localVar.getDefaultExpression() != null) {
-                        List<String> resolved = resolveAllExpressions(localVar.getDefaultExpression(), method);
+                        List<String> resolved = resolveAllExpressions(localVar.getDefaultExpression(), method,
+                                paramValues);
                         results.addAll(resolved);
                     }
                 }
@@ -914,13 +972,52 @@ public class ResponseAnalyzer {
                     if (assignment.getAssigned() instanceof CtVariableWrite<?>) {
                         CtVariableWrite<?> assigned = (CtVariableWrite<?>) assignment.getAssigned();
                         if (assigned.getVariable().getSimpleName().equals(varName)) {
-                            List<String> resolved = resolveAllExpressions(assignment.getAssignment(), null);
+                            List<String> resolved = resolveAllExpressions(assignment.getAssignment(), null,
+                                    paramValues);
                             results.addAll(resolved);
                         }
                     }
                 }
                 return results;
             }
+        }
+
+        // メソッド呼び出しの場合 - 呼び出し先メソッドのreturn文を解析
+        if (expr instanceof CtInvocation<?>) {
+            CtInvocation<?> invocation = (CtInvocation<?>) expr;
+            CtExecutableReference<?> execRef = invocation.getExecutable();
+            if (execRef != null) {
+                CtExecutable<?> executable = execRef.getExecutableDeclaration();
+                // 呼び出し先がCtMethod（解析可能なメソッド）の場合
+                if (executable instanceof CtMethod<?>) {
+                    CtMethod<?> calledMethod = (CtMethod<?>) executable;
+
+                    // 引数とパラメータのマッピングを構築
+                    Map<String, List<String>> argMapping = new HashMap<>();
+                    List<CtExpression<?>> args = invocation.getArguments();
+                    List<CtParameter<?>> params = calledMethod.getParameters();
+                    for (int i = 0; i < Math.min(args.size(), params.size()); i++) {
+                        String paramName = params.get(i).getSimpleName();
+                        // 引数の値を解決（現在のコンテキストで）
+                        List<String> argValues = resolveAllExpressions(args.get(i), method, paramValues);
+                        if (!argValues.isEmpty()) {
+                            argMapping.put(paramName, argValues);
+                        }
+                    }
+
+                    // 呼び出し先メソッドのreturn文を解析
+                    List<CtReturn<?>> calledReturns = calledMethod.getElements(new TypeFilter<>(CtReturn.class));
+                    for (CtReturn<?> ret : calledReturns) {
+                        CtExpression<?> retExpr = ret.getReturnedExpression();
+                        if (retExpr != null) {
+                            // 再帰的に解決（引数マッピングを渡す）
+                            List<String> resolved = resolveAllExpressions(retExpr, calledMethod, argMapping);
+                            results.addAll(resolved);
+                        }
+                    }
+                }
+            }
+            return results;
         }
 
         return results;
