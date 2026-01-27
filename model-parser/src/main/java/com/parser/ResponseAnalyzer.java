@@ -928,6 +928,12 @@ public class ResponseAnalyzer {
             CtFieldReference<?> fieldRef = fieldRead.getVariable();
             if (fieldRef != null) {
                 CtField<?> field = fieldRef.getFieldDeclaration();
+
+                // getFieldDeclaration()がnullの場合、Spoonモデルから検索を試みる
+                if (field == null && spoonModel != null) {
+                    field = findFieldInModel(fieldRef);
+                }
+
                 if (field != null && field.getDefaultExpression() != null) {
                     return resolveAllExpressions(field.getDefaultExpression(), method, paramValues);
                 }
@@ -988,6 +994,12 @@ public class ResponseAnalyzer {
             CtExecutableReference<?> execRef = invocation.getExecutable();
             if (execRef != null) {
                 CtExecutable<?> executable = execRef.getExecutableDeclaration();
+
+                // getExecutableDeclaration()がnullの場合、Spoonモデルから検索を試みる
+                if (executable == null && spoonModel != null) {
+                    executable = findMethodInModel(execRef);
+                }
+
                 // 呼び出し先がCtMethod（解析可能なメソッド）の場合
                 if (executable instanceof CtMethod<?>) {
                     CtMethod<?> calledMethod = (CtMethod<?>) executable;
@@ -1021,6 +1033,95 @@ public class ResponseAnalyzer {
         }
 
         return results;
+    }
+
+    /**
+     * Spoonモデル全体からメソッドを検索する。
+     * getExecutableDeclaration()がnullを返す場合のフォールバック。
+     * 
+     * @param execRef 検索するメソッドの参照
+     * @return 見つかったメソッド、見つからない場合はnull
+     */
+    private CtMethod<?> findMethodInModel(CtExecutableReference<?> execRef) {
+        String methodName = execRef.getSimpleName();
+        CtTypeReference<?> declaringType = execRef.getDeclaringType();
+
+        if (declaringType == null) {
+            return null;
+        }
+
+        String typeName = declaringType.getQualifiedName();
+
+        // モデル内の全ての型を検索
+        for (CtType<?> type : spoonModel.getAllTypes()) {
+            // 宣言型と一致するか、親クラス・インターフェースに含まれるかをチェック
+            if (type.getQualifiedName().equals(typeName) || isSubtypeOf(type, typeName)) {
+                // メソッドを検索
+                for (CtMethod<?> m : type.getMethods()) {
+                    if (m.getSimpleName().equals(methodName)) {
+                        // パラメータ数もチェック
+                        if (m.getParameters().size() == execRef.getParameters().size()) {
+                            return m;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 型が指定された型名のサブタイプかどうかをチェックする。
+     */
+    private boolean isSubtypeOf(CtType<?> type, String superTypeName) {
+        // 親クラスをチェック
+        CtTypeReference<?> superclass = type.getSuperclass();
+        if (superclass != null && superclass.getQualifiedName().equals(superTypeName)) {
+            return true;
+        }
+
+        // インターフェースをチェック
+        for (CtTypeReference<?> iface : type.getSuperInterfaces()) {
+            if (iface.getQualifiedName().equals(superTypeName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Spoonモデル全体からフィールドを検索する。
+     * getFieldDeclaration()がnullを返す場合のフォールバック。
+     * 
+     * @param fieldRef 検索するフィールドの参照
+     * @return 見つかったフィールド、見つからない場合はnull
+     */
+    private CtField<?> findFieldInModel(CtFieldReference<?> fieldRef) {
+        String fieldName = fieldRef.getSimpleName();
+        CtTypeReference<?> declaringType = fieldRef.getDeclaringType();
+
+        if (declaringType == null) {
+            return null;
+        }
+
+        String typeName = declaringType.getQualifiedName();
+
+        // モデル内の全ての型を検索
+        for (CtType<?> type : spoonModel.getAllTypes()) {
+            // 宣言型と一致するか、親クラス・インターフェースに含まれるかをチェック
+            if (type.getQualifiedName().equals(typeName) || isSubtypeOf(type, typeName)) {
+                // フィールドを検索
+                for (CtField<?> f : type.getFields()) {
+                    if (f.getSimpleName().equals(fieldName)) {
+                        return f;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
