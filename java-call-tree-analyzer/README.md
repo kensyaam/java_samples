@@ -27,6 +27,7 @@
     - [export-csv : 呼び出しメソッド一覧をCSVにエクスポート](#export-csv--呼び出しメソッド一覧をcsvにエクスポート)
     - [extract-sql : SQL文を抽出してファイル出力](#extract-sql--sql文を抽出してファイル出力)
     - [analyze-tables : SQLファイルから使用テーブルを検出](#analyze-tables--sqlファイルから使用テーブルを検出)
+    - [analyze-sql : SQLファイルをキーワードで検索](#analyze-sql--sqlファイルをキーワードで検索)
     - [class-tree : クラス階層ツリーを表示](#class-tree--クラス階層ツリーを表示)
     - [interface-impls : インターフェース実装一覧を表示](#interface-impls--インターフェース実装一覧を表示)
     - [Tips](#tips)
@@ -265,7 +266,7 @@ pyinstaller --onefile --icon=app.ico -n CallTreeVisualizer call_tree_visualizer.
 ```bash
 $ python call_tree_visualizer.py --help
 usage: call_tree_visualizer.py [-h] [-i INPUT_FILE] [--exclusion-file EXCLUSION_FILE] [--output-tsv-encoding OUTPUT_TSV_ENCODING]
-                               {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls} ...
+                               {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,analyze-sql,class-tree,interface-impls} ...
 
 呼び出しツリー可視化スクリプト - JSONファイルから可視化を行います
 
@@ -279,7 +280,7 @@ options:
                         出力するTSVのエンコーディング (デフォルト: Shift_JIS (Excelへの貼付けを考慮))
 
 サブコマンド:
-  {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,class-tree,interface-impls}
+  {entries,search,forward,reverse,export,export-excel,extract-sql,analyze-tables,analyze-sql,class-tree,interface-impls}
     entries             エントリーポイント候補を表示
     search              キーワードでメソッドを検索
     forward             指定メソッドからの呼び出しツリーを表示
@@ -288,6 +289,7 @@ options:
     export-excel        ツリーをExcelにエクスポート
     extract-sql         SQL文を抽出してファイル出力
     analyze-tables      SQLファイルから使用テーブルを検出
+    analyze-sql         SQLファイルを複数キーワード（正規表現）で検索
     class-tree          クラス階層ツリーを表示
     interface-impls     インターフェース実装一覧を表示
 
@@ -305,6 +307,7 @@ options:
   python call_tree_visualizer.py export-excel call_trees.xlsx --entry-points entry_points.txt
   python call_tree_visualizer.py extract-sql --output-dir ./output/sqls
   python call_tree_visualizer.py analyze-tables --sql-dir ./output/sqls
+  python call_tree_visualizer.py analyze-sql -k ./keyword_list.tsv
   python call_tree_visualizer.py class-tree --filter 'com.example'
   python call_tree_visualizer.py interface-impls --interface 'MyService'
   
@@ -721,6 +724,75 @@ python call_tree_visualizer.py analyze-tables > table_usage.tsv
 
 # 出力結果をExcel貼り付け用にコピー (Windows)
 python call_tree_visualizer.py analyze-tables | clip
+```
+
+#### analyze-sql : SQLファイルをキーワードで検索
+
+SQLディレクトリ内のSQLファイルを指定された複数キーワード（正規表現）で検索し、ヒット結果をCSV形式で出力する。
+
+```bash
+$ python call_tree_visualizer.py analyze-sql --help
+usage: call_tree_visualizer.py analyze-sql [-h] [-s SQL_DIR] [-k KEYWORD_LIST] [-o OUTPUT_FILE] [-c]
+
+options:
+  -h, --help            show this help message and exit
+  -s, --sql-dir SQL_DIR
+                        SQLディレクトリ (デフォルト: ./found_sql)
+  -k, --keyword-list KEYWORD_LIST
+                        検索キーワードリストファイル (デフォルト: ./keyword_list.tsv)
+  -o, --output OUTPUT_FILE
+                        出力CSVファイル名（省略時は標準出力）
+  -c, --case-sensitive  大文字・小文字を区別する（デフォルト: 区別しない）
+```
+
+```bash
+# 基本的な使い方（デフォルトでは標準出力に出力）
+python call_tree_visualizer.py analyze-sql
+
+# SQLディレクトリとキーワードリストを指定
+python call_tree_visualizer.py analyze-sql -s ./output/sqls -k ./my_keywords.tsv
+
+# CSVファイルに出力
+python call_tree_visualizer.py analyze-sql -o result.csv
+```
+
+###### キーワードリストファイルのフォーマット
+
+```txt
+<検索キーワード（正規表現）><TAB><補足情報１><TAB><補足情報２>
+```
+
+`<TAB>`: ハードタブ
+
+- `#` で始まる行はコメントとしてスキップ
+- 空行もスキップ
+
+例:
+
+```txt
+# ユーザー関連テーブルの検索
+USER_MST<TAB>ユーザーマスタ<TAB>基本情報
+ORDER_.*<TAB>注文テーブル<TAB>注文関連
+```
+
+###### CSV出力フォーマット
+
+| 列 | 内容 |
+|---|---|
+| SQLファイル | ヒットしたSQLファイル名 |
+| 検索キーワード | ヒットした検索キーワード |
+| 補足情報１ | ヒットした検索キーワードの補足情報１ |
+| 補足情報２ | ヒットした検索キーワードの補足情報２ |
+
+- ファイル出力時のエンコーディング: Shift_JIS（Excelへの貼り付けを考慮）
+- 標準出力時はUTF-8
+
+###### 使用例
+
+```bash
+# SQL抽出 → キーワード検索の一連の流れ
+python call_tree_visualizer.py extract-sql
+python call_tree_visualizer.py analyze-sql -o keyword_hits.csv
 ```
 
 #### class-tree : クラス階層ツリーを表示

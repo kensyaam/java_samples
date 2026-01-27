@@ -3549,6 +3549,122 @@ def handle_analyze_tables(args, visualizer: CallTreeVisualizer) -> None:
     visualizer.analyze_table_usage(args.sql_dir, args.table_list)
 
 
+def handle_analyze_sql(args) -> None:
+    """
+    analyze-sqlサブコマンドの処理
+
+    SQLディレクトリ内のSQLファイルを指定された複数キーワード（正規表現）で検索し、
+    ヒット結果をCSV形式で出力する。
+    """
+    import os
+    from pathlib import Path
+
+    sql_dir = args.sql_dir
+    keyword_list_file = args.keyword_list
+    output_file = args.output_file
+    case_sensitive = args.case_sensitive
+
+    # キーワードリストを読み込み
+    if not os.path.exists(keyword_list_file):
+        print(
+            f"エラー: キーワードリストファイルが見つかりません: {keyword_list_file}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # キーワードリストを読み込む
+    # フォーマット: <検索キーワード（正規表現）><TAB><補足情報１><TAB><補足情報２>
+    keyword_list: list[tuple[re.Pattern[str], str, str, str]] = []
+    try:
+        with open(keyword_list_file, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.rstrip("\r\n")
+                if not line or line.startswith("#"):
+                    # 空行やコメント行はスキップ
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 1:
+                    continue
+                keyword = parts[0]
+                info1 = parts[1] if len(parts) > 1 else ""
+                info2 = parts[2] if len(parts) > 2 else ""
+                try:
+                    regex_flags = 0 if case_sensitive else re.IGNORECASE
+                    pattern = re.compile(keyword, regex_flags)
+                    keyword_list.append((pattern, keyword, info1, info2))
+                except re.error as e:
+                    print(
+                        f"警告: 正規表現エラー（{keyword_list_file}:{line_num}）: "
+                        f"{keyword} - {e}",
+                        file=sys.stderr,
+                    )
+    except Exception as e:
+        print(
+            f"エラー: キーワードリストファイルの読み込みに失敗しました: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not keyword_list:
+        print("警告: キーワードリストが空です", file=sys.stderr)
+        sys.exit(1)
+
+    # SQLディレクトリを確認
+    sql_dir_path = Path(sql_dir)
+    if not sql_dir_path.exists():
+        print(f"エラー: SQLディレクトリが見つかりません: {sql_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    sql_files = sorted(sql_dir_path.glob("*.sql"))
+
+    if not sql_files:
+        print(f"警告: SQLファイルが見つかりません: {sql_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # 結果を収集
+    results: list[tuple[str, str, str, str]] = []
+
+    for sql_file in sql_files:
+        try:
+            with open(sql_file, "r", encoding="utf-8") as f:
+                sql_content = f.read()
+
+            # 各キーワードで検索
+            for pattern, keyword, info1, info2 in keyword_list:
+                if pattern.search(sql_content):
+                    results.append((sql_file.name, keyword, info1, info2))
+
+        except Exception as e:
+            print(
+                f"エラー: SQLファイルの読み込みに失敗しました ({sql_file.name}): {e}",
+                file=sys.stderr,
+            )
+
+    # CSV出力
+    if output_file:
+        try:
+            with open(output_file, "w", encoding="Shift_JIS", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["SQLファイル", "検索キーワード", "補足情報１", "補足情報２"]
+                )
+                for row in results:
+                    writer.writerow(row)
+            print(f"出力しました: {output_file}", file=sys.stderr)
+        except Exception as e:
+            print(
+                f"エラー: 出力ファイルの書き込みに失敗しました: {e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        # 標準出力（CSV形式）
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["SQLファイル", "検索キーワード", "補足情報１", "補足情報２"])
+        for row in results:
+            writer.writerow(row)
+
+
 class StructureVisualizer:
     """構造情報（クラス階層、インターフェース実装）を可視化するクラス"""
 
@@ -4063,6 +4179,36 @@ def main():
         help="テーブルリストファイル (デフォルト: ./table_list.tsv)",
     )
 
+    # analyze-sql サブコマンド
+    parser_analyze_sql = subparsers.add_parser(
+        "analyze-sql",
+        help="SQLファイルを複数キーワード（正規表現）で検索",
+    )
+    parser_analyze_sql.add_argument(
+        "-s",
+        "--sql-dir",
+        default="./found_sql",
+        help="SQLディレクトリ (デフォルト: ./found_sql)",
+    )
+    parser_analyze_sql.add_argument(
+        "-k",
+        "--keyword-list",
+        default="./keyword_list.tsv",
+        help="検索キーワードリストファイル (デフォルト: ./keyword_list.tsv)",
+    )
+    parser_analyze_sql.add_argument(
+        "-o",
+        "--output",
+        dest="output_file",
+        help="出力CSVファイル名（省略時は標準出力）",
+    )
+    parser_analyze_sql.add_argument(
+        "-c",
+        "--case-sensitive",
+        action="store_true",
+        help="大文字・小文字を区別する（デフォルト: 区別しない）",
+    )
+
     # class-tree サブコマンド
     parser_class_tree = subparsers.add_parser(
         "class-tree", help="クラス階層ツリーを表示"
@@ -4137,6 +4283,8 @@ def main():
         handle_extract_sql(args, visualizer)
     elif args.command == "analyze-tables":
         handle_analyze_tables(args, visualizer)
+    elif args.command == "analyze-sql":
+        handle_analyze_sql(args)
 
 
 if __name__ == "__main__":
