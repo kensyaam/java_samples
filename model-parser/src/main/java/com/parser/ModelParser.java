@@ -528,6 +528,7 @@ public class ModelParser {
     /**
      * クラスを解析してクラスメタデータを抽出する。
      * 親クラスも再帰的に辿ってフィールドを収集する。
+     * フィールドは親クラスから順に出力される。
      */
     private ClassMetadata analyzeClass(CtType<?> type) {
         List<FieldMetadata> metadataList = new ArrayList<>();
@@ -535,11 +536,11 @@ public class ModelParser {
         String qualifiedName = type.getQualifiedName();
         String javadocSummary = parseClassJavadoc(type);
 
-        // 自クラスのフィールドを走査
-        collectFieldsFromClass(type, className, metadataList);
-
-        // 親クラスを再帰的に辿ってフィールドを収集
+        // 親クラスを再帰的に辿ってフィールドを収集（先に親クラスのフィールドを収集）
         collectParentClassFields(type, metadataList);
+
+        // 自クラスのフィールドを走査（最後に自クラスのフィールドを追加）
+        collectFieldsFromClass(type, className, metadataList);
 
         return new ClassMetadata(className, qualifiedName, javadocSummary, metadataList);
     }
@@ -565,6 +566,7 @@ public class ModelParser {
 
     /**
      * 親クラスを再帰的に辿ってフィールドを収集する。
+     * 最上位の親クラスから順にフィールドを収集する。
      * 
      * @param type         解析対象のクラス
      * @param metadataList 収集先のリスト
@@ -591,13 +593,14 @@ public class ModelParser {
         CtType<?> superType = superClassRef.getTypeDeclaration();
         if (superType != null) {
             String parentClassName = superType.getSimpleName();
+
+            // 先にさらに上位の親クラスを再帰的に辿る（最上位の親から順に収集するため）
+            collectParentClassFields(superType, metadataList);
+
             System.out.println("         -> 親クラス " + parentClassName + " のフィールドを収集中...");
 
-            // 親クラスのフィールドを収集
+            // その後、この親クラスのフィールドを収集
             collectFieldsFromClass(superType, parentClassName, metadataList);
-
-            // さらに親を再帰的に辿る
-            collectParentClassFields(superType, metadataList);
         } else {
             // 型宣言が取得できない場合（NoClasspathモードで親クラスがソースにない場合）
             System.out.println("         -> [WARNING] 親クラス " + superClassName + " の解析はスキップされました（ソースが見つかりません）");
