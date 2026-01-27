@@ -1820,6 +1820,7 @@ public class CallTreeAnalyzer {
         String upper = testStr.toUpperCase();
         return upper.startsWith("SELECT ") || upper.startsWith("INSERT ") ||
                 upper.startsWith("UPDATE ") || upper.startsWith("DELETE ") ||
+                upper.startsWith("MERGE ") || upper.startsWith("LOCK TABLE ") ||
                 upper.startsWith("CREATE ") || upper.startsWith("ALTER ") ||
                 upper.startsWith("DROP ") ||
                 // PL/SQL, PL/pgSQL

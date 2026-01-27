@@ -2170,7 +2170,9 @@ class CallTreeVisualizer:
         if current_part:
             parts.append("".join(current_part))
 
-        return parts
+        # 各パートから末尾のカンマとスペースを削除
+        # (呼び出し元でカンマを追加するため、二重カンマを防ぐ)
+        return [part.rstrip().rstrip(",").rstrip() for part in parts]
 
     def _format_sql(self, sql_text: str) -> str:
         """
