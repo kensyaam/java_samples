@@ -343,6 +343,9 @@ public class ResponseAnalyzer {
     /** JSPルートディレクトリ */
     private Path jspRootPath;
 
+    /** JSPファイル読み込み時のエンコーディング */
+    private Charset jspEncoding;
+
     /** 解析済みJSPキャッシュ */
     private final Map<String, JspAnalysisResult> jspCache = new HashMap<>();
 
@@ -542,6 +545,7 @@ public class ResponseAnalyzer {
         System.out.println();
 
         this.jspRootPath = Paths.get(options.jspRoot);
+        this.jspEncoding = Charset.forName(options.encoding);
 
         // 対象Controller一覧を読み込む
         Set<String> targetControllers = loadTargetClasses(options.controllersFile);
@@ -1252,7 +1256,7 @@ public class ResponseAnalyzer {
         JspAnalysisResult result = new JspAnalysisResult(jspPath.toString());
 
         try {
-            String content = Files.readString(jspPath, StandardCharsets.UTF_8);
+            String content = Files.readString(jspPath, jspEncoding);
 
             // EL式を抽出
             Matcher elMatcher = EL_PATTERN.matcher(content);
