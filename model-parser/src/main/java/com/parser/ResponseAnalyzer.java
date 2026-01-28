@@ -1362,7 +1362,7 @@ public class ResponseAnalyzer {
         String relativePath = jspRootPath.relativize(jspPath).toString().replace("\\", "/");
 
         try {
-            String content = Files.readString(jspPath, StandardCharsets.UTF_8);
+            String content = Files.readString(jspPath, jspEncoding);
 
             // HTML標準フォーム
             forms.addAll(extractFormsWithPattern(content, relativePath,
