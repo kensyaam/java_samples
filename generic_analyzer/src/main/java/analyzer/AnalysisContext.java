@@ -1,7 +1,10 @@
 package analyzer;
 
+import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -24,6 +27,9 @@ public class AnalysisContext {
 
     // 解析結果の収集
     private final List<AnalysisResult> results = new ArrayList<>();
+
+    // 重複検出防止用のキーセット
+    private final Set<String> detectedKeys = new HashSet<>();
 
     // 統計情報
     private int totalFilesAnalyzed = 0;
@@ -129,6 +135,25 @@ public class AnalysisContext {
     }
 
     /**
+     * 指定されたキーが既に検出済みかどうかを確認する。
+     *
+     * @param key 検出キー（例: ファイル名:import名）
+     * @return 検出済みの場合true
+     */
+    public boolean isAlreadyDetected(String key) {
+        return detectedKeys.contains(key);
+    }
+
+    /**
+     * 指定されたキーを検出済みとしてマークする。
+     *
+     * @param key 検出キー
+     */
+    public void markAsDetected(String key) {
+        detectedKeys.add(key);
+    }
+
+    /**
      * スキャンした要素数をインクリメント。
      */
     public void incrementElementsScanned() {
@@ -195,20 +220,38 @@ public class AnalysisContext {
     }
 
     /**
-     * 全結果を出力する。
+     * 全結果をテキスト形式で出力する。
+     *
+     * @param writer 出力先
      */
-    public void printResults() {
+    public void printResults(PrintWriter writer) {
         if (results.isEmpty()) {
-            System.out.println("\n検出結果はありませんでした。");
+            writer.println("\n検出結果はありませんでした。");
             return;
         }
 
-        System.out.println("\n" + "═".repeat(80));
-        System.out.println("検出結果");
-        System.out.println("═".repeat(80));
+        writer.println("\n" + "═".repeat(80));
+        writer.println("検出結果");
+        writer.println("═".repeat(80));
 
         for (AnalysisResult result : results) {
-            System.out.print(result);
+            writer.print(result);
         }
+        writer.flush();
+    }
+
+    /**
+     * 全結果をCSV形式で出力する。
+     *
+     * @param writer 出力先
+     */
+    public void printResultsCsv(PrintWriter writer) {
+        // ヘッダー出力
+        writer.println("カテゴリ,ファイル名,行番号,スコープ,検出内容,コードスニペット");
+
+        for (AnalysisResult result : results) {
+            writer.println(result.toCsvLine());
+        }
+        writer.flush();
     }
 }

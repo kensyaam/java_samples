@@ -7,9 +7,11 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 
 1. **型使用の調査 (TypeUsageAnalyzer)**
    - 正規表現で指定されたパッケージやクラスを使用している箇所を特定
+   - 検出対象: 変数宣言、継承(extends/implements)、throws/catch句、キャスト、ジェネリクス、import文、Javadoc (@exception, @throws, @see, @link)、**コンストラクタ呼び出し**、**メソッド呼び出し**
 
 2. **メソッド・フィールド使用の調査 (MethodOrFieldUsageAnalyzer)**
    - 特定の名前のメソッド（コンストラクタを含む）やフィールドが使用されている箇所を特定
+   - SimpleName (`executeQuery`) または QualifiedName (`java.sql.Statement.executeQuery`) で指定可能
 
 3. **アノテーションの調査 (AnnotationAnalyzer)**
    - 特定のアノテーションが付与されているクラス、メソッド、フィールド、引数を特定
@@ -25,7 +27,9 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 ## ビルド
 
 ```bash
-./gradlew build
+# Fat JAR (Shadow JAR) 生成
+./gradlew shadowJar
+# 生成物: generic-analyzer.jar (プロジェクト直下)
 ```
 
 ## 使用方法
@@ -33,13 +37,13 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 ### ヘルプ表示
 
 ```bash
-./gradlew run --args="-h"
+java -jar generic-analyzer.jar -h
 ```
 
 ### 基本コマンド
 
 ```bash
-./gradlew run --args="-s <ソースディレクトリ> [解析オプション]"
+java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプション]
 ```
 
 ### オプション一覧
@@ -54,37 +58,46 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 | `-l, --literal-pattern <regex>` | 文字列リテラルパターン (正規表現) |
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
 | `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
+| `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
+| `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
+| `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
 
 ### 使用例
 
 #### java.sqlパッケージの使用箇所を検索
 
 ```bash
-./gradlew run --args="-s src/main/java -t 'java\\.sql\\..*'"
+java -jar generic-analyzer.jar -s src/main/java -t 'java\.sql\..*'
 ```
 
 #### SQL文を含む文字列リテラルを検索
 
 ```bash
-./gradlew run --args="-s src -l 'SELECT.*FROM'"
+java -jar generic-analyzer.jar -s src -l 'SELECT.*FROM'
 ```
 
 #### @Deprecatedアノテーションの使用箇所を検索
 
 ```bash
-./gradlew run --args="-s src -a Deprecated"
+java -jar generic-analyzer.jar -s src -a Deprecated
 ```
 
 #### 特定のメソッド呼び出しを検索
 
 ```bash
-./gradlew run --args="-s src -n executeQuery,executeUpdate"
+java -jar generic-analyzer.jar -s src -n executeQuery,executeUpdate
 ```
 
 #### 複数の解析を同時実行
 
 ```bash
-./gradlew run --args="-s src -t 'java\\.sql\\..*' -n executeQuery -l 'SELECT'"
+java -jar generic-analyzer.jar -s src -t 'java\.sql\..*' -n executeQuery -l 'SELECT'
+```
+
+#### CSV形式でファイル出力
+
+```bash
+java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 ```
 
 ## 出力形式
@@ -105,12 +118,12 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 ────────────────────────────────────────────────────────────────────────────────
 【Type Usage】 java.sql.Connection
   File: UserDao.java : 25
-  Scope: com.example.dao.UserDao # findById(Long)
+  Scope: com.example.dao.UserDao#findById(Long)
   Code: Connection conn = dataSource.getConnection()
 ────────────────────────────────────────────────────────────────────────────────
 【Method Call】 java.sql.Connection.prepareStatement()
   File: UserDao.java : 27
-  Scope: com.example.dao.UserDao # findById(Long)
+  Scope: com.example.dao.UserDao#findById(Long)
   Code: PreparedStatement ps = conn.prepareStatement(sql)
 
 ════════════════════════════════════════════════════════════════════════════════

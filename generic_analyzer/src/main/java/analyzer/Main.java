@@ -8,6 +8,10 @@ import spoon.Launcher;
 import spoon.reflect.CtModel;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -22,6 +26,8 @@ public class Main {
     // デフォルト値
     private static final int DEFAULT_COMPLIANCE_LEVEL = 21;
     private static final String DEFAULT_ENCODING = "UTF-8";
+    private static final String DEFAULT_OUTPUT_CSV_ENCODING = "windows-31j";
+    private static final String DEFAULT_FORMAT = "txt";
 
     public static void main(String[] args) {
         // ヘルプ表示
@@ -41,6 +47,11 @@ public class Main {
         String stringLiteralPattern = null;
         String targetNames = null;
         String targetAnnotations = null;
+
+        // 出力設定
+        String outputFile = null;
+        String outputCsvEncoding = DEFAULT_OUTPUT_CSV_ENCODING;
+        String format = DEFAULT_FORMAT;
 
         // オプション解析
         for (int i = 0; i < args.length; i++) {
@@ -91,6 +102,23 @@ public class Main {
                 case "--annotations":
                     if (i + 1 < args.length) {
                         targetAnnotations = args[++i];
+                    }
+                    break;
+                case "-o":
+                case "--output":
+                    if (i + 1 < args.length) {
+                        outputFile = args[++i];
+                    }
+                    break;
+                case "--output-csv-encoding":
+                    if (i + 1 < args.length) {
+                        outputCsvEncoding = args[++i];
+                    }
+                    break;
+                case "-f":
+                case "--format":
+                    if (i + 1 < args.length) {
+                        format = args[++i].toLowerCase();
                     }
                     break;
                 default:
@@ -173,9 +201,41 @@ public class Main {
         System.out.println("解析を実行中...");
         model.getRootPackage().accept(orchestrator);
 
-        // 結果出力
-        context.printResults();
-        context.printSummary();
+        // 出力先の決定
+        PrintWriter writer = null;
+        boolean closeWriter = false;
+        try {
+            if (outputFile != null) {
+                // ファイル出力
+                Charset outputCharset = "csv".equals(format)
+                        ? Charset.forName(outputCsvEncoding)
+                        : Charset.forName("UTF-8");
+                writer = new PrintWriter(
+                        new OutputStreamWriter(
+                                new FileOutputStream(outputFile), outputCharset));
+                closeWriter = true;
+                System.out.println("出力ファイル: " + outputFile + " (" + outputCharset.name() + ")");
+            } else {
+                // 標準出力
+                writer = new PrintWriter(System.out, true);
+            }
+
+            // 結果出力
+            if ("csv".equals(format)) {
+                context.printResultsCsv(writer);
+            } else {
+                context.printResults(writer);
+            }
+
+            // サマリは常に標準出力へ
+            context.printSummary();
+        } catch (Exception e) {
+            System.err.println("エラー: 出力中にエラーが発生しました: " + e.getMessage());
+        } finally {
+            if (closeWriter && writer != null) {
+                writer.close();
+            }
+        }
     }
 
     /**
@@ -268,7 +328,12 @@ public class Main {
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
         System.out.println("                              ディレクトリを指定すると直下のJARも追加");
         System.out.println("  -cl, --compliance <level>   Javaコンプライアンスレベル (デフォルト: 21)");
-        System.out.println("  -e, --encoding <enc>        ソースエンコーディング (デフォルト: UTF-8)");
+        System.out.println("-e, --encoding <enc>        ソースエンコーディング (デフォルト: UTF-8)");
+        System.out.println();
+        System.out.println("出力オプション:");
+        System.out.println("  -o, --output <file>         出力ファイル名 (省略時は標準出力)");
+        System.out.println("  -f, --format <format>       出力フォーマット: txt, csv (デフォルト: txt)");
+        System.out.println("  --output-csv-encoding <enc> CSV出力のエンコーディング (デフォルト: windows-31j)");
         System.out.println();
         System.out.println("例:");
         System.out.println("  # java.sqlパッケージの使用箇所を検索");

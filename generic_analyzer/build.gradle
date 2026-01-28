@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'com.gradleup.shadow' version '9.0.0-beta4'
 }
 
 group = 'analyzer'
@@ -26,6 +27,24 @@ dependencies {
 
 application {
     mainClass = 'analyzer.Main'
+}
+
+// Shadow JAR設定
+shadowJar {
+    archiveBaseName.set('generic-analyzer')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+    
+    // 出力先をプロジェクト直下に変更
+    destinationDirectory.set(file("${projectDir}"))
+    
+    // マニフェスト設定
+    manifest {
+        attributes 'Main-Class': 'analyzer.Main'
+    }
+    
+    // 重複ファイルの処理
+    mergeServiceFiles()
 }
 
 // コマンドライン引数をrunタスクに渡す設定

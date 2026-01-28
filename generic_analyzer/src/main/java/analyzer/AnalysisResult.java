@@ -84,16 +84,8 @@ public class AnalysisResult {
         // 親メソッドを探す
         CtMethod<?> parentMethod = element.getParent(CtMethod.class);
         if (parentMethod != null) {
-            scope.append(" # ").append(parentMethod.getSimpleName());
-            // パラメータタイプも追加（オーバーロード対応）
-            scope.append("(");
-            var params = parentMethod.getParameters();
-            for (int i = 0; i < params.size(); i++) {
-                if (i > 0)
-                    scope.append(", ");
-                scope.append(params.get(i).getType().getSimpleName());
-            }
-            scope.append(")");
+            // メソッドの場合はQualifiedName（シグネチャ）をセット
+            return parentMethod.getSignature();
         }
 
         return scope.length() > 0 ? scope.toString() : "(top-level)";
@@ -159,5 +151,35 @@ public class AnalysisResult {
         sb.append(String.format("  Scope: %s\n", scope));
         sb.append(String.format("  Code: %s\n", codeSnippet));
         return sb.toString();
+    }
+
+    /**
+     * CSV形式の1行を返す。
+     * ダブルクォートとカンマをエスケープする。
+     *
+     * @return CSV形式の文字列
+     */
+    public String toCsvLine() {
+        return String.format("%s,%s,%d,%s,%s,%s",
+                escapeCsv(category),
+                escapeCsv(fileName),
+                lineNumber,
+                escapeCsv(scope),
+                escapeCsv(matchedElement),
+                escapeCsv(codeSnippet));
+    }
+
+    /**
+     * CSV用にフィールドをエスケープする。
+     */
+    private static String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        // ダブルクォート、カンマ、改行を含む場合はダブルクォートで囲む
+        if (value.contains("\"") || value.contains(",") || value.contains("\n") || value.contains("\r")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

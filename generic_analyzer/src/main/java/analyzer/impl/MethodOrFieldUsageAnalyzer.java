@@ -12,6 +12,11 @@ import spoon.reflect.declaration.CtElement;
 /**
  * メソッド・フィールド使用の調査Analyzer。
  * 特定の名前のメソッド（コンストラクタを含む）やフィールドが使用されている箇所を特定する。
+ * 
+ * 名前の指定方法:
+ * - SimpleName: "executeQuery" → 全クラスのexecuteQueryメソッドにマッチ
+ * - QualifiedName: "java.sql.Connection.prepareStatement" → 特定クラスのメソッドにマッチ
+ * - QualifiedName (フィールド): "java.lang.System.out" → 特定クラスのフィールドにマッチ
  */
 public class MethodOrFieldUsageAnalyzer implements Analyzer {
 
@@ -59,17 +64,20 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
         }
 
         String methodName = invocation.getExecutable().getSimpleName();
-        if (context.isTargetName(methodName)) {
-            // 呼び出し先のクラス名も取得
-            String declaringType = "";
-            if (invocation.getExecutable().getDeclaringType() != null) {
-                declaringType = invocation.getExecutable().getDeclaringType().getQualifiedName() + ".";
-            }
+        String declaringType = "";
+        if (invocation.getExecutable().getDeclaringType() != null) {
+            declaringType = invocation.getExecutable().getDeclaringType().getQualifiedName();
+        }
 
+        // 完全修飾名を構築（例: java.sql.Connection.prepareStatement）
+        String qualifiedName = declaringType.isEmpty() ? methodName : declaringType + "." + methodName;
+
+        // SimpleNameまたはQualifiedNameでマッチ
+        if (isTargetNameMatch(context, methodName, qualifiedName)) {
             AnalysisResult result = AnalysisResult.fromElement(
                     invocation,
                     CATEGORY_METHOD_CALL,
-                    declaringType + methodName + "()");
+                    qualifiedName + "()");
             context.addResult(result);
         }
     }
@@ -83,12 +91,14 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
         }
 
         String typeName = constructorCall.getType().getSimpleName();
-        // コンストラクタ名は型名と同じ
-        if (context.isTargetName(typeName)) {
+        String qualifiedName = constructorCall.getType().getQualifiedName();
+
+        // SimpleNameまたはQualifiedNameでマッチ
+        if (isTargetNameMatch(context, typeName, qualifiedName)) {
             AnalysisResult result = AnalysisResult.fromElement(
                     constructorCall,
                     CATEGORY_CONSTRUCTOR_CALL,
-                    "new " + constructorCall.getType().getQualifiedName() + "()");
+                    "new " + qualifiedName + "()");
             context.addResult(result);
         }
     }
@@ -102,17 +112,20 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
         }
 
         String fieldName = fieldRead.getVariable().getSimpleName();
-        if (context.isTargetName(fieldName)) {
-            // フィールドの宣言クラスも取得
-            String declaringType = "";
-            if (fieldRead.getVariable().getDeclaringType() != null) {
-                declaringType = fieldRead.getVariable().getDeclaringType().getQualifiedName() + ".";
-            }
+        String declaringType = "";
+        if (fieldRead.getVariable().getDeclaringType() != null) {
+            declaringType = fieldRead.getVariable().getDeclaringType().getQualifiedName();
+        }
 
+        // 完全修飾名を構築（例: java.lang.System.out）
+        String qualifiedName = declaringType.isEmpty() ? fieldName : declaringType + "." + fieldName;
+
+        // SimpleNameまたはQualifiedNameでマッチ
+        if (isTargetNameMatch(context, fieldName, qualifiedName)) {
             AnalysisResult result = AnalysisResult.fromElement(
                     fieldRead,
                     CATEGORY_FIELD_ACCESS,
-                    declaringType + fieldName + " (read)");
+                    qualifiedName + " (read)");
             context.addResult(result);
         }
     }
@@ -126,19 +139,48 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
         }
 
         String fieldName = fieldWrite.getVariable().getSimpleName();
-        if (context.isTargetName(fieldName)) {
-            // フィールドの宣言クラスも取得
-            String declaringType = "";
-            if (fieldWrite.getVariable().getDeclaringType() != null) {
-                declaringType = fieldWrite.getVariable().getDeclaringType().getQualifiedName() + ".";
-            }
+        String declaringType = "";
+        if (fieldWrite.getVariable().getDeclaringType() != null) {
+            declaringType = fieldWrite.getVariable().getDeclaringType().getQualifiedName();
+        }
 
+        // 完全修飾名を構築
+        String qualifiedName = declaringType.isEmpty() ? fieldName : declaringType + "." + fieldName;
+
+        // SimpleNameまたはQualifiedNameでマッチ
+        if (isTargetNameMatch(context, fieldName, qualifiedName)) {
             AnalysisResult result = AnalysisResult.fromElement(
                     fieldWrite,
                     CATEGORY_FIELD_ACCESS,
-                    declaringType + fieldName + " (write)");
+                    qualifiedName + " (write)");
             context.addResult(result);
         }
+    }
+
+    /**
+     * 対象名にマッチするかを確認する。
+     * SimpleNameまたはQualifiedNameのいずれかでマッチすれば真。
+     *
+     * @param context       コンテキスト
+     * @param simpleName    単純名（例: prepareStatement）
+     * @param qualifiedName 完全修飾名（例: java.sql.Connection.prepareStatement）
+     * @return マッチした場合true
+     */
+    private boolean isTargetNameMatch(AnalysisContext context, String simpleName, String qualifiedName) {
+        for (String targetName : context.getTargetNames()) {
+            // 完全修飾名でのマッチ
+            if (targetName.contains(".")) {
+                if (qualifiedName.equals(targetName)) {
+                    return true;
+                }
+            } else {
+                // 単純名でのマッチ
+                if (simpleName.equals(targetName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
