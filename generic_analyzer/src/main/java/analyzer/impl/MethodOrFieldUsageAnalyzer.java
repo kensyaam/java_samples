@@ -77,7 +77,8 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     invocation,
                     CATEGORY_METHOD_CALL,
-                    qualifiedName + "()");
+                    qualifiedName + "()",
+                    context);
             context.addResult(result);
         }
     }
@@ -98,7 +99,8 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     constructorCall,
                     CATEGORY_CONSTRUCTOR_CALL,
-                    "new " + qualifiedName + "()");
+                    "new " + qualifiedName + "()",
+                    context);
             context.addResult(result);
         }
     }
@@ -125,7 +127,8 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     fieldRead,
                     CATEGORY_FIELD_ACCESS,
-                    qualifiedName + " (read)");
+                    qualifiedName + " (read)",
+                    context);
             context.addResult(result);
         }
     }
@@ -152,7 +155,8 @@ public class MethodOrFieldUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     fieldWrite,
                     CATEGORY_FIELD_ACCESS,
-                    qualifiedName + " (write)");
+                    qualifiedName + " (write)",
+                    context);
             context.addResult(result);
         }
     }

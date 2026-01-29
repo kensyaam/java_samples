@@ -105,7 +105,7 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 検出結果には以下の情報が含まれます：
 
 - **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal
-- **ファイル名と行番号**: 検出箇所のファイル名と行番号
+- **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
 
@@ -117,12 +117,12 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 ════════════════════════════════════════════════════════════════════════════════
 ────────────────────────────────────────────────────────────────────────────────
 【Type Usage】 java.sql.Connection
-  File: UserDao.java : 25
+  File: com/example/dao/UserDao.java : 25
   Scope: com.example.dao.UserDao#findById(Long)
   Code: Connection conn = dataSource.getConnection()
 ────────────────────────────────────────────────────────────────────────────────
 【Method Call】 java.sql.Connection.prepareStatement()
-  File: UserDao.java : 27
+  File: com/example/dao/UserDao.java : 27
   Scope: com.example.dao.UserDao#findById(Long)
   Code: PreparedStatement ps = conn.prepareStatement(sql)
 

@@ -141,6 +141,11 @@ public class Main {
         context.addTargetNames(targetNames);
         context.addTargetAnnotations(targetAnnotations);
 
+        // ソースディレクトリを追加（相対パス計算用）
+        for (String sourceDir : sourceDirs) {
+            context.addSourceDir(sourceDir);
+        }
+
         // 解析設定が何もない場合は警告
         if (!context.hasAnyConfiguration()) {
             System.out.println("警告: 解析パターンが指定されていません。");

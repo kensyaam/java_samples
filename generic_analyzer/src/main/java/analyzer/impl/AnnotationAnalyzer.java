@@ -45,7 +45,8 @@ public class AnnotationAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     annotatedElement != null ? annotatedElement : element,
                     CATEGORY,
-                    "@" + annotation.getAnnotationType().getSimpleName() + " on " + targetDescription);
+                    "@" + annotation.getAnnotationType().getSimpleName() + " on " + targetDescription,
+                    context);
             context.addResult(result);
         }
     }

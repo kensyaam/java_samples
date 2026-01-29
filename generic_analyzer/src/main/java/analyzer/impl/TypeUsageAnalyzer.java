@@ -103,7 +103,8 @@ public class TypeUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     typeRef,
                     CATEGORY_TYPE_USAGE,
-                    qualifiedName);
+                    qualifiedName,
+                    context);
             context.addResult(result);
         }
     }
@@ -131,7 +132,8 @@ public class TypeUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     ctImport,
                     CATEGORY_IMPORT,
-                    "import " + importName);
+                    "import " + importName,
+                    context);
             context.addResult(result);
         }
     }
@@ -172,7 +174,8 @@ public class TypeUsageAnalyzer implements Analyzer {
                     AnalysisResult result = AnalysisResult.fromElement(
                             ctImport.isImplicit() ? type : ctImport,
                             CATEGORY_IMPORT,
-                            "import " + importName);
+                            "import " + importName,
+                            context);
                     context.addResult(result);
                 }
             }
@@ -195,7 +198,8 @@ public class TypeUsageAnalyzer implements Analyzer {
                 AnalysisResult result = AnalysisResult.fromElement(
                         comment,
                         CATEGORY_JAVADOC,
-                        typeName + " (in Javadoc)");
+                        typeName + " (in Javadoc)",
+                        context);
                 context.addResult(result);
             }
         }
@@ -220,7 +224,8 @@ public class TypeUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     constructorCall,
                     CATEGORY_CONSTRUCTOR_CALL,
-                    "new " + qualifiedName + "()");
+                    "new " + qualifiedName + "()",
+                    context);
             context.addResult(result);
         }
     }
@@ -251,7 +256,8 @@ public class TypeUsageAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     invocation,
                     CATEGORY_METHOD_CALL,
-                    qualifiedName + "." + methodName + "()");
+                    qualifiedName + "." + methodName + "()",
+                    context);
             context.addResult(result);
         }
     }

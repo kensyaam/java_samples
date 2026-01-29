@@ -1,6 +1,8 @@
 package analyzer;
 
+import java.io.File;
 import java.io.PrintWriter;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -24,6 +26,9 @@ public class AnalysisContext {
 
     // アノテーション名のリスト
     private List<String> targetAnnotations = new ArrayList<>();
+
+    // ソースディレクトリのリスト（相対パス計算用）
+    private List<Path> sourceDirs = new ArrayList<>();
 
     // 解析結果の収集
     private final List<AnalysisResult> results = new ArrayList<>();
@@ -94,6 +99,41 @@ public class AnalysisContext {
     }
 
     /**
+     * ソースディレクトリを追加する。
+     *
+     * @param sourceDir ソースディレクトリのパス
+     */
+    public void addSourceDir(String sourceDir) {
+        if (sourceDir != null && !sourceDir.isEmpty()) {
+            sourceDirs.add(Path.of(sourceDir).toAbsolutePath().normalize());
+        }
+    }
+
+    /**
+     * ファイルパスからソースディレクトリを基準にした相対パスを計算する。
+     * マッチするソースディレクトリがない場合はファイル名のみを返す。
+     *
+     * @param file ファイル
+     * @return 相対パス（セパレータは/に統一）
+     */
+    public String getRelativePath(File file) {
+        if (file == null) {
+            return "Unknown";
+        }
+        Path filePath = file.toPath().toAbsolutePath().normalize();
+        for (Path sourceDir : sourceDirs) {
+            if (filePath.startsWith(sourceDir)) {
+                // ソースディレクトリからの相対パスを計算
+                Path relativePath = sourceDir.relativize(filePath);
+                // Windowsのセパレータを/に統一
+                return relativePath.toString().replace('\\', '/');
+            }
+        }
+        // マッチしない場合はファイル名のみ
+        return file.getName();
+    }
+
+    /**
      * 型パターンに一致するか確認する。
      */
     public boolean matchesTypePattern(String typeName) {
@@ -129,8 +169,16 @@ public class AnalysisContext {
 
     /**
      * 解析結果を追加する。
+     * 重複（カテゴリ+ファイル名+行番号+検出内容が同一）は除外する。
      */
     public void addResult(AnalysisResult result) {
+        // 重複チェック用のキーを生成（カテゴリ+ファイル名+行番号+検出内容）
+        String key = result.getCategory() + ":" + result.getFileName() + ":"
+                + result.getLineNumber() + ":" + result.getMatchedElement();
+        if (isAlreadyDetected(key)) {
+            return; // 重複は追加しない
+        }
+        markAsDetected(key);
         results.add(result);
     }
 
@@ -184,6 +232,10 @@ public class AnalysisContext {
         return targetAnnotations;
     }
 
+    public List<Path> getSourceDirs() {
+        return sourceDirs;
+    }
+
     public List<AnalysisResult> getResults() {
         return results;
     }
@@ -210,13 +262,13 @@ public class AnalysisContext {
      * 結果のサマリーを出力する。
      */
     public void printSummary() {
-        System.out.println("\n" + "═".repeat(80));
+        System.out.println("\n" + "=".repeat(80));
         System.out.println("解析完了");
-        System.out.println("═".repeat(80));
+        System.out.println("=".repeat(80));
         System.out.printf("解析ファイル数: %d%n", totalFilesAnalyzed);
         System.out.printf("スキャン要素数: %d%n", totalElementsScanned);
         System.out.printf("検出件数: %d%n", results.size());
-        System.out.println("═".repeat(80));
+        System.out.println("=".repeat(80));
     }
 
     /**
@@ -230,9 +282,9 @@ public class AnalysisContext {
             return;
         }
 
-        writer.println("\n" + "═".repeat(80));
+        writer.println("\n" + "=".repeat(80));
         writer.println("検出結果");
-        writer.println("═".repeat(80));
+        writer.println("=".repeat(80));
 
         for (AnalysisResult result : results) {
             writer.print(result);

@@ -49,7 +49,8 @@ public class StringLiteralAnalyzer implements Analyzer {
             AnalysisResult result = AnalysisResult.fromElement(
                     element,
                     CATEGORY,
-                    "\"" + displayValue + "\"");
+                    "\"" + displayValue + "\"",
+                    context);
             context.addResult(result);
         }
     }
