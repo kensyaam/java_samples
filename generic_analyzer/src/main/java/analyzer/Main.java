@@ -146,6 +146,9 @@ public class Main {
             context.addSourceDir(sourceDir);
         }
 
+        // ソースファイルのエンコーディングを設定（コードスニペット取得時に使用）
+        context.setSourceEncoding(Charset.forName(encoding));
+
         // 解析設定が何もない場合は警告
         if (!context.hasAnyConfiguration()) {
             System.out.println("警告: 解析パターンが指定されていません。");

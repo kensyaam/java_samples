@@ -11,8 +11,10 @@ import spoon.reflect.reference.CtExecutableReference;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -70,8 +72,8 @@ public class AnalysisResult {
         // スコープの取得（クラス#メソッド）
         String scope = getScope(element);
 
-        // ソースファイルから対象行をコードスニペットとして取得
-        String codeSnippet = getCodeSnippet(element, lineNumber);
+        // ソースファイルから対象行をコードスニペットとして取得（エンコーディング指定）
+        String codeSnippet = getCodeSnippet(element, lineNumber, context.getSourceEncoding());
 
         return new AnalysisResult(category, fileName, lineNumber, scope, codeSnippet, matchedElement);
     }
@@ -229,16 +231,21 @@ public class AnalysisResult {
     /**
      * コードスニペットを取得する。
      * ソースファイルから直接対象行を読み取る。
+     *
+     * @param element    対象要素
+     * @param lineNumber 行番号
+     * @param encoding   ソースファイルのエンコーディング
      */
-    private static String getCodeSnippet(CtElement element, int lineNumber) {
+    private static String getCodeSnippet(CtElement element, int lineNumber, Charset encoding) {
         // ファイルと行番号が無効な場合はフォールバック
         File file = getSourceFile(element);
         if (file == null || lineNumber <= 0) {
             return getCodeSnippetFallback(element);
         }
 
-        // ソースファイルから対象行を読み取る
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+        // ソースファイルから対象行を読み取る（エンコーディングを指定）
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new FileInputStream(file), encoding))) {
             String line;
             int currentLine = 0;
             while ((line = reader.readLine()) != null) {
@@ -340,11 +347,11 @@ public class AnalysisResult {
      * @return CSV形式の文字列
      */
     public String toCsvLine() {
-        return String.format("%s,%s,%d,%s,%s,%s",
-                escapeCsv(category),
+        return String.format("%s,%d,%s,%s,%s,%s",
                 escapeCsv(fileName),
                 lineNumber,
                 escapeCsv(scope),
+                escapeCsv(category),
                 escapeCsv(matchedElement),
                 escapeCsv(codeSnippet));
     }

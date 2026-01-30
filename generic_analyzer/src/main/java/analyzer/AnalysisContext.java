@@ -2,6 +2,8 @@ package analyzer;
 
 import java.io.File;
 import java.io.PrintWriter;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,6 +37,9 @@ public class AnalysisContext {
 
     // 重複検出防止用のキーセット
     private final Set<String> detectedKeys = new HashSet<>();
+
+    // ソースファイルのエンコーディング
+    private Charset sourceEncoding = StandardCharsets.UTF_8;
 
     // 統計情報
     private int totalFilesAnalyzed = 0;
@@ -236,6 +241,26 @@ public class AnalysisContext {
         return sourceDirs;
     }
 
+    /**
+     * ソースファイルのエンコーディングを設定する。
+     *
+     * @param encoding エンコーディング
+     */
+    public void setSourceEncoding(Charset encoding) {
+        if (encoding != null) {
+            this.sourceEncoding = encoding;
+        }
+    }
+
+    /**
+     * ソースファイルのエンコーディングを取得する。
+     *
+     * @return エンコーディング
+     */
+    public Charset getSourceEncoding() {
+        return sourceEncoding;
+    }
+
     public List<AnalysisResult> getResults() {
         return results;
     }
@@ -299,7 +324,7 @@ public class AnalysisContext {
      */
     public void printResultsCsv(PrintWriter writer) {
         // ヘッダー出力
-        writer.println("カテゴリ,ファイル名,行番号,スコープ,検出内容,コードスニペット");
+        writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット");
 
         for (AnalysisResult result : results) {
             writer.println(result.toCsvLine());
