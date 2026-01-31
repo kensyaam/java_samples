@@ -74,6 +74,7 @@ java -jar model-parser.jar [options]
 | `-t <file>` | 対象クラス一覧ファイル | ○ | - |
 | `-o <file>` | 出力Excelファイル名 | - | output.xlsx |
 | `-v, --verbose` | 内部モデルの構造をドット記法で展開して出力する | - | - |
+| `-rj, --real-json` | 実際のクラスをロードしてJSONを生成する | - | - |
 | `-h, --help` | ヘルプメッセージを表示 | - | - |
 
 ### クラスパス（-cp）オプション

@@ -6,6 +6,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,6 +18,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.LinkedList;
+import java.util.Collection;
+import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Modifier;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -24,6 +32,12 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -186,6 +200,7 @@ public class ModelParser {
         String targetClassesFile = null;
         String outputFile = "output.xlsx";
         boolean verbose = false;
+        boolean realJson = false;
     }
 
     // ==========================================================================
@@ -282,6 +297,11 @@ public class ModelParser {
                 .desc("内部モデルの構造を展開して出力する")
                 .build());
 
+        options.addOption(Option.builder("rj")
+                .longOpt("real-json")
+                .desc("実際のクラスをロードしてJSONを生成する")
+                .build());
+
         options.addOption(Option.builder("h")
                 .longOpt("help")
                 .desc("ヘルプメッセージを表示")
@@ -335,6 +355,11 @@ public class ModelParser {
         // Verboseオプション
         if (cmd.hasOption("v")) {
             options.verbose = true;
+        }
+
+        // RealJSONオプション
+        if (cmd.hasOption("rj")) {
+            options.realJson = true;
         }
 
         return options;
@@ -457,7 +482,7 @@ public class ModelParser {
 
         // Excelファイルを生成
         System.out.println("[INFO] Excelファイルを生成中...");
-        generateExcel(allClassMetadata, options.outputFile);
+        generateExcel(allClassMetadata, options);
         System.out.println("[INFO] Excelファイル生成完了: " + options.outputFile);
     }
 
@@ -883,7 +908,7 @@ public class ModelParser {
         if (typeRef.isArray() && typeRef instanceof CtArrayTypeReference<?>) {
             CtArrayTypeReference<?> arrayRef = (CtArrayTypeReference<?>) typeRef;
             CtTypeReference<?> componentType = arrayRef.getComponentType();
-            String innerType = componentType != null ? componentType.getSimpleName() : "unknown";
+            String innerType = componentType != null ? componentType.getQualifiedName() : "unknown";
             return new String[] { "array", innerType };
         }
 
@@ -892,7 +917,7 @@ public class ModelParser {
             List<CtTypeReference<?>> typeArgs = typeRef.getActualTypeArguments();
             String innerType = "";
             if (typeArgs != null && !typeArgs.isEmpty()) {
-                innerType = typeArgs.get(0).getSimpleName();
+                innerType = typeArgs.get(0).getQualifiedName();
             }
             return new String[] { "array", innerType };
         }
@@ -922,7 +947,7 @@ public class ModelParser {
         }
 
         // その他のクラスはobjectとして扱う
-        return new String[] { "object", typeName };
+        return new String[] { "object", qualifiedName };
     }
 
     /**
@@ -984,7 +1009,8 @@ public class ModelParser {
     /**
      * Excelファイルを生成する。
      */
-    private void generateExcel(List<ClassMetadata> classMetadataList, String outputFile) throws IOException {
+    private void generateExcel(List<ClassMetadata> classMetadataList, CliOptions options) throws IOException {
+        String outputFile = options.outputFile;
         try (Workbook workbook = new XSSFWorkbook()) {
             // スタイルを作成
             CellStyle headerStyle = createHeaderStyle(workbook);
@@ -992,15 +1018,19 @@ public class ModelParser {
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle classTitleStyle = createClassTitleStyle(workbook);
             CellStyle linkStyle = createLinkStyle(workbook);
+            CellStyle jsonStyle = createJsonStyle(workbook);
 
             // 1パス目: クラス名から名前付き範囲名のマップを作成
             Map<String, String> classToNamedRangeMap = new HashMap<>();
+            // ルックアップ用のメタデータマップ作成
+            Map<String, ClassMetadata> classMetadataMap = new HashMap<>();
             for (ClassMetadata classMeta : classMetadataList) {
                 String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
                 classToNamedRangeMap.put(classMeta.qualifiedName, namedRangeName);
                 if (!classToNamedRangeMap.containsKey(classMeta.className)) {
                     classToNamedRangeMap.put(classMeta.className, namedRangeName);
                 }
+                classMetadataMap.put(classMeta.qualifiedName, classMeta);
             }
 
             // Index（索引）シートを作成
@@ -1122,7 +1152,11 @@ public class ModelParser {
 
                     // 内部要素/参照セル - 他クラスへのリンクを設定
                     Cell innerRefCell = row.createCell(4);
-                    innerRefCell.setCellValue(metadata.innerRef != null ? metadata.innerRef : "");
+                    String displayRef = metadata.innerRef;
+                    if (displayRef != null && displayRef.contains(".")) {
+                        displayRef = displayRef.substring(displayRef.lastIndexOf(".") + 1);
+                    }
+                    innerRefCell.setCellValue(displayRef != null ? displayRef : "");
                     if (metadata.innerRef != null && !metadata.innerRef.isEmpty()
                             && classToNamedRangeMap.containsKey(metadata.innerRef)) {
                         // 名前付き範囲へのリンクを作成
@@ -1142,6 +1176,9 @@ public class ModelParser {
                     // 定義元クラス
                     createCell(row, 9, metadata.sourceClass, dataStyle);
                 }
+
+                // JSONイメージを出力
+                rowNum = appendJsonImage(sheet, workbook, rowNum, classMeta, jsonStyle, options, classMetadataMap);
 
                 // クラス間に空行を追加
                 rowNum++;
@@ -1174,13 +1211,251 @@ public class ModelParser {
         // style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
         // style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 
-        // フォント（太字）
+        // フォント（太字・メイリオ）
         Font font = workbook.createFont();
+        font.setFontName("Meiryo");
         font.setBold(true);
+        font.setItalic(true);
         font.setFontHeightInPoints((short) 12);
         style.setFont(font);
 
         return style;
+    }
+
+    /**
+     * 各モデルのJSONイメージを出力する。
+     */
+    private int appendJsonImage(Sheet sheet, Workbook workbook, int rowNum, ClassMetadata classMeta,
+            CellStyle jsonStyle, CliOptions options, Map<String, ClassMetadata> classMetadataMap) {
+        try {
+            // JSON生成
+            String json;
+            if (options.realJson) {
+                json = generateRealJsonImage(classMeta, options, classMetadataMap);
+            } else {
+                json = generateJsonImage(classMeta.fields);
+            }
+
+            // 10行分を結合
+            int startRowNum = rowNum;
+            int endRowNum = rowNum + 9;
+
+            for (int i = startRowNum; i <= endRowNum; i++) {
+                Row row = sheet.createRow(i);
+                // 結合セルの各セルにもスタイルを適用（境界線のため）
+                for (int j = 0; j <= 9; j++) {
+                    Cell cell = row.createCell(j);
+                    cell.setCellStyle(jsonStyle);
+                    // 最初のセルの左上にのみ値を設定
+                    if (i == startRowNum && j == 0) {
+                        cell.setCellValue(json);
+                    }
+                }
+                // 各行の高さを設定（15ポイント * 10行 = 150ポイント程度の領域を確保）
+                row.setHeightInPoints(15f);
+            }
+
+            // セル結合（A～J列、縦10行）
+            sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(
+                    startRowNum, endRowNum, 0, 9));
+
+            return endRowNum + 1;
+        } catch (Exception e) {
+            System.err
+                    .println("         -> [ERROR] JSON出力中にエラーが発生しました (" + classMeta.className + "): " + e.getMessage());
+            return rowNum;
+        }
+    }
+
+    /**
+     * フィールドメタデータからJSONイメージを生成する。
+     */
+    private String generateJsonImage(List<FieldMetadata> fields) throws Exception {
+        Map<String, Object> root = new HashMap<>();
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.enable(SerializationFeature.INDENT_OUTPUT);
+
+        for (FieldMetadata field : fields) {
+            String jsonKey = field.jsonKey;
+            Object sampleValue = parseSampleValue(field.sampleValue, field.jsonType);
+
+            // ドット記法を解釈してMapを構築
+            putValueByPath(root, jsonKey, sampleValue);
+        }
+
+        return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+    }
+
+    /**
+     * ドット記法（a.bやa[].b）のパスに従って値をMapにセットする。
+     */
+    @SuppressWarnings("unchecked")
+    private void putValueByPath(Map<String, Object> map, String path, Object value) {
+        String[] parts = path.split("\\.", 2);
+        String currentPart = parts[0];
+
+        boolean isArray = currentPart.endsWith("[]");
+        String key = isArray ? currentPart.substring(0, currentPart.length() - 2) : currentPart;
+
+        if (parts.length == 1) {
+            // 末端の場合
+            if (isArray) {
+                List<Object> list = (List<Object>) map.computeIfAbsent(key, k -> new ArrayList<>());
+                list.add(value);
+            } else {
+                map.put(key, value);
+            }
+        } else {
+            // 途中の場合
+            if (isArray) {
+                List<Map<String, Object>> list = (List<Map<String, Object>>) map.computeIfAbsent(key,
+                        k -> new ArrayList<>());
+                Map<String, Object> childMap;
+                if (list.isEmpty()) {
+                    childMap = new HashMap<>();
+                    list.add(childMap);
+                } else {
+                    childMap = list.get(0);
+                }
+                putValueByPath(childMap, parts[1], value);
+            } else {
+                Map<String, Object> childMap = (Map<String, Object>) map.computeIfAbsent(key, k -> new HashMap<>());
+                putValueByPath(childMap, parts[1], value);
+            }
+        }
+    }
+
+    /**
+     * サンプル値文字列を適切なJavaオブジェクトに変換する。
+     */
+    private Object parseSampleValue(String sampleValue, String jsonType) {
+        if (sampleValue == null || sampleValue.isEmpty()) {
+            return null;
+        }
+
+        // 引用符の除去（文字列の場合など）
+        String cleanValue = sampleValue;
+        if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+            cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+        }
+
+        switch (jsonType) {
+            case "number":
+                try {
+                    if (cleanValue.contains(".")) {
+                        return Double.parseDouble(cleanValue);
+                    } else {
+                        return Long.parseLong(cleanValue);
+                    }
+                } catch (NumberFormatException e) {
+                    return 0;
+                }
+            case "boolean":
+                return Boolean.parseBoolean(cleanValue);
+            case "string":
+                return cleanValue;
+            case "array":
+                return new ArrayList<>();
+            case "object":
+                return new HashMap<>();
+            default:
+                return cleanValue;
+        }
+    }
+
+    /**
+     * JSONイメージ出力用のスタイルを作成する。
+     */
+    private CellStyle createJsonStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+
+        // 境界線（点線または実線）
+        style.setBorderTop(BorderStyle.DASHED);
+        style.setBorderBottom(BorderStyle.DASHED);
+        style.setBorderLeft(BorderStyle.DASHED);
+        style.setBorderRight(BorderStyle.DASHED);
+
+        // 背景色（ごく薄いグレー）
+        style.setFillForegroundColor(IndexedColors.AQUA.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        // フォント（等幅フォント、サイズ小さめ）
+        Font font = workbook.createFont();
+        font.setFontName("Consolas");
+        font.setFontHeightInPoints((short) 9);
+        style.setFont(font);
+
+        // 配置（左詰め、上詰め、折り返し）
+        style.setAlignment(HorizontalAlignment.LEFT);
+        style.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.TOP);
+        style.setWrapText(true);
+
+        return style;
+    }
+
+    /**
+     * 実際のクラスをロードしてインスタンス化し、JacksonでJSONイメージを生成する。
+     */
+    private String generateRealJsonImage(ClassMetadata classMeta, CliOptions options,
+            Map<String, ClassMetadata> classMetadataMap) throws Exception {
+        String qualifiedName = classMeta.qualifiedName;
+        List<URL> urls = new ArrayList<>();
+        for (String cp : options.classpathEntries) {
+            File file = new File(cp);
+            if (file.isDirectory()) {
+                // ディレクトリ自体を追加
+                urls.add(file.toURI().toURL());
+                // ディレクトリ直下のJARファイルを追加
+                File[] jarFiles = file.listFiles((dir, name) -> name.endsWith(".jar"));
+                if (jarFiles != null) {
+                    for (File jarFile : jarFiles) {
+                        urls.add(jarFile.toURI().toURL());
+                    }
+                }
+            } else if (file.isFile() && file.getName().endsWith(".jar")) {
+                urls.add(file.toURI().toURL());
+            }
+        }
+        for (String src : options.sourceDirs) {
+            // ソースディレクトリも（コンパイル済みクラスがあるかもしれないので）念のため追加
+            urls.add(new File(src).toURI().toURL());
+        }
+
+        // System.out.println("--- Classpath for Real Class Loading ---");
+        // for (URL url : urls) {
+        // System.out.println(url);
+        // }
+        // System.out.println("----------------------------------------");
+
+        try (URLClassLoader loader = new URLClassLoader(urls.toArray(new URL[0]), this.getClass().getClassLoader())) {
+            Class<?> clazz = Class.forName(qualifiedName, true, loader);
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+
+            // メタデータを使ってフィールドに値をセット
+            populateObject(instance, classMeta, classMetadataMap, new HashSet<>(), loader);
+
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            // フィールドのみを対象とし、ゲッター（isNewなど）は無視する
+            mapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+            mapper.setVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE);
+            mapper.setVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE);
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(instance);
+        } catch (ClassNotFoundException e) {
+            return "// [WARNING] クラスが見つかりませんでした: " + qualifiedName + "\n" +
+                    "// 定義データから生成したJSONを以下に出力します:\n" +
+                    generateJsonImage(classMeta.fields);
+        } catch (NoSuchMethodException e) {
+            return "// [WARNING] デフォルトコンストラクタが見つかりませんでした: " + qualifiedName + "\n" +
+                    "// 定義データから生成したJSONを以下に出力します:\n" +
+                    generateJsonImage(classMeta.fields);
+        } catch (Exception e) {
+            return "// [ERROR] JSON生成中にエラーが発生しました: " + e.getMessage() + "\n" +
+                    "// 定義データから生成したJSONを以下に出力します:\n" +
+                    generateJsonImage(classMeta.fields);
+        }
     }
 
     /**
@@ -1191,6 +1466,7 @@ public class ModelParser {
 
         // フォント（青色・下線）
         Font font = workbook.createFont();
+        font.setFontName("Meiryo");
         font.setColor(IndexedColors.BLUE.getIndex());
         font.setUnderline(Font.U_SINGLE);
         style.setFont(font);
@@ -1214,6 +1490,10 @@ public class ModelParser {
     }
 
     /**
+     * クラス名見出し用のスタイルを作成する。
+     */
+
+    /**
      * ヘッダー用のスタイルを作成する。
      */
     private CellStyle createHeaderStyle(Workbook workbook) {
@@ -1225,6 +1505,7 @@ public class ModelParser {
 
         // フォント
         Font font = workbook.createFont();
+        font.setFontName("Meiryo");
         font.setBold(true);
         font.setColor(IndexedColors.WHITE.getIndex());
         style.setFont(font);
@@ -1253,6 +1534,7 @@ public class ModelParser {
 
         // フォント
         Font font = workbook.createFont();
+        font.setFontName("Meiryo");
         font.setBold(true);
         font.setColor(IndexedColors.WHITE.getIndex());
         style.setFont(font);
@@ -1275,6 +1557,11 @@ public class ModelParser {
     private CellStyle createDataStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
 
+        // フォント
+        Font font = workbook.createFont();
+        font.setFontName("Meiryo");
+        style.setFont(font);
+
         // 境界線
         style.setBorderTop(BorderStyle.THIN);
         style.setBorderBottom(BorderStyle.THIN);
@@ -1282,5 +1569,212 @@ public class ModelParser {
         style.setBorderRight(BorderStyle.THIN);
 
         return style;
+    }
+
+    /**
+     * インスタンスのフィールドに値を再帰的にセットする。
+     */
+    private void populateObject(Object instance, ClassMetadata classMeta, Map<String, ClassMetadata> classMetadataMap,
+            Set<String> visited, ClassLoader loader) {
+        if (instance == null || classMeta == null) {
+            return;
+        }
+
+        // 循環参照防止（現在のパスに含まれているかチェック）
+        String key = classMeta.qualifiedName;
+        if (visited.contains(key)) {
+            return;
+        }
+        visited.add(key);
+
+        try {
+            for (FieldMetadata fieldMeta : classMeta.fields) {
+                try {
+                    Field field = getFieldRecursive(instance.getClass(), fieldMeta.javaFieldName);
+                    if (field == null) {
+                        continue;
+                    }
+                    field.setAccessible(true);
+
+                    // staticやfinalフィールドはスキップ
+                    if (Modifier.isStatic(field.getModifiers()) || Modifier.isFinal(field.getModifiers())) {
+                        continue;
+                    }
+
+                    Object value = null;
+
+                    // 配列/コレクションの場合
+                    // 配列/コレクションの場合
+                    if ("array".equals(fieldMeta.jsonType)) {
+                        if (Collection.class.isAssignableFrom(field.getType())) {
+                            Collection<Object> collection = createCollectionInstance(field.getType());
+
+                            if (collection != null) {
+                                if (fieldMeta.innerRef != null && !fieldMeta.innerRef.isEmpty()) {
+                                    // 内部要素がクラス定義にあるか確認
+                                    ClassMetadata nestedMeta = classMetadataMap.get(fieldMeta.innerRef);
+                                    if (nestedMeta != null) {
+                                        // オブジェクトのリスト
+                                        try {
+                                            Class<?> nestedClass = Class.forName(nestedMeta.qualifiedName, true,
+                                                    loader);
+                                            Object nestedInstance = nestedClass.getDeclaredConstructor().newInstance();
+                                            populateObject(nestedInstance, nestedMeta, classMetadataMap, visited,
+                                                    loader);
+                                            collection.add(nestedInstance);
+                                        } catch (Exception e) {
+                                            System.out.println("Failed to instantiate nested object for Collection: "
+                                                    + fieldMeta.javaFieldName + " - " + e.getMessage());
+                                            e.printStackTrace();
+                                        }
+                                    } else {
+                                        // プリミティブやStringのリスト（簡易対応）
+                                        if ("String".equals(fieldMeta.innerRef)
+                                                || "string".equals(fieldMeta.innerRef)) {
+                                            collection.add("text");
+                                        } else if ("Integer".equals(fieldMeta.innerRef)
+                                                || "int".equals(fieldMeta.innerRef)) {
+                                            collection.add(123);
+                                        }
+                                    }
+                                }
+                                value = collection;
+                            }
+                        }
+                    }
+                    // オブジェクト（ネスト）の場合
+                    else if ("object".equals(fieldMeta.jsonType) && fieldMeta.innerRef != null
+                            && !fieldMeta.innerRef.isEmpty() && !"Map".equals(fieldMeta.innerRef)) {
+                        ClassMetadata nestedMeta = classMetadataMap.get(fieldMeta.innerRef);
+                        if (nestedMeta != null) {
+                            try {
+                                Class<?> nestedClass = Class.forName(nestedMeta.qualifiedName, true, loader);
+                                Object nestedInstance = nestedClass.getDeclaredConstructor().newInstance();
+                                populateObject(nestedInstance, nestedMeta, classMetadataMap, visited, loader);
+                                value = nestedInstance;
+                            } catch (Exception e) {
+                                System.out.println("Failed to instantiate nested object: " + fieldMeta.javaFieldName
+                                        + " - " + e.getMessage());
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                    // その他の場合 (string, number, boolean)
+                    else {
+                        value = parseSampleValue(fieldMeta.sampleValue, fieldMeta.jsonType);
+                        value = convertToFieldType(value, field.getType());
+                    }
+
+                    if (value != null) {
+                        field.set(instance, value);
+                    }
+
+                } catch (Exception e) {
+                    System.out.println("Set field error: " + fieldMeta.javaFieldName + " - " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        } finally {
+            // Backtracking: この枝を抜けたらvisitedから削除
+            visited.remove(key);
+        }
+    }
+
+    /**
+     * クラス階層を遡ってフィールドを取得する。
+     */
+    private Field getFieldRecursive(Class<?> clazz, String fieldName) {
+        Class<?> current = clazz;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 値をフィールドの型に合わせて変換する。
+     */
+    private Object convertToFieldType(Object value, Class<?> type) {
+        if (value == null)
+            return null;
+        if (type.isAssignableFrom(value.getClass())) {
+            return value;
+        }
+
+        // Number conversions
+        if (value instanceof Number) {
+            Number num = (Number) value;
+            if (type == int.class || type == Integer.class)
+                return num.intValue();
+            if (type == long.class || type == Long.class)
+                return num.longValue();
+            if (type == double.class || type == Double.class)
+                return num.doubleValue();
+            if (type == float.class || type == Float.class)
+                return num.floatValue();
+            if (type == short.class || type == Short.class)
+                return num.shortValue();
+            if (type == byte.class || type == Byte.class)
+                return num.byteValue();
+            if (type == java.math.BigDecimal.class)
+                return new java.math.BigDecimal(num.toString());
+        }
+
+        // Boolean conversions
+        if (value instanceof Boolean) {
+            if (type == boolean.class || type == Boolean.class)
+                return value;
+        }
+
+        // String to temporal types
+        if (value instanceof String) {
+            String str = (String) value;
+            try {
+                if (type == java.time.LocalDate.class) {
+                    return java.time.LocalDate.now();
+                } else if (type == java.time.LocalDateTime.class) {
+                    return java.time.LocalDateTime.now();
+                } else if (type == java.time.LocalTime.class) {
+                    return java.time.LocalTime.now();
+                } else if (type == java.time.ZonedDateTime.class) {
+                    return java.time.ZonedDateTime.now();
+                } else if (type == java.time.OffsetDateTime.class) {
+                    return java.time.OffsetDateTime.now();
+                } else if (type == java.time.Instant.class) {
+                    return java.time.Instant.now();
+                } else if (type == java.util.Date.class) {
+                    return new java.util.Date();
+                } else if (type == java.sql.Timestamp.class) {
+                    return new java.sql.Timestamp(System.currentTimeMillis());
+                } else if (type == java.sql.Date.class) {
+                    return new java.sql.Date(System.currentTimeMillis());
+                }
+            } catch (Exception e) {
+                // Ignore parsing errors, return null or original value
+            }
+        }
+
+        return value;
+    }
+
+    /**
+     * コレクションの型に応じて適切なインスタンスを作成する。
+     */
+    private Collection<Object> createCollectionInstance(Class<?> type) {
+        if (type == List.class || type == ArrayList.class || type == Collection.class || type == Iterable.class) {
+            return new ArrayList<>();
+        } else if (type == LinkedList.class) {
+            return new LinkedList<>();
+        } else if (type == Set.class || type == HashSet.class) {
+            return new HashSet<>();
+        } else if (type == TreeSet.class) {
+            return new TreeSet<>();
+        }
+        // デフォルトはArrayList
+        return new ArrayList<>();
     }
 }

@@ -28,6 +28,10 @@ dependencies {
     
     // Logging
     implementation 'org.slf4j:slf4j-simple:2.0.16'
+
+    // Jackson - JSON processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2'
 }
 
 application {
