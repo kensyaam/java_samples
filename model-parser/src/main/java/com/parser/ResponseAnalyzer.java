@@ -143,9 +143,9 @@ public class ResponseAnalyzer {
     /** Excelシート名（リクエスト解析用） */
     private static final String REQUEST_SHEET_NAME = "RequestAnalysis";
 
-    /** HTML標準フォームタグ */
+    /** HTML標準フォーム */
     private static final Pattern HTML_FORM_PATTERN = Pattern.compile(
-            "<form\\b([^>]*)>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            "<form(?:\\s+([^>]*))?>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** Spring Form Tagフォーム */
     private static final Pattern SPRING_FORM_PATTERN = Pattern.compile(
@@ -1424,6 +1424,11 @@ public class ResponseAnalyzer {
             System.out.println("  [ERROR] JSPファイル読み込みエラー: " + jspPath + " - " + e.getMessage());
         }
 
+        if (forms.isEmpty()) {
+            // フォームがない場合も、ファイル自体をリストに出力するためのダミーエントリを追加
+            forms.add(new FormInfo(relativePath, "", "", "", "(no form)"));
+        }
+
         return forms;
     }
 
@@ -1889,20 +1894,37 @@ public class ResponseAnalyzer {
         // データ行
         int rowNum = 1;
         for (FormInfo form : formResults) {
-            for (InputElementInfo input : form.inputs) {
+            if (form.inputs.isEmpty()) {
+                // 入力要素がない場合（フォーム自体がない、またはフォーム内に入力要素がない）
                 Row row = sheet.createRow(rowNum++);
-
                 createCell(row, 0, form.jspFilePath, dataStyle);
                 createCell(row, 1, form.action, dataStyle);
                 createCell(row, 2, form.method, dataStyle);
                 createCell(row, 3, form.rootModel, dataStyle);
-                createCell(row, 4, input.inputTag, dataStyle);
-                createCell(row, 5, input.parameterName, dataStyle);
-                createCell(row, 6, input.inputType, dataStyle);
-                createCell(row, 7, input.maxLength, dataStyle);
-                createCell(row, 8, input.required ? "true" : "", dataStyle);
-                createCell(row, 9, input.jsonKeyEstimate, dataStyle);
-                createCell(row, 10, input.nestPath, dataStyle);
+                createCell(row, 4, form.formTag, dataStyle); // Input Tag列にフォームタグ情報を表示（または空にする）
+                // 以降の列は空
+                createCell(row, 5, "", dataStyle);
+                createCell(row, 6, "", dataStyle);
+                createCell(row, 7, "", dataStyle);
+                createCell(row, 8, "", dataStyle);
+                createCell(row, 9, "", dataStyle);
+                createCell(row, 10, "", dataStyle);
+            } else {
+                for (InputElementInfo input : form.inputs) {
+                    Row row = sheet.createRow(rowNum++);
+
+                    createCell(row, 0, form.jspFilePath, dataStyle);
+                    createCell(row, 1, form.action, dataStyle);
+                    createCell(row, 2, form.method, dataStyle);
+                    createCell(row, 3, form.rootModel, dataStyle);
+                    createCell(row, 4, input.inputTag, dataStyle);
+                    createCell(row, 5, input.parameterName, dataStyle);
+                    createCell(row, 6, input.inputType, dataStyle);
+                    createCell(row, 7, input.maxLength, dataStyle);
+                    createCell(row, 8, input.required ? "true" : "", dataStyle);
+                    createCell(row, 9, input.jsonKeyEstimate, dataStyle);
+                    createCell(row, 10, input.nestPath, dataStyle);
+                }
             }
         }
 
