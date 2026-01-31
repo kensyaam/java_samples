@@ -1215,7 +1215,6 @@ public class ModelParser {
         Font font = workbook.createFont();
         font.setFontName("Meiryo");
         font.setBold(true);
-        font.setItalic(true);
         font.setFontHeightInPoints((short) 12);
         style.setFont(font);
 
@@ -1488,10 +1487,6 @@ public class ModelParser {
         cell.setCellValue(value != null ? value : "");
         cell.setCellStyle(style);
     }
-
-    /**
-     * クラス名見出し用のスタイルを作成する。
-     */
 
     /**
      * ヘッダー用のスタイルを作成する。
