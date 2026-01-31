@@ -1826,17 +1826,24 @@ public class ResponseAnalyzer {
             fillUsed.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
             fillUsed.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
 
-            // UNUSEDの色分け (赤)
+            // UNUSEDの色分け (グレイ)
             ConditionalFormattingRule ruleUnused = sheetCF.createConditionalFormattingRule("$H2=\"" + UNUSED + "\"");
             PatternFormatting fillUnused = ruleUnused.createPatternFormatting();
-            fillUnused.setFillBackgroundColor(IndexedColors.CORAL.getIndex());
+            fillUnused.setFillBackgroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
             fillUnused.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
 
+            // モデルクラスが設定されていない行の色分け
+            ConditionalFormattingRule ruleUnset = sheetCF.createConditionalFormattingRule("AND($H2=\"\", $F2=\"\")");
+            PatternFormatting fillUnset = ruleUnset.createPatternFormatting();
+            fillUnset.setFillBackgroundColor(IndexedColors.LIGHT_ORANGE.getIndex());
+            fillUnset.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
             CellRangeAddress[] regions = {
-                    CellRangeAddress.valueOf("H2:H" + rowNum)
+                    CellRangeAddress.valueOf("D2:H" + rowNum)
             };
 
-            sheetCF.addConditionalFormatting(regions, ruleUsed, ruleUnused);
+            sheetCF.addConditionalFormatting(regions,
+                    new ConditionalFormattingRule[] { ruleUsed, ruleUnused, ruleUnset });
 
             // グルーピング用の太線 (MEDIUM top border)
             // 列 A, B, C, D の値が変化した際に行の頭に線を引く
