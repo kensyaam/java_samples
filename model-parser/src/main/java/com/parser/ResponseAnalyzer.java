@@ -40,6 +40,11 @@ import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.BorderFormatting;
+import org.apache.poi.ss.usermodel.ConditionalFormattingRule;
+import org.apache.poi.ss.usermodel.PatternFormatting;
+import org.apache.poi.ss.usermodel.SheetConditionalFormatting;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import spoon.Launcher;
@@ -1736,12 +1741,14 @@ public class ResponseAnalyzer {
             String outputFile) throws IOException {
         try (Workbook workbook = new XSSFWorkbook()) {
             CellStyle headerStyle = createHeaderStyle(workbook);
+            CellStyle jspHeaderStyle = createJspHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle usedStyle = createUsedStyle(workbook);
             CellStyle unusedStyle = createUnusedStyle(workbook);
 
             // ResponseAnalysisシートを生成
-            generateResponseAnalysisSheet(workbook, results, headerStyle, dataStyle, usedStyle, unusedStyle);
+            generateResponseAnalysisSheet(workbook, results, headerStyle, jspHeaderStyle, dataStyle, usedStyle,
+                    unusedStyle);
 
             // RequestAnalysisシートを生成
             generateRequestAnalysisSheet(workbook, formResults, headerStyle, dataStyle);
@@ -1757,7 +1764,8 @@ public class ResponseAnalyzer {
      * ResponseAnalysisシートを生成する。
      */
     private void generateResponseAnalysisSheet(Workbook workbook, List<ResponseAnalysisResult> results,
-            CellStyle headerStyle, CellStyle dataStyle, CellStyle usedStyle, CellStyle unusedStyle) {
+            CellStyle headerStyle, CellStyle jspHeaderStyle, CellStyle dataStyle, CellStyle usedStyle,
+            CellStyle unusedStyle) {
         Sheet sheet = workbook.createSheet(SHEET_NAME);
 
         // ヘッダー
@@ -1771,7 +1779,12 @@ public class ResponseAnalyzer {
         for (int i = 0; i < headers.length; i++) {
             Cell cell = headerRow.createCell(i);
             cell.setCellValue(headers[i]);
-            cell.setCellStyle(headerStyle);
+            // 特定の項目は別のスタイルを適用 (View Path, Attribute Name, JSP Reference)
+            if (i >= 2 && i <= 4) {
+                cell.setCellStyle(jspHeaderStyle);
+            } else {
+                cell.setCellStyle(headerStyle);
+            }
         }
 
         // データ行
@@ -1787,16 +1800,8 @@ public class ResponseAnalyzer {
             createCell(row, 5, result.javaClass, dataStyle);
             createCell(row, 6, result.javaField, dataStyle);
 
-            // 使用状況セル（色分け）
-            Cell usageCell = row.createCell(7);
-            usageCell.setCellValue(result.usageStatus);
-            if (USED.equals(result.usageStatus)) {
-                usageCell.setCellStyle(usedStyle);
-            } else if (UNUSED.equals(result.usageStatus)) {
-                usageCell.setCellStyle(unusedStyle);
-            } else {
-                usageCell.setCellStyle(dataStyle);
-            }
+            // 使用状況セル（値のみ設定、色分けは条件付き書式で行う）
+            createCell(row, 7, result.usageStatus, dataStyle);
 
             createCell(row, 8, result.attributeOrigin, dataStyle);
             createCell(row, 9, result.warning, dataStyle);
@@ -1811,9 +1816,46 @@ public class ResponseAnalyzer {
             }
         }
 
+        // 条件付き書式を設定（使用状況列: インデックス7）
+        if (rowNum > 1) {
+            SheetConditionalFormatting sheetCF = sheet.getSheetConditionalFormatting();
+
+            // USEDの色分け (緑)
+            ConditionalFormattingRule ruleUsed = sheetCF.createConditionalFormattingRule("$H2=\"" + USED + "\"");
+            PatternFormatting fillUsed = ruleUsed.createPatternFormatting();
+            fillUsed.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
+            fillUsed.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+            // UNUSEDの色分け (赤)
+            ConditionalFormattingRule ruleUnused = sheetCF.createConditionalFormattingRule("$H2=\"" + UNUSED + "\"");
+            PatternFormatting fillUnused = ruleUnused.createPatternFormatting();
+            fillUnused.setFillBackgroundColor(IndexedColors.CORAL.getIndex());
+            fillUnused.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+            CellRangeAddress[] regions = {
+                    CellRangeAddress.valueOf("H2:H" + rowNum)
+            };
+
+            sheetCF.addConditionalFormatting(regions, ruleUsed, ruleUnused);
+
+            // グルーピング用の太線 (MEDIUM top border)
+            // 列 A, B, C, D の値が変化した際に行の頭に線を引く
+            String[] commonCols = { "$A", "$B", "$C", "$D" };
+            for (String col : commonCols) {
+                ConditionalFormattingRule groupRule = sheetCF.createConditionalFormattingRule(
+                        "AND(" + col + "2<>OFFSET(" + col + "2, -1, 0))");
+                BorderFormatting border = groupRule.createBorderFormatting();
+                border.setBorderTop(BorderStyle.MEDIUM);
+
+                CellRangeAddress[] groupRegions = {
+                        CellRangeAddress.valueOf(col.substring(1) + "2:J" + rowNum)
+                };
+                sheetCF.addConditionalFormatting(groupRegions, groupRule);
+            }
+        }
+
         // オートフィルターを設定
-        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                0, rowNum - 1, 0, headers.length - 1));
+        sheet.setAutoFilter(new CellRangeAddress(0, rowNum - 1, 0, headers.length - 1));
     }
 
     /**
@@ -1868,7 +1910,7 @@ public class ResponseAnalyzer {
 
         // オートフィルターを設定
         if (rowNum > 1) {
-            sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
+            sheet.setAutoFilter(new CellRangeAddress(
                     0, rowNum - 1, 0, headers.length - 1));
         }
     }
@@ -1898,8 +1940,32 @@ public class ResponseAnalyzer {
 
         style.setAlignment(HorizontalAlignment.CENTER);
 
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.DOTTED);
+        style.setBorderBottom(BorderStyle.DOTTED);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+
+        return style;
+    }
+
+    /**
+     * JSP関連ヘッダー用スタイルを作成する。
+     */
+    private CellStyle createJspHeaderStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+
+        style.setFillForegroundColor(IndexedColors.SEA_GREEN.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+
+        style.setAlignment(HorizontalAlignment.CENTER);
+
+        style.setBorderTop(BorderStyle.DOTTED);
+        style.setBorderBottom(BorderStyle.DOTTED);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
 
@@ -1912,8 +1978,8 @@ public class ResponseAnalyzer {
     private CellStyle createDataStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
 
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.DOTTED);
+        style.setBorderBottom(BorderStyle.DOTTED);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
 
@@ -1931,8 +1997,8 @@ public class ResponseAnalyzer {
 
         style.setAlignment(HorizontalAlignment.CENTER);
 
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.DOTTED);
+        style.setBorderBottom(BorderStyle.DOTTED);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
 
@@ -1950,8 +2016,8 @@ public class ResponseAnalyzer {
 
         style.setAlignment(HorizontalAlignment.CENTER);
 
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.DOTTED);
+        style.setBorderBottom(BorderStyle.DOTTED);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
 

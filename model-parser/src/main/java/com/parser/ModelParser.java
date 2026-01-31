@@ -68,12 +68,12 @@ public class ModelParser {
     // ==========================================================================
 
     /** Excelシート名 */
-    private static final String SHEET_NAME = "ResourceDef";
+    private static final String SHEET_NAME = "モデルデータ定義";
 
     /** 必須を表すマーク */
-    private static final String REQUIRED_MARK = "〇";
+    private static final String REQUIRED_MARK = "●";
     /** 必須でないことを表すマーク */
-    private static final String NOT_REQUIRED_MARK = "-";
+    private static final String NOT_REQUIRED_MARK = "";
 
     /** 必須を判定するアノテーション名のセット */
     private static final Set<String> REQUIRED_ANNOTATIONS = new HashSet<>(Arrays.asList(
@@ -125,9 +125,7 @@ public class ModelParser {
             "Collection", "java.util.Collection",
             "Iterable", "java.lang.Iterable"));
 
-    // ==========================================================================
-    // 内部データクラス
-    // ==========================================================================
+    private static CliOptions globalOptions;
 
     /**
      * クラスメタデータを保持するレコード。
@@ -188,6 +186,7 @@ public class ModelParser {
         String encoding = "UTF-8";
         String targetClassesFile = null;
         String outputFile = "output.xlsx";
+        boolean verbose = false;
     }
 
     // ==========================================================================
@@ -279,6 +278,11 @@ public class ModelParser {
                 .desc("出力Excelファイル名（デフォルト: output.xlsx）")
                 .build());
 
+        options.addOption(Option.builder("v")
+                .longOpt("verbose")
+                .desc("内部モデルの構造を展開して出力する")
+                .build());
+
         options.addOption(Option.builder("h")
                 .longOpt("help")
                 .desc("ヘルプメッセージを表示")
@@ -327,6 +331,11 @@ public class ModelParser {
         // 出力ファイル
         if (cmd.hasOption("o")) {
             options.outputFile = cmd.getOptionValue("o");
+        }
+
+        // Verboseオプション
+        if (cmd.hasOption("v")) {
+            options.verbose = true;
         }
 
         return options;
@@ -383,7 +392,10 @@ public class ModelParser {
         System.out.println("Encoding: " + options.encoding);
         System.out.println("Target classes file: " + options.targetClassesFile);
         System.out.println("Output file: " + options.outputFile);
+        System.out.println("Verbose: " + options.verbose);
         System.out.println();
+
+        globalOptions = options;
 
         // 対象クラス一覧を読み込む
         Set<String> targetClasses = loadTargetClasses(options.targetClassesFile);
@@ -536,42 +548,99 @@ public class ModelParser {
         String qualifiedName = type.getQualifiedName();
         String javadocSummary = parseClassJavadoc(type);
 
-        // 親クラスを再帰的に辿ってフィールドを収集（先に親クラスのフィールドを収集）
-        collectParentClassFields(type, metadataList);
+        Set<String> visitedTypes = new HashSet<>();
+        visitedTypes.add(qualifiedName);
 
-        // 自クラスのフィールドを走査（最後に自クラスのフィールドを追加）
-        collectFieldsFromClass(type, className, metadataList);
+        // 親クラスを再帰的に辿ってフィールドを収集（先に親クラスのフィールドを収集）
+        collectParentClassFieldsRecursive(type, "", metadataList, visitedTypes);
+
+        // 自クラスのフィールドを走査
+        collectFieldsRecursive(type, className, "", metadataList, visitedTypes);
 
         return new ClassMetadata(className, qualifiedName, javadocSummary, metadataList);
     }
 
     /**
-     * クラスからフィールドを収集する。
-     * 
-     * @param type         解析対象のクラス
-     * @param sourceClass  フィールドの定義元クラス名
-     * @param metadataList 収集先のリスト
+     * クラスからフィールドを再帰的に収集する。
      */
-    private void collectFieldsFromClass(CtType<?> type, String sourceClass, List<FieldMetadata> metadataList) {
+    private void collectFieldsRecursive(CtType<?> type, String sourceClass, String prefix,
+            List<FieldMetadata> metadataList, Set<String> visitedTypes) {
         for (CtField<?> field : type.getFields()) {
-            // staticフィールドをスキップ
             if (field.isStatic()) {
                 continue;
             }
 
             FieldMetadata metadata = analyzeField(field, sourceClass);
-            metadataList.add(metadata);
+
+            // JSONキーに接頭辞を追加
+            String jsonKey = prefix + metadata.jsonKey;
+            FieldMetadata updatedMetadata = new FieldMetadata(
+                    jsonKey,
+                    metadata.logicalName,
+                    metadata.description,
+                    metadata.jsonType,
+                    metadata.innerRef,
+                    metadata.required,
+                    metadata.sampleValue,
+                    metadata.javaFieldName,
+                    metadata.javaType,
+                    metadata.sourceClass);
+
+            metadataList.add(updatedMetadata);
+
+            // verboseモード時、かつ再帰可能な場合は再帰的に収集
+            if (globalOptions.verbose && !metadata.innerRef.isEmpty() && !visitedTypes.contains(metadata.innerRef)) {
+                CtType<?> innerType = null;
+                CtTypeReference<?> typeRef = field.getType();
+
+                // コレクションの場合は要素型を取得
+                if (metadata.jsonType.equals("array")) {
+                    if (typeRef.isArray()) {
+                        innerType = ((CtArrayTypeReference<?>) typeRef).getComponentType().getTypeDeclaration();
+                    } else if (isCollectionType(typeRef.getSimpleName())
+                            || isCollectionType(typeRef.getQualifiedName())) {
+                        List<CtTypeReference<?>> typeArgs = typeRef.getActualTypeArguments();
+                        if (typeArgs != null && !typeArgs.isEmpty()) {
+                            innerType = typeArgs.get(0).getTypeDeclaration();
+                        }
+                    }
+                } else {
+                    innerType = typeRef.getTypeDeclaration();
+                }
+
+                if (innerType != null && !isPrimitiveOrStandard(innerType)) {
+                    String nextPrefix = jsonKey + (metadata.jsonType.equals("array") ? "[]." : ".");
+                    String innerClassName = innerType.getSimpleName();
+                    visitedTypes.add(metadata.innerRef);
+
+                    // 親クラスのフィールドを先に収集
+                    collectParentClassFieldsRecursive(innerType, nextPrefix, metadataList, visitedTypes);
+                    // 自クラスのフィールドを収集
+                    collectFieldsRecursive(innerType, innerClassName, nextPrefix, metadataList, visitedTypes);
+
+                    visitedTypes.remove(metadata.innerRef);
+                }
+            }
         }
     }
 
     /**
-     * 親クラスを再帰的に辿ってフィールドを収集する。
-     * 最上位の親クラスから順にフィールドを収集する。
-     * 
-     * @param type         解析対象のクラス
-     * @param metadataList 収集先のリスト
+     * 標準クラスまたはプリミティブ型かどうかを判定する。
      */
-    private void collectParentClassFields(CtType<?> type, List<FieldMetadata> metadataList) {
+    private boolean isPrimitiveOrStandard(CtType<?> type) {
+        String name = type.getSimpleName();
+        String qualifiedName = type.getQualifiedName();
+        return STRING_TYPES.contains(name) || STRING_TYPES.contains(qualifiedName) ||
+                NUMBER_TYPES.contains(name) || NUMBER_TYPES.contains(qualifiedName) ||
+                "boolean".equals(name) || "Boolean".equals(name) || "java.lang.Boolean".equals(qualifiedName) ||
+                qualifiedName.startsWith("java.lang.") || qualifiedName.startsWith("java.util.");
+    }
+
+    /**
+     * 親クラスを再帰的に辿ってフィールドを再帰的に収集する。
+     */
+    private void collectParentClassFieldsRecursive(CtType<?> type, String prefix,
+            List<FieldMetadata> metadataList, Set<String> visitedTypes) {
         if (!(type instanceof CtClass)) {
             return;
         }
@@ -583,27 +652,22 @@ public class ModelParser {
             return;
         }
 
-        // Object クラスは除外
         String superClassName = superClassRef.getQualifiedName();
         if ("java.lang.Object".equals(superClassName)) {
             return;
         }
 
-        // 親クラスの型宣言を取得
         CtType<?> superType = superClassRef.getTypeDeclaration();
         if (superType != null) {
             String parentClassName = superType.getSimpleName();
 
-            // 先にさらに上位の親クラスを再帰的に辿る（最上位の親から順に収集するため）
-            collectParentClassFields(superType, metadataList);
+            // さらに上位の親クラスを遡る
+            collectParentClassFieldsRecursive(superType, prefix, metadataList, visitedTypes);
 
             System.out.println("         -> 親クラス " + parentClassName + " のフィールドを収集中...");
 
-            // その後、この親クラスのフィールドを収集
-            collectFieldsFromClass(superType, parentClassName, metadataList);
-        } else {
-            // 型宣言が取得できない場合（NoClasspathモードで親クラスがソースにない場合）
-            System.out.println("         -> [WARNING] 親クラス " + superClassName + " の解析はスキップされました（ソースが見つかりません）");
+            // 親クラス自体のフィールドを収集（再帰対応）
+            collectFieldsRecursive(superType, parentClassName, prefix, metadataList, visitedTypes);
         }
     }
 
@@ -927,6 +991,7 @@ public class ModelParser {
 
             // スタイルを作成
             CellStyle headerStyle = createHeaderStyle(workbook);
+            CellStyle javaHeaderStyle = createJavaHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle classTitleStyle = createClassTitleStyle(workbook);
 
@@ -938,19 +1003,15 @@ public class ModelParser {
 
             int rowNum = 0;
 
-            // 1パス目: クラス名と行番号のマップを作成（完全修飾名をキーとして使用）
-            Map<String, Integer> classRowMap = new HashMap<>();
-            int tempRowNum = 0;
+            // 1パス目: クラス名と行番号のマップを作成（完全修飾名を使用して重複を回避）
+            Map<String, String> classToNamedRangeMap = new HashMap<>();
             for (ClassMetadata classMeta : classMetadataList) {
-                classRowMap.put(classMeta.qualifiedName, tempRowNum);
+                String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
+                classToNamedRangeMap.put(classMeta.qualifiedName, namedRangeName);
                 // 単純名でも検索できるように（重複がない場合のみ）
-                if (!classRowMap.containsKey(classMeta.className)) {
-                    classRowMap.put(classMeta.className, tempRowNum);
+                if (!classToNamedRangeMap.containsKey(classMeta.className)) {
+                    classToNamedRangeMap.put(classMeta.className, namedRangeName);
                 }
-                tempRowNum++; // クラス名見出し行
-                tempRowNum++; // ヘッダー行
-                tempRowNum += classMeta.fields.size(); // データ行
-                tempRowNum++; // 空行
             }
 
             // リンク用スタイルを作成
@@ -958,9 +1019,20 @@ public class ModelParser {
 
             // 2パス目: クラスごとにテーブルを出力
             for (ClassMetadata classMeta : classMetadataList) {
-                // クラス名見出し行を作成（ヘッダーの1行上）
+                // パッケージ名行を作成
+                Row packageRow = sheet.createRow(rowNum++);
+                String packageName = "";
+                if (classMeta.qualifiedName.contains(".")) {
+                    packageName = classMeta.qualifiedName.substring(0, classMeta.qualifiedName.lastIndexOf("."));
+                }
+                Cell packageCell = packageRow.createCell(0);
+                packageCell.setCellValue("Package: " + packageName);
+                // パッケージ行もクラス見出しスタイルを流用（必要に応じて別途定義も可能）
+                packageCell.setCellStyle(classTitleStyle);
+
+                // クラス名見出し行を作成
                 Row classTitleRow = sheet.createRow(rowNum);
-                String classTitle = classMeta.qualifiedName;
+                String classTitle = classMeta.className; // シンプルネームを使用
                 String classSummary = "";
                 if (classMeta.javadocSummary != null && !classMeta.javadocSummary.isEmpty()) {
                     classSummary = classMeta.javadocSummary;
@@ -968,19 +1040,19 @@ public class ModelParser {
                 Cell titleCell = classTitleRow.createCell(0);
                 titleCell.setCellValue(classTitle);
                 titleCell.setCellStyle(classTitleStyle);
-                Cell titleSummaryCell = classTitleRow.createCell(2);
+                Cell titleSummaryCell = classTitleRow.createCell(1);
                 titleSummaryCell.setCellValue(classSummary);
                 titleSummaryCell.setCellStyle(classTitleStyle);
 
-                // 名前付き範囲を作成（完全修飾名を使用して重複を回避）
-                String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
+                // 名前付き範囲を作成（1パス目で決めた名前を使用）
+                String namedRangeName = classToNamedRangeMap.get(classMeta.qualifiedName);
                 try {
                     org.apache.poi.ss.usermodel.Name namedRange = workbook.createName();
                     namedRange.setNameName(namedRangeName);
+                    // クラス名見出し行をリンク先とする
                     String cellRef = "'" + SHEET_NAME + "'!$A$" + (rowNum + 1);
                     namedRange.setRefersToFormula(cellRef);
                 } catch (Exception e) {
-                    // 名前付き範囲の作成に失敗しても処理を継続（同名クラスが存在する場合など）
                     System.out.println("         -> [WARNING] 名前付き範囲 " + namedRangeName + " の作成をスキップしました");
                 }
 
@@ -991,7 +1063,12 @@ public class ModelParser {
                 for (int i = 0; i < headers.length; i++) {
                     Cell cell = headerRow.createCell(i);
                     cell.setCellValue(headers[i]);
-                    cell.setCellStyle(headerStyle);
+                    // Java関連の列（インデックス7, 8, 9）には別のスタイルを適用
+                    if (i >= 7) {
+                        cell.setCellStyle(javaHeaderStyle);
+                    } else {
+                        cell.setCellStyle(headerStyle);
+                    }
                 }
 
                 // データ行を作成
@@ -1007,9 +1084,9 @@ public class ModelParser {
                     Cell innerRefCell = row.createCell(4);
                     innerRefCell.setCellValue(metadata.innerRef != null ? metadata.innerRef : "");
                     if (metadata.innerRef != null && !metadata.innerRef.isEmpty()
-                            && classRowMap.containsKey(metadata.innerRef)) {
+                            && classToNamedRangeMap.containsKey(metadata.innerRef)) {
                         // 名前付き範囲へのリンクを作成
-                        String targetName = "Class_" + metadata.innerRef.replaceAll("[^a-zA-Z0-9_]", "_");
+                        String targetName = classToNamedRangeMap.get(metadata.innerRef);
                         Hyperlink link = workbook.getCreationHelper().createHyperlink(HyperlinkType.DOCUMENT);
                         link.setAddress(targetName);
                         innerRefCell.setHyperlink(link);
@@ -1022,10 +1099,8 @@ public class ModelParser {
                     createCell(row, 6, metadata.sampleValue, dataStyle);
                     createCell(row, 7, metadata.javaFieldName, dataStyle);
                     createCell(row, 8, metadata.javaType, dataStyle);
-                    // 定義元クラス（自クラスの場合は空欄、親クラスの場合は親クラス名を表示）
-                    String sourceClassDisplay = classMeta.className.equals(metadata.sourceClass) ? ""
-                            : metadata.sourceClass;
-                    createCell(row, 9, sourceClassDisplay, dataStyle);
+                    // 定義元クラス
+                    createCell(row, 9, metadata.sourceClass, dataStyle);
                 }
 
                 // クラス間に空行を追加
@@ -1106,6 +1181,34 @@ public class ModelParser {
 
         // 背景色
         style.setFillForegroundColor(IndexedColors.ROYAL_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        // フォント
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+
+        // 配置
+        style.setAlignment(HorizontalAlignment.CENTER);
+
+        // 境界線
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+
+        return style;
+    }
+
+    /**
+     * Java実装に関連するヘッダー用のスタイルを作成する。
+     */
+    private CellStyle createJavaHeaderStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+
+        // 背景色（落ち着いた緑系）
+        style.setFillForegroundColor(IndexedColors.SEA_GREEN.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 
         // フォント
