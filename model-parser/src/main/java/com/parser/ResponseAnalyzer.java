@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,7 +93,7 @@ public class ResponseAnalyzer {
     private static final String ORIGIN_ADD_ATTRIBUTE = "モデル:addAttribute";
     private static final String ORIGIN_PUT = "モデル:put";
     private static final String ORIGIN_ADD_OBJECT = "モデル:addObject";
-    private static final String ORIGIN_ARGUMENT = "モデル:Argument";
+    private static final String ORIGIN_ARGUMENT = "モデル:引数";
 
     /** フレームワーク型（メソッド引数から除外） */
     private static final Set<String> FRAMEWORK_TYPES = new HashSet<>(Arrays.asList(
@@ -752,8 +753,8 @@ public class ResponseAnalyzer {
     private List<ControllerMethodInfo> analyzeController(CtType<?> type) {
         List<ControllerMethodInfo> results = new ArrayList<>();
 
-        // このクラスと親クラス・インターフェースを走査
-        Set<CtType<?>> typesToAnalyze = new HashSet<>();
+        // このクラスと親クラス・インターフェースを走査（親が先に来るようにLinkedHashSetを使用）
+        Set<CtType<?>> typesToAnalyze = new LinkedHashSet<>();
         collectTypeHierarchy(type, typesToAnalyze);
 
         for (CtType<?> t : typesToAnalyze) {
@@ -811,9 +812,8 @@ public class ResponseAnalyzer {
         if (type == null || collected.contains(type)) {
             return;
         }
-        collected.add(type);
 
-        // 親クラス
+        // 親クラスを先に収集（再帰）
         CtTypeReference<?> superclass = type.getSuperclass();
         if (superclass != null) {
             CtType<?> superType = superclass.getTypeDeclaration();
@@ -822,13 +822,16 @@ public class ResponseAnalyzer {
             }
         }
 
-        // インターフェース
+        // インターフェースを収集
         for (CtTypeReference<?> iface : type.getSuperInterfaces()) {
             CtType<?> ifaceType = iface.getTypeDeclaration();
             if (ifaceType != null) {
                 collectTypeHierarchy(ifaceType, collected);
             }
         }
+
+        // 最後に自分自身を追加することで、親から順に並ぶようにする
+        collected.add(type);
     }
 
     /**
@@ -1434,7 +1437,8 @@ public class ResponseAnalyzer {
 
             // 属性取得
             String action = attrs.get("action");
-            String method = attrs.getOrDefault("method", "GET");
+            String defaultMethod = "html".equalsIgnoreCase(tagType) ? "GET" : "POST";
+            String method = attrs.getOrDefault("method", defaultMethod);
 
             // ルートモデル（Spring: modelAttribute/commandName）
             String rootModel = attrs.get("modelattribute");
@@ -1705,8 +1709,8 @@ public class ResponseAnalyzer {
             return fields;
         }
 
-        // このクラスと親クラスのフィールドを収集
-        Set<CtType<?>> typesToAnalyze = new HashSet<>();
+        // このクラスと親クラスのフィールドを収集（親が先に来るようにLinkedHashSetを使用）
+        Set<CtType<?>> typesToAnalyze = new LinkedHashSet<>();
         collectTypeHierarchy(type, typesToAnalyze);
 
         for (CtType<?> t : typesToAnalyze) {
