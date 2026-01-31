@@ -7,7 +7,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -17,9 +16,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -67,8 +63,11 @@ public class ModelParser {
     // 定数定義
     // ==========================================================================
 
-    /** Excelシート名 */
+    /** Excelシート名(メイン) */
     private static final String SHEET_NAME = "モデルデータ定義";
+
+    /** Excelシート名(索引) */
+    private static final String INDEX_SHEET_NAME = "Index";
 
     /** 必須を表すマーク */
     private static final String REQUIRED_MARK = "●";
@@ -987,35 +986,76 @@ public class ModelParser {
      */
     private void generateExcel(List<ClassMetadata> classMetadataList, String outputFile) throws IOException {
         try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet(SHEET_NAME);
-
             // スタイルを作成
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle javaHeaderStyle = createJavaHeaderStyle(workbook);
             CellStyle dataStyle = createDataStyle(workbook);
             CellStyle classTitleStyle = createClassTitleStyle(workbook);
+            CellStyle linkStyle = createLinkStyle(workbook);
 
-            // ヘッダー定義（定義元クラス列を追加）
+            // 1パス目: クラス名から名前付き範囲名のマップを作成
+            Map<String, String> classToNamedRangeMap = new HashMap<>();
+            for (ClassMetadata classMeta : classMetadataList) {
+                String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
+                classToNamedRangeMap.put(classMeta.qualifiedName, namedRangeName);
+                if (!classToNamedRangeMap.containsKey(classMeta.className)) {
+                    classToNamedRangeMap.put(classMeta.className, namedRangeName);
+                }
+            }
+
+            // Index（索引）シートを作成
+            Sheet indexSheet = workbook.createSheet(INDEX_SHEET_NAME);
+            String[] indexHeaders = { "パッケージ", "クラス名", "概要" };
+            Row indexHeaderRow = indexSheet.createRow(0);
+            for (int i = 0; i < indexHeaders.length; i++) {
+                Cell cell = indexHeaderRow.createCell(i);
+                cell.setCellValue(indexHeaders[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            int indexRowNum = 1;
+            for (ClassMetadata classMeta : classMetadataList) {
+                Row row = indexSheet.createRow(indexRowNum++);
+                String packageName = "";
+                if (classMeta.qualifiedName.contains(".")) {
+                    packageName = classMeta.qualifiedName.substring(0, classMeta.qualifiedName.lastIndexOf("."));
+                }
+                createCell(row, 0, packageName, dataStyle);
+
+                // クラス名セル（リンク付き）
+                Cell classNameCell = row.createCell(1);
+                classNameCell.setCellValue(classMeta.className);
+                String namedRangeName = classToNamedRangeMap.get(classMeta.qualifiedName);
+                if (namedRangeName != null) {
+                    Hyperlink link = workbook.getCreationHelper().createHyperlink(HyperlinkType.DOCUMENT);
+                    link.setAddress("'" + SHEET_NAME + "'!" + namedRangeName);
+                    classNameCell.setHyperlink(link);
+                    classNameCell.setCellStyle(linkStyle);
+                } else {
+                    classNameCell.setCellStyle(dataStyle);
+                }
+
+                createCell(row, 2, classMeta.javadocSummary, dataStyle);
+            }
+
+            // Indexシートの列幅調整
+            for (int i = 0; i < indexHeaders.length; i++) {
+                indexSheet.autoSizeColumn(i);
+                if (indexSheet.getColumnWidth(i) < 4000) {
+                    indexSheet.setColumnWidth(i, 4000);
+                }
+            }
+
+            // メインデータシートを作成
+            Sheet sheet = workbook.createSheet(SHEET_NAME);
+
+            // ヘッダー定義
             String[] headers = {
                     "JSONキー", "論理名", "説明", "JSON型", "内部要素/参照",
                     "必須", "サンプル値", "Javaフィールド名", "Java型", "定義元クラス"
             };
 
             int rowNum = 0;
-
-            // 1パス目: クラス名と行番号のマップを作成（完全修飾名を使用して重複を回避）
-            Map<String, String> classToNamedRangeMap = new HashMap<>();
-            for (ClassMetadata classMeta : classMetadataList) {
-                String namedRangeName = "Class_" + classMeta.qualifiedName.replaceAll("[^a-zA-Z0-9_]", "_");
-                classToNamedRangeMap.put(classMeta.qualifiedName, namedRangeName);
-                // 単純名でも検索できるように（重複がない場合のみ）
-                if (!classToNamedRangeMap.containsKey(classMeta.className)) {
-                    classToNamedRangeMap.put(classMeta.className, namedRangeName);
-                }
-            }
-
-            // リンク用スタイルを作成
-            CellStyle linkStyle = createLinkStyle(workbook);
 
             // 2パス目: クラスごとにテーブルを出力
             for (ClassMetadata classMeta : classMetadataList) {
