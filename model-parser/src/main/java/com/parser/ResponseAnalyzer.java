@@ -759,13 +759,49 @@ public class ResponseAnalyzer {
         for (CtType<?> t : typesToAnalyze) {
             for (CtMethod<?> method : t.getMethods()) {
                 if (isHandlerMethod(method)) {
-                    ControllerMethodInfo info = analyzeHandlerMethod(type.getSimpleName(), method);
+                    // ボディがない場合（インターフェース/抽象メソッド）は実装メソッドを探す
+                    CtMethod<?> targetMethod = method;
+                    if (method.getBody() == null) {
+                        CtMethod<?> implMethod = findImplementingMethod(type, method);
+                        if (implMethod != null) {
+                            targetMethod = implMethod;
+                        } else {
+                            // 実装メソッドが見つからない場合は警告を出してスキップするか、
+                            // そのまま解析を試みる（結果的にviewNamesは空になる）
+                            // ここでは実装が見つからない場合はスキップする
+                            continue;
+                        }
+                    }
+                    ControllerMethodInfo info = analyzeHandlerMethod(type.getSimpleName(), targetMethod);
                     results.add(info);
                 }
             }
         }
 
         return results;
+    }
+
+    /**
+     * インターフェースまたは抽象クラスのメソッドに対応する実装メソッドを探す。
+     * 
+     * @param implementingType 実装を持つ可能性のある型（対象Controller）
+     * @param abstractMethod   抽象メソッドまたはインターフェースのメソッド
+     * @return 実装メソッド、見つからない場合はnull
+     */
+    private CtMethod<?> findImplementingMethod(CtType<?> implementingType, CtMethod<?> abstractMethod) {
+        String methodName = abstractMethod.getSimpleName();
+        int paramCount = abstractMethod.getParameters().size();
+
+        // 実装クラスのメソッドを検索
+        // 注意: paramCountだけでなく型の一致も厳密には必要だが、簡易的に名前と引数数で判定
+        for (CtMethod<?> method : implementingType.getMethods()) {
+            if (method.getSimpleName().equals(methodName)
+                    && method.getParameters().size() == paramCount
+                    && method.getBody() != null) {
+                return method;
+            }
+        }
+        return null;
     }
 
     /**
