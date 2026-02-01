@@ -236,6 +236,9 @@ public class ResponseAnalyzer {
         // スコープ参照情報（元の表現、スコープ名、属性名を保持）
         final List<ScopeReference> scopeReferenceDetails = new ArrayList<>();
 
+        // フォームでの使用フィールド（ModelAttribute名 -> Set<パス>）
+        final Map<String, Set<String>> formUsages = new HashMap<>();
+
         JspAnalysisResult(String jspPath) {
             this.jspPath = jspPath;
         }
@@ -679,13 +682,14 @@ public class ResponseAnalyzer {
                 }
                 String warningStr = String.join("; ", warnings);
 
-                // マッチしたEL式を追跡するセット
+                // マッチしたEL式とフォームパスを追跡するセット
                 Set<String> handledEls = new HashSet<>();
+                Set<String> handledFormPaths = new HashSet<>();
 
                 // 各属性についてフィールドの使用状況を解析
                 for (ModelAttribute attr : methodInfo.attributes) {
                     List<ResponseAnalysisResult> attrResults = matchAttributeToJsp(
-                            methodInfo, attr, jspResult, viewPath, warningStr, handledEls);
+                            methodInfo, attr, jspResult, viewPath, warningStr, handledEls, handledFormPaths);
                     results.addAll(attrResults);
                 }
 
@@ -724,6 +728,27 @@ public class ResponseAnalyzer {
                                 "", // 使用状況: 空
                                 "JSPのみ", // 属性の由来
                                 warningStr));
+                    }
+                }
+
+                // JSPにのみ存在する項目（属性にも該当しないフォームパス）を追加
+                for (Map.Entry<String, Set<String>> entry : jspResult.formUsages.entrySet()) {
+                    String modelName = entry.getKey();
+                    for (String path : entry.getValue()) {
+                        String fullPath = modelName + "." + path;
+                        if (!handledFormPaths.contains(fullPath)) {
+                            results.add(new ResponseAnalysisResult(
+                                    methodInfo.controllerName,
+                                    methodInfo.methodName,
+                                    viewPath,
+                                    modelName, // Attribute Name: modelAttribute名
+                                    "Form: path=\"" + path + "\"", // JSP Reference: フォームパス
+                                    "", // Java Class: 空
+                                    "", // Java Field: 空
+                                    "", // 使用状況: 空
+                                    "JSPのみ(Form)", // 属性の由来
+                                    warningStr));
+                        }
                     }
                 }
             }
@@ -1394,6 +1419,11 @@ public class ResponseAnalyzer {
                         }
                         // スコープ参照をマージ
                         result.scopeReferenceDetails.addAll(includedResult.scopeReferenceDetails);
+                        // フォーム使用状況をマージ
+                        for (Map.Entry<String, Set<String>> entry : includedResult.formUsages.entrySet()) {
+                            result.formUsages.computeIfAbsent(entry.getKey(), k -> new HashSet<>())
+                                    .addAll(entry.getValue());
+                        }
                     }
                 }
             }
@@ -1425,6 +1455,19 @@ public class ResponseAnalyzer {
                 String fullMatch = chainMatcher.group(0); // request.getSession().getAttribute("userDto")
                 String attrName = chainMatcher.group(1); // userDto
                 result.scopeReferenceDetails.add(new ScopeReference(fullMatch, "sessionスコープ", attrName));
+            }
+
+            // フォーム定義からモデル属性の使用を抽出
+            List<FormInfo> forms = analyzeJspForms(jspPath);
+            for (FormInfo form : forms) {
+                if (form.rootModel != null && !form.rootModel.isEmpty()) {
+                    Set<String> usedPaths = result.formUsages.computeIfAbsent(form.rootModel, k -> new HashSet<>());
+                    for (InputElementInfo input : form.inputs) {
+                        if (input.parameterName != null && !input.parameterName.isEmpty()) {
+                            usedPaths.add(input.parameterName);
+                        }
+                    }
+                }
             }
 
         } catch (IOException e) {
@@ -1827,11 +1870,12 @@ public class ResponseAnalyzer {
             JspAnalysisResult jspResult,
             String viewPath,
             String baseWarning,
-            Set<String> handledEls) {
+            Set<String> handledEls,
+            Set<String> handledFormPaths) {
 
         List<ResponseAnalysisResult> results = new ArrayList<>();
 
-        // この属性に関連するEL式をすべて処理済みとしてマーク（クラス定義が見つからない場合や、フィールドが見つからない場合も含む）
+        // この属性に関連するEL式をすべて処理済みとしてマーク
         String prefix1 = "${" + attr.attributeName + ".";
         String prefix2 = "${" + attr.attributeName + "}";
         String prefix3 = "${" + attr.attributeName + "[";
@@ -1840,6 +1884,14 @@ public class ResponseAnalyzer {
             String elTrimmed = el.trim();
             if (elTrimmed.startsWith(prefix1) || elTrimmed.equals(prefix2) || elTrimmed.startsWith(prefix3)) {
                 handledEls.add(el);
+            }
+        }
+
+        // この属性に関連するフォーム使用パスをすべて処理済みとしてマーク
+        if (jspResult.formUsages.containsKey(attr.attributeName)) {
+            Set<String> paths = jspResult.formUsages.get(attr.attributeName);
+            for (String path : paths) {
+                handledFormPaths.add(attr.attributeName + "." + path);
             }
         }
 
@@ -1882,14 +1934,30 @@ public class ResponseAnalyzer {
                 }
             }
 
-            String usageStatus = matchedEl != null ? USED : UNUSED;
+            // フォーム使用状況のチェック
+            boolean usedInForm = false;
+            String formRef = null;
+            if (jspResult.formUsages.containsKey(attr.attributeName)) {
+                Set<String> formPaths = jspResult.formUsages.get(attr.attributeName);
+                for (String path : formPaths) {
+                    if (path.equals(fieldName) || path.startsWith(fieldName + ".")
+                            || path.startsWith(fieldName + "[")) {
+                        usedInForm = true;
+                        formRef = "Form: path=\"" + path + "\"";
+                        break;
+                    }
+                }
+            }
+
+            String usageStatus = (matchedEl != null || usedInForm) ? USED : UNUSED;
+            String reference = matchedEl != null ? matchedEl : (formRef != null ? formRef : "");
 
             results.add(new ResponseAnalysisResult(
                     methodInfo.controllerName,
                     methodInfo.methodName,
                     viewPath,
                     attr.attributeName,
-                    matchedEl != null ? matchedEl : "",
+                    reference,
                     attr.javaClassName,
                     fieldName,
                     usageStatus,
