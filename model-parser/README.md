@@ -12,6 +12,7 @@
   - [出力フォーマット](#出力フォーマット)
   - [型変換ルール](#型変換ルール)
   - [必須判定](#必須判定)
+  - [詳細展開（-v, --verbose）](#詳細展開-v--verbose)
 - [Response Analyzer CLI](#response-analyzer-cli)
   - [特徴](#特徴-1)
   - [ビルド方法](#ビルド方法-1)
@@ -23,6 +24,8 @@
 
 <!-- /code_chunk_output -->
 
+###### 参考
+- https://docs.spring.io/spring-framework/docs/3.2.x/spring-framework-reference/html/mvc.html?utm_source=chatgpt.com#mvc-servlet
 
 ----
 # Model Parser CLI

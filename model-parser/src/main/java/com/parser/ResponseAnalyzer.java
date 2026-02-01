@@ -143,6 +143,9 @@ public class ResponseAnalyzer {
     /** Excelシート名（リクエスト解析用） */
     private static final String REQUEST_SHEET_NAME = "RequestAnalysis";
 
+    /** Input Type（非入力要素） */
+    private static final String NOT_INPUT_TYPE = "";
+
     /** HTML標準フォーム */
     private static final Pattern HTML_FORM_PATTERN = Pattern.compile(
             "<form(?:\\s+([^>]*))?>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
@@ -163,7 +166,7 @@ public class ResponseAnalyzer {
     /** 入力要素パターン（Spring Form Tag） */
     private static final Pattern SPRING_INPUT_PATTERN = Pattern.compile(
             "<form:(input|password|hidden|checkbox|checkboxes|radiobutton|radiobuttons|"
-                    + "select|option|options|textarea|errors)\\b([^>]*)(?:/?>|>)",
+                    + "select|option|options|textarea|errors|button)\\b([^>]*)(?:/?>|>)",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** 入力要素パターン（Struts HTML Tag） */
@@ -174,6 +177,15 @@ public class ResponseAnalyzer {
     /** 属性抽出用パターン */
     private static final Pattern ATTR_PATTERN = Pattern.compile(
             "(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", Pattern.DOTALL);
+
+    /** リンクタグパターン */
+    private static final Pattern LINK_PATTERN = Pattern.compile(
+            "<(a|html:link)\\b([^>]*)(?:>(.*?)</a>|/?>)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** BODYタグパターン（onload取得用） */
+    private static final Pattern BODY_PATTERN = Pattern.compile(
+            "<body\\b([^>]*)>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     // ==========================================================================
     // 内部データクラス
@@ -319,9 +331,10 @@ public class ResponseAnalyzer {
         final boolean required; // required属性の有無
         final String jsonKeyEstimate; // パラメータ名の末尾（参考）
         final String nestPath; // パラメータ名の親パス（参考）
+        final String events; // イベントハンドラ記述（onclick="...", onchange="..." 等）
 
         InputElementInfo(String inputTag, String parameterName, String inputType,
-                String maxLength, boolean required) {
+                String maxLength, boolean required, Map<String, String> events) {
             this.inputTag = inputTag;
             this.parameterName = parameterName != null ? parameterName : "";
             this.inputType = inputType != null ? inputType : "";
@@ -335,6 +348,20 @@ public class ResponseAnalyzer {
             } else {
                 this.nestPath = "";
                 this.jsonKeyEstimate = parameterName != null ? parameterName : "";
+            }
+
+            // イベント情報を文字列化
+            if (events != null && !events.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<String, String> entry : events.entrySet()) {
+                    if (sb.length() > 0) {
+                        sb.append("; ");
+                    }
+                    sb.append(entry.getKey()).append("=").append(entry.getValue());
+                }
+                this.events = sb.toString();
+            } else {
+                this.events = "";
             }
         }
     }
@@ -1408,6 +1435,7 @@ public class ResponseAnalyzer {
         try {
             String content = Files.readString(jspPath, jspEncoding);
 
+            // 1. フォームの解析
             // HTML標準フォーム
             forms.addAll(extractFormsWithPattern(content, relativePath,
                     HTML_FORM_PATTERN, "</form>", "<form>", "html"));
@@ -1419,6 +1447,9 @@ public class ResponseAnalyzer {
             // Struts HTML Tag
             forms.addAll(extractFormsWithPattern(content, relativePath,
                     STRUTS_FORM_PATTERN, "</html:form>", "<html:form>", "struts"));
+
+            // 2. 非入力要素の解析（リンク、Body等、フォーム外も含む）
+            extractNotInputsWithPattern(content, relativePath, forms);
 
         } catch (IOException e) {
             System.out.println("  [ERROR] JSPファイル読み込みエラー: " + jspPath + " - " + e.getMessage());
@@ -1478,6 +1509,7 @@ public class ResponseAnalyzer {
      * フォーム内の入力要素を抽出する。
      */
     private void extractInputElements(String formContent, FormInfo formInfo, String tagType) {
+
         // HTML標準入力要素
         extractInputsWithPattern(formContent, formInfo, HTML_INPUT_PATTERN, "html");
 
@@ -1561,6 +1593,10 @@ public class ResponseAnalyzer {
                     case "button":
                         inputType = tagName.toLowerCase();
                         break;
+                    case "a":
+                    case "html:link":
+                        inputType = NOT_INPUT_TYPE;
+                        break;
                     default:
                         inputType = "text";
                 }
@@ -1572,10 +1608,54 @@ public class ResponseAnalyzer {
             // required属性
             boolean required = attrs.containsKey("required");
 
-            // 入力要素を追加（name/path/propertyがある場合のみ）
-            if (parameterName != null && !parameterName.isEmpty()) {
-                formInfo.inputs.add(new InputElementInfo(inputTag, parameterName, inputType, maxLength, required));
+            // イベント属性を抽出
+            Map<String, String> events = new HashMap<>();
+            for (Map.Entry<String, String> entry : attrs.entrySet()) {
+                if (entry.getKey().startsWith("on")) {
+                    events.put(entry.getKey(), entry.getValue());
+                }
             }
+
+            // 入力要素を追加（name/path/propertyがある場合、またはボタン・リンク・イベントがある場合）
+            boolean isButtonOrLink = "button".equalsIgnoreCase(tagName) || "submit".equalsIgnoreCase(inputType)
+                    || "image".equalsIgnoreCase(inputType) || "a".equalsIgnoreCase(tagName)
+                    || "html:link".equalsIgnoreCase(tagName);
+
+            if ((parameterName != null && !parameterName.isEmpty()) || isButtonOrLink || !events.isEmpty()) {
+                formInfo.inputs
+                        .add(new InputElementInfo(inputTag, parameterName, inputType, maxLength, required, events));
+            }
+        }
+    }
+
+    /**
+     * 非入力要素（リンクやページレベルのイベント）を抽出する。
+     */
+    private void extractNotInputsWithPattern(String content, String relativePath, List<FormInfo> forms) {
+        FormInfo pageElements = new FormInfo(relativePath, "", "", "", "(page elements)");
+
+        // 1. Bodyイベントの抽出
+        Matcher bodyMatcher = BODY_PATTERN.matcher(content);
+        if (bodyMatcher.find()) {
+            String attrsStr = bodyMatcher.group(1);
+            Map<String, String> attrs = extractAttributes(attrsStr);
+            Map<String, String> events = new HashMap<>();
+            for (Map.Entry<String, String> entry : attrs.entrySet()) {
+                if (entry.getKey().startsWith("on")) {
+                    events.put(entry.getKey(), entry.getValue());
+                }
+            }
+
+            if (!events.isEmpty()) {
+                pageElements.inputs.add(new InputElementInfo("<body>", "", NOT_INPUT_TYPE, "", false, events));
+            }
+        }
+
+        // 2. リンクの抽出 (フォーム外も含む)
+        extractInputsWithPattern(content, pageElements, LINK_PATTERN, "html");
+
+        if (!pageElements.inputs.isEmpty()) {
+            forms.add(pageElements);
         }
     }
 
@@ -1881,7 +1961,7 @@ public class ResponseAnalyzer {
         String[] headers = {
                 "JSP File Path", "Form Action", "Form Method", "Root Model",
                 "Input Tag", "Parameter Name", "Input Type", "Max Length",
-                "Required", "JSON Key Estimate", "Nest Path"
+                "Required", "JSON Key Estimate", "Nest Path", "Events"
         };
 
         Row headerRow = sheet.createRow(0);
@@ -1909,6 +1989,7 @@ public class ResponseAnalyzer {
                 createCell(row, 8, "", dataStyle);
                 createCell(row, 9, "", dataStyle);
                 createCell(row, 10, "", dataStyle);
+                createCell(row, 11, "", dataStyle);
             } else {
                 for (InputElementInfo input : form.inputs) {
                     Row row = sheet.createRow(rowNum++);
@@ -1924,6 +2005,7 @@ public class ResponseAnalyzer {
                     createCell(row, 8, input.required ? "true" : "", dataStyle);
                     createCell(row, 9, input.jsonKeyEstimate, dataStyle);
                     createCell(row, 10, input.nestPath, dataStyle);
+                    createCell(row, 11, input.events, dataStyle);
                 }
             }
         }
