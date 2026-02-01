@@ -679,15 +679,19 @@ public class ResponseAnalyzer {
                 }
                 String warningStr = String.join("; ", warnings);
 
+                // マッチしたEL式を追跡するセット
+                Set<String> handledEls = new HashSet<>();
+
                 // 各属性についてフィールドの使用状況を解析
                 for (ModelAttribute attr : methodInfo.attributes) {
                     List<ResponseAnalysisResult> attrResults = matchAttributeToJsp(
-                            methodInfo, attr, jspResult, viewPath, warningStr);
+                            methodInfo, attr, jspResult, viewPath, warningStr, handledEls);
                     results.addAll(attrResults);
                 }
 
                 // スコープ参照を独立した行として追加
                 for (ScopeReference scopeRef : jspResult.scopeReferenceDetails) {
+                    handledEls.add(scopeRef.expression); // スコープ参照も処理済みとする
                     results.add(new ResponseAnalysisResult(
                             methodInfo.controllerName,
                             methodInfo.methodName,
@@ -699,6 +703,28 @@ public class ResponseAnalyzer {
                             "", // 使用状況: 空（スコープ参照なので判定しない）
                             scopeRef.scopeName, // 属性の由来: "requestスコープ"等
                             warningStr));
+                }
+
+                // JSPにのみ存在する項目（属性にもスコープ参照にも該当しないEL式）を追加
+                for (String el : jspResult.elExpressions) {
+                    if (!handledEls.contains(el)) {
+                        // ${foo.bar} -> foo
+                        String elContent = el.substring(2, el.length() - 1).trim();
+                        String attributeName = elContent.contains(".") ? elContent.substring(0, elContent.indexOf('.'))
+                                : elContent;
+
+                        results.add(new ResponseAnalysisResult(
+                                methodInfo.controllerName,
+                                methodInfo.methodName,
+                                viewPath,
+                                attributeName, // Attribute Name: 推定される属性名
+                                el, // JSP Reference: EL式
+                                "", // Java Class: 空
+                                "", // Java Field: 空
+                                "", // 使用状況: 空
+                                "JSPのみ", // 属性の由来
+                                warningStr));
+                    }
                 }
             }
         }
@@ -1800,9 +1826,22 @@ public class ResponseAnalyzer {
             ModelAttribute attr,
             JspAnalysisResult jspResult,
             String viewPath,
-            String baseWarning) {
+            String baseWarning,
+            Set<String> handledEls) {
 
         List<ResponseAnalysisResult> results = new ArrayList<>();
+
+        // この属性に関連するEL式をすべて処理済みとしてマーク（クラス定義が見つからない場合や、フィールドが見つからない場合も含む）
+        String prefix1 = "${" + attr.attributeName + ".";
+        String prefix2 = "${" + attr.attributeName + "}";
+        String prefix3 = "${" + attr.attributeName + "[";
+
+        for (String el : jspResult.elExpressions) {
+            String elTrimmed = el.trim();
+            if (elTrimmed.startsWith(prefix1) || elTrimmed.equals(prefix2) || elTrimmed.startsWith(prefix3)) {
+                handledEls.add(el);
+            }
+        }
 
         // 属性のクラスのフィールドを取得
         List<CtField<?>> fields = getFieldsForType(attr.typeReference);
@@ -1838,6 +1877,7 @@ public class ResponseAnalyzer {
                 if (elContent.equals(fieldPattern) || elContent.startsWith(fieldPattern + ".") ||
                         elContent.startsWith(fieldPattern + "[")) {
                     matchedEl = el;
+                    handledEls.add(el); // マッチしたEL式を記録
                     break;
                 }
             }
