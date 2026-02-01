@@ -1912,7 +1912,7 @@ public class ResponseAnalyzer {
                     unusedStyle);
 
             // RequestAnalysisシートを生成
-            generateRequestAnalysisSheet(workbook, formResults, headerStyle, dataStyle);
+            generateRequestAnalysisSheet(workbook, formResults, headerStyle, jspHeaderStyle, dataStyle);
 
             // ファイルに書き出し
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
@@ -2030,14 +2030,14 @@ public class ResponseAnalyzer {
      * RequestAnalysisシートを生成する。
      */
     private void generateRequestAnalysisSheet(Workbook workbook, List<FormInfo> formResults,
-            CellStyle headerStyle, CellStyle dataStyle) {
+            CellStyle headerStyle, CellStyle jspHeaderStyle, CellStyle dataStyle) {
         Sheet sheet = workbook.createSheet(REQUEST_SHEET_NAME);
 
         // ヘッダー
         String[] headers = {
-                "JSP File Path", "Form Action", "Form Method", "Root Model",
+                "JSPファイルパス", "Form Action", "Form Method", "Root Model",
                 "Input Tag", "Parameter Name", "Input Type", "Max Length",
-                "Required", "JSON Key Estimate", "Nest Path", "Events", "Remarks"
+                "Required", "イベント", "備考", "JSONキー", "JSONキー(ネスト)"
         };
 
         Row headerRow = sheet.createRow(0);
@@ -2045,6 +2045,13 @@ public class ResponseAnalyzer {
             Cell cell = headerRow.createCell(i);
             cell.setCellValue(headers[i]);
             cell.setCellStyle(headerStyle);
+
+            // 特定の項目は別のスタイルを適用 (JSONキー, JSONキー(ネスト))
+            if (i <= 10) {
+                cell.setCellStyle(jspHeaderStyle);
+            } else {
+                cell.setCellStyle(headerStyle);
+            }
         }
 
         // データ行
@@ -2053,37 +2060,40 @@ public class ResponseAnalyzer {
             if (form.inputs.isEmpty()) {
                 // 入力要素がない場合（フォーム自体がない、またはフォーム内に入力要素がない）
                 Row row = sheet.createRow(rowNum++);
-                createCell(row, 0, form.jspFilePath, dataStyle);
-                createCell(row, 1, form.action, dataStyle);
-                createCell(row, 2, form.method, dataStyle);
-                createCell(row, 3, form.rootModel, dataStyle);
-                createCell(row, 4, form.formTag, dataStyle); // Input Tag列にフォームタグ情報を表示（または空にする）
+                int col = 0;
+                createCell(row, col++, form.jspFilePath, dataStyle);
+                createCell(row, col++, form.action, dataStyle);
+                createCell(row, col++, form.method, dataStyle);
+                createCell(row, col++, form.rootModel, dataStyle);
+                createCell(row, col++, form.formTag, dataStyle); // Input Tag列にフォームタグ情報を表示（または空にする）
                 // 以降の列は空
-                createCell(row, 5, "", dataStyle);
-                createCell(row, 6, "", dataStyle);
-                createCell(row, 7, "", dataStyle);
-                createCell(row, 8, "", dataStyle);
-                createCell(row, 9, "", dataStyle);
-                createCell(row, 10, "", dataStyle);
-                createCell(row, 11, "", dataStyle);
-                createCell(row, 12, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
+                createCell(row, col++, "", dataStyle);
             } else {
                 for (InputElementInfo input : form.inputs) {
                     Row row = sheet.createRow(rowNum++);
-
-                    createCell(row, 0, form.jspFilePath, dataStyle);
-                    createCell(row, 1, form.action, dataStyle);
-                    createCell(row, 2, form.method, dataStyle);
-                    createCell(row, 3, form.rootModel, dataStyle);
-                    createCell(row, 4, input.inputTag, dataStyle);
-                    createCell(row, 5, input.parameterName, dataStyle);
-                    createCell(row, 6, input.inputType, dataStyle);
-                    createCell(row, 7, input.maxLength, dataStyle);
-                    createCell(row, 8, input.required ? "true" : "", dataStyle);
-                    createCell(row, 9, input.jsonKeyEstimate, dataStyle);
-                    createCell(row, 10, input.nestPath, dataStyle);
-                    createCell(row, 11, input.events, dataStyle);
-                    createCell(row, 12, input.remarks, dataStyle);
+                    int col = 0;
+                    createCell(row, col++, form.jspFilePath, dataStyle);
+                    createCell(row, col++, form.action, dataStyle);
+                    createCell(row, col++, form.method, dataStyle);
+                    createCell(row, col++, form.rootModel, dataStyle);
+                    createCell(row, col++, input.inputTag, dataStyle);
+                    createCell(row, col++, input.parameterName, dataStyle);
+                    createCell(row, col++, input.inputType, dataStyle);
+                    createCell(row, col++, input.maxLength, dataStyle);
+                    createCell(row, col++, input.required ? "true" : "", dataStyle);
+                    createCell(row, col++, input.events, dataStyle);
+                    createCell(row, col++, input.remarks, dataStyle);
+                    createCell(row, col++, input.jsonKeyEstimate, dataStyle);
+                    createCell(row, col++,
+                            input.nestPath + (input.nestPath.isEmpty() ? "" : ".") + input.jsonKeyEstimate,
+                            dataStyle);
                 }
             }
         }
@@ -2101,6 +2111,42 @@ public class ResponseAnalyzer {
         if (rowNum > 1) {
             sheet.setAutoFilter(new CellRangeAddress(
                     0, rowNum - 1, 0, headers.length - 1));
+
+            // 条件付き書式の設定
+            SheetConditionalFormatting sheetCF = sheet.getSheetConditionalFormatting();
+
+            // 1. JSPファイルパスが変わったら区切り線 (A列〜M列)
+            // AND($A2<>OFFSET($A2, -1, 0))
+            ConditionalFormattingRule ruleJspChange = sheetCF.createConditionalFormattingRule(
+                    "AND($A2<>OFFSET($A2, -1, 0))");
+            BorderFormatting borderJsp = ruleJspChange.createBorderFormatting();
+            borderJsp.setBorderTop(BorderStyle.MEDIUM);
+
+            CellRangeAddress[] regionAll = {
+                    CellRangeAddress.valueOf("A2:M" + (rowNum - 1))
+            };
+            sheetCF.addConditionalFormatting(regionAll, ruleJspChange);
+
+            // 2. Form Actionが変わったら区切り線 (B列〜M列) ※JSPが同じ場合
+            // AND($A2=OFFSET($A2, -1, 0), $B2<>OFFSET($B2, -1, 0))
+            ConditionalFormattingRule ruleActionChange = sheetCF.createConditionalFormattingRule(
+                    "AND($A2=OFFSET($A2, -1, 0), $B2<>OFFSET($B2, -1, 0))");
+            BorderFormatting borderAction = ruleActionChange.createBorderFormatting();
+            borderAction.setBorderTop(BorderStyle.MEDIUM);
+
+            CellRangeAddress[] regionForm = {
+                    CellRangeAddress.valueOf("B2:M" + (rowNum - 1))
+            };
+            sheetCF.addConditionalFormatting(regionForm, ruleActionChange);
+
+            // 3. Input Typeが空の場合、背景色をグレー (B列〜M列)
+            // AND($G2="")
+            ConditionalFormattingRule ruleNoInput = sheetCF.createConditionalFormattingRule("AND($G2=\"\")");
+            PatternFormatting fillNoInput = ruleNoInput.createPatternFormatting();
+            fillNoInput.setFillBackgroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            fillNoInput.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+            sheetCF.addConditionalFormatting(regionForm, ruleNoInput);
         }
     }
 

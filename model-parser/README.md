@@ -401,7 +401,7 @@ Excelファイルに「RequestAnalysis」シートが追加され、以下のカ
 
 | 列 | ヘッダー名 | 説明 |
 | :--- | :--- | :--- |
-| A | JSP File Path | JSPファイルの相対パス |
+| A | JSPファイルパス | JSPファイルの相対パス |
 | B | Form Action | フォームの送信先URL |
 | C | Form Method | HTTPメソッド（GET/POST） |
 | D | Root Model | `modelAttribute`または`commandName`の値 |
@@ -410,8 +410,10 @@ Excelファイルに「RequestAnalysis」シートが追加され、以下のカ
 | G | Input Type | `type`属性の値または推定タイプ |
 | H | Max Length | `maxlength`属性の値 |
 | I | Required | 必須属性の有無（true/空白） |
-| J | JSON Key Estimate | パラメータ名の末尾（ネスト時の参考値） |
-| K | Nest Path | パラメータ名の親パス（ネスト構造の参考値） |
+| J | イベント | イベントハンドラ（`on*`属性） |
+| K | 備考 | ボタン/リンクの内部テキスト、ボタンのvalue属性値、リンクのhref属性値 |
+| L | JSONキー | パラメータ名の末尾（ネスト時の参考値） |
+| M | JSONキー(ネスト) | パラメータ名（ネスト構造の参考値） |
 
 ### ドット記法によるネスト構造
 
