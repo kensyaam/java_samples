@@ -2019,26 +2019,39 @@ public class ResponseAnalyzer {
             if (itemsExpr.equals(attr.attributeName)) {
                 // varを使ったEL式を検索して結果を生成
                 String varPrefix = "${" + varName + ".";
+                String varExact = "${" + varName + "}";
+
                 for (String el : jspResult.elExpressions) {
                     String elTrimmed = el.trim();
-                    if (elTrimmed.startsWith(varPrefix)) {
-                        // ${user.name} -> name
+                    if (elTrimmed.startsWith(varPrefix) || elTrimmed.equals(varExact)) {
+                        // EL式の中身を取得 (${...}の...部分)
                         String elContent = el.substring(2, el.length() - 1).trim();
-                        String fieldPart = elContent.substring(varName.length() + 1);
 
-                        String fullRef = el + " (via c:forEach items=\"${" + itemsExpr + "}\" var=\"" + varName + "\")";
+                        // EL式内の変数参照を抽出
+                        List<String> attrRefs = extractAttributeRefsFromEl(elContent);
 
-                        results.add(new ResponseAnalysisResult(
-                                methodInfo.controllerName,
-                                methodInfo.methodName,
-                                viewPath,
-                                attr.attributeName + "[]", // Attribute Name: コレクション属性[]表記
-                                fullRef, // JSP Reference
-                                attr.javaClassName, // Java Class: 元のコレクション型
-                                fieldPart, // Java Field: 要素のフィールドパス
-                                USED, // 使用状況
-                                "c:forEach経由",
-                                baseWarning));
+                        // var変数に関連する参照があるかチェック
+                        for (String ref : attrRefs) {
+                            if (ref.equals(varName) || ref.startsWith(varName + ".")) {
+                                // フィールド部分を特定 (user.role -> role)
+                                String fieldPart = ref.equals(varName) ? "" : ref.substring(varName.length() + 1);
+
+                                String fullRef = el + " (via c:forEach items=\"${" + itemsExpr + "}\" var=\"" + varName
+                                        + "\")";
+
+                                results.add(new ResponseAnalysisResult(
+                                        methodInfo.controllerName,
+                                        methodInfo.methodName,
+                                        viewPath,
+                                        attr.attributeName + "[]",
+                                        fullRef,
+                                        attr.javaClassName,
+                                        fieldPart,
+                                        USED,
+                                        "c:forEach経由",
+                                        baseWarning));
+                            }
+                        }
                     }
                 }
             }
