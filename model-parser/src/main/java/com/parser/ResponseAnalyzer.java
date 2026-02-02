@@ -1375,6 +1375,9 @@ public class ResponseAnalyzer {
 
         // JSPファイルパスを構築
         String jspFileName = viewName.endsWith(".jsp") ? viewName : viewName + ".jsp";
+        if (jspFileName.startsWith("/")) {
+            jspFileName = jspFileName.substring(1);
+        }
         Path jspPath = jspRootPath.resolve(jspFileName);
 
         if (!Files.exists(jspPath)) {
