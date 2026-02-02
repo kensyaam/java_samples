@@ -1019,6 +1019,13 @@ public class ModelParser {
             CellStyle classTitleStyle = createClassTitleStyle(workbook);
             CellStyle linkStyle = createLinkStyle(workbook);
             CellStyle jsonStyle = createJsonStyle(workbook);
+            // 論理名列用スタイル（内部の縦罫線なし）
+            CellStyle logicalNameHeaderStyleFirst = createLogicalNameHeaderStyle(workbook, true, false);
+            CellStyle logicalNameHeaderStyleMiddle = createLogicalNameHeaderStyle(workbook, false, false);
+            CellStyle logicalNameHeaderStyleLast = createLogicalNameHeaderStyle(workbook, false, true);
+            CellStyle logicalNameDataStyleFirst = createLogicalNameDataStyle(workbook, true, false);
+            CellStyle logicalNameDataStyleMiddle = createLogicalNameDataStyle(workbook, false, false);
+            CellStyle logicalNameDataStyleLast = createLogicalNameDataStyle(workbook, false, true);
 
             // 1パス目: クラス名から名前付き範囲名のマップを作成
             Map<String, String> classToNamedRangeMap = new HashMap<>();
@@ -1080,9 +1087,13 @@ public class ModelParser {
             Sheet sheet = workbook.createSheet(SHEET_NAME);
 
             // ヘッダー定義
+            // 列0-4: 論理名（ネスト対応、5列）
+            // 列5-9: JSONデータ列
+            // 則10-14: Java実装関連列（クラス名含む）
             String[] headers = {
-                    "JSONキー", "論理名", "説明", "JSON型", "内部要素/参照",
-                    "必須", "サンプル値", "Javaフィールド名", "Java型", "定義元クラス"
+                    "論理名", "", "", "", "",
+                    "JSONキー", "JSONキー(パス表記)", "JSON型", "内部要素/参照",
+                    "必須", "サンプル値", "クラス名", "Javaフィールド名", "Java型", "定義元クラス"
             };
 
             int rowNum = 0;
@@ -1133,8 +1144,15 @@ public class ModelParser {
                 for (int i = 0; i < headers.length; i++) {
                     Cell cell = headerRow.createCell(i);
                     cell.setCellValue(headers[i]);
-                    // Java関連の列（インデックス7, 8, 9）には別のスタイルを適用
-                    if (i >= 7) {
+                    // 論理名列（0-4）は内部縦罫線なしのスタイル
+                    if (i == 0) {
+                        cell.setCellStyle(logicalNameHeaderStyleFirst);
+                    } else if (i < 4) {
+                        cell.setCellStyle(logicalNameHeaderStyleMiddle);
+                    } else if (i == 4) {
+                        cell.setCellStyle(logicalNameHeaderStyleLast);
+                    } else if (i >= 11) {
+                        // Java実装関連の列（インデックス11, 12, 13, 14）には別のスタイルを適用
                         cell.setCellStyle(javaHeaderStyle);
                     } else {
                         cell.setCellStyle(headerStyle);
@@ -1145,13 +1163,49 @@ public class ModelParser {
                 for (FieldMetadata metadata : classMeta.fields) {
                     Row row = sheet.createRow(rowNum++);
 
-                    createCell(row, 0, metadata.jsonKey, dataStyle);
-                    createCell(row, 1, metadata.logicalName, dataStyle);
-                    createCell(row, 2, metadata.description, dataStyle);
-                    createCell(row, 3, metadata.jsonType, dataStyle);
+                    // 列0-4: 論理名（ネストレベルに応じてインデント）
+                    // JSONキーのドット数でネストレベルを判定
+                    int nestLevel = 0;
+                    if (metadata.jsonKey != null) {
+                        nestLevel = (int) metadata.jsonKey.chars().filter(c -> c == '.').count();
+                    }
+                    // ネストレベルは最大4まで（列0-4）
+                    int logicalNameCol = Math.min(nestLevel, 4);
+                    for (int col = 0; col < 5; col++) {
+                        Cell logicalCell = row.createCell(col);
+                        // 値を設定（該当列に論理名、それ以外は空文字列）
+                        if (col == logicalNameCol) {
+                            logicalCell.setCellValue(metadata.logicalName != null ? metadata.logicalName : "");
+                        } else {
+                            logicalCell.setCellValue("");
+                        }
+                        // 内部縦罫線なしのスタイルを適用
+                        if (col == 0) {
+                            logicalCell.setCellStyle(logicalNameDataStyleFirst);
+                        } else if (col < 4) {
+                            logicalCell.setCellStyle(logicalNameDataStyleMiddle);
+                        } else {
+                            logicalCell.setCellStyle(logicalNameDataStyleLast);
+                        }
+                    }
 
-                    // 内部要素/参照セル - 他クラスへのリンクを設定
-                    Cell innerRefCell = row.createCell(4);
+                    // 列5: JSONキー（末端のキー名のみ）
+                    String terminalKey = metadata.jsonKey;
+                    if (terminalKey != null && terminalKey.contains(".")) {
+                        terminalKey = terminalKey.substring(terminalKey.lastIndexOf(".") + 1);
+                    }
+                    // [](配列表記)を削除
+                    if (terminalKey != null) {
+                        terminalKey = terminalKey.replace("[]", "");
+                    }
+                    createCell(row, 5, terminalKey, dataStyle);
+                    // 列6: JSONキー(パス表記)
+                    createCell(row, 6, metadata.jsonKey, dataStyle);
+                    // 列7: JSON型
+                    createCell(row, 7, metadata.jsonType, dataStyle);
+
+                    // 列8: 内部要素/参照セル - 他クラスへのリンクを設定
+                    Cell innerRefCell = row.createCell(8);
                     String displayRef = metadata.innerRef;
                     if (displayRef != null && displayRef.contains(".")) {
                         displayRef = displayRef.substring(displayRef.lastIndexOf(".") + 1);
@@ -1169,12 +1223,18 @@ public class ModelParser {
                         innerRefCell.setCellStyle(dataStyle);
                     }
 
-                    createCell(row, 5, metadata.required, dataStyle);
-                    createCell(row, 6, metadata.sampleValue, dataStyle);
-                    createCell(row, 7, metadata.javaFieldName, dataStyle);
-                    createCell(row, 8, metadata.javaType, dataStyle);
-                    // 定義元クラス
-                    createCell(row, 9, metadata.sourceClass, dataStyle);
+                    // 列9: 必須
+                    createCell(row, 9, metadata.required, dataStyle);
+                    // 則10: サンプル値
+                    createCell(row, 10, metadata.sampleValue, dataStyle);
+                    // 則11: クラス名（ルックアップ用）
+                    createCell(row, 11, classMeta.className, dataStyle);
+                    // 則12: Javaフィールド名
+                    createCell(row, 12, metadata.javaFieldName, dataStyle);
+                    // 則13: Java型
+                    createCell(row, 13, metadata.javaType, dataStyle);
+                    // 則14: 定義元クラス
+                    createCell(row, 14, metadata.sourceClass, dataStyle);
                 }
 
                 // JSONイメージを出力
@@ -1184,14 +1244,18 @@ public class ModelParser {
                 rowNum++;
             }
 
-            // 列幅を自動調整
-            for (int i = 0; i < headers.length; i++) {
+            // 列幅を自動調整（論理名列は除外）
+            for (int i = 5; i < headers.length; i++) {
                 sheet.autoSizeColumn(i);
                 // 最小幅を設定
                 int currentWidth = sheet.getColumnWidth(i);
                 if (currentWidth < 3000) {
                     sheet.setColumnWidth(i, 3000);
                 }
+            }
+            // 論理名列（0-4）は固定幅を設定
+            for (int i = 0; i < 5; i++) {
+                sheet.setColumnWidth(i, 3000);
             }
 
             // ファイルに書き出し
@@ -1562,6 +1626,79 @@ public class ModelParser {
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
+
+        return style;
+    }
+
+    /**
+     * 論理名列のヘッダー用スタイルを作成する（内部縦罫線なし）。
+     * 
+     * @param workbook ワークブック
+     * @param isFirst  最初の列（左罫線あり）
+     * @param isLast   最後の列（右罫線あり）
+     */
+    private CellStyle createLogicalNameHeaderStyle(Workbook workbook, boolean isFirst, boolean isLast) {
+        CellStyle style = workbook.createCellStyle();
+
+        // 背景色
+        style.setFillForegroundColor(IndexedColors.ROYAL_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        // フォント
+        Font font = workbook.createFont();
+        font.setFontName("Meiryo");
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+
+        // 配置
+        style.setAlignment(HorizontalAlignment.CENTER);
+
+        // 境界線（上下は常にあり、左右は端のみ）
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        if (isFirst) {
+            style.setBorderLeft(BorderStyle.THIN);
+        } else {
+            style.setBorderLeft(BorderStyle.NONE);
+        }
+        if (isLast) {
+            style.setBorderRight(BorderStyle.THIN);
+        } else {
+            style.setBorderRight(BorderStyle.NONE);
+        }
+
+        return style;
+    }
+
+    /**
+     * 論理名列のデータ用スタイルを作成する（内部縦罫線なし）。
+     * 
+     * @param workbook ワークブック
+     * @param isFirst  最初の列（左罫線あり）
+     * @param isLast   最後の列（右罫線あり）
+     */
+    private CellStyle createLogicalNameDataStyle(Workbook workbook, boolean isFirst, boolean isLast) {
+        CellStyle style = workbook.createCellStyle();
+
+        // フォント
+        Font font = workbook.createFont();
+        font.setFontName("Meiryo");
+        style.setFont(font);
+
+        // 境界線（上下は常にあり、左右は端のみ）
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        if (isFirst) {
+            style.setBorderLeft(BorderStyle.THIN);
+        } else {
+            style.setBorderLeft(BorderStyle.NONE);
+        }
+        if (isLast) {
+            style.setBorderRight(BorderStyle.THIN);
+        } else {
+            style.setBorderRight(BorderStyle.NONE);
+        }
 
         return style;
     }
