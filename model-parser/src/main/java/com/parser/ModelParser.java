@@ -1700,6 +1700,13 @@ public class ModelParser {
             return value;
         }
 
+        // Map conversions
+        if (value instanceof Map) {
+            if (type == java.util.TreeMap.class || type == java.util.SortedMap.class) {
+                return new java.util.TreeMap<>((Map<?, ?>) value);
+            }
+        }
+
         // Number conversions
         if (value instanceof Number) {
             Number num = (Number) value;
