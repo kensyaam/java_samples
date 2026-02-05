@@ -1283,6 +1283,37 @@ public class ResponseAnalyzer {
     }
 
     /**
+     * 型参照が指定された型名のサブタイプかどうかをチェックする。
+     * CtTypeReferenceを受け取るオーバーロード版。
+     */
+    private boolean isSubtypeOf(CtTypeReference<?> typeRef, String superTypeName) {
+        if (typeRef == null) {
+            return false;
+        }
+
+        // まず型宣言を取得して既存メソッドを使用
+        CtType<?> type = typeRef.getTypeDeclaration();
+        if (type != null) {
+            return isSubtypeOf(type, superTypeName);
+        }
+
+        // 型宣言が取得できない場合は、CtTypeReferenceから直接親を辿る
+        CtTypeReference<?> superclass = typeRef.getSuperclass();
+        if (superclass != null && superclass.getQualifiedName().equals(superTypeName)) {
+            return true;
+        }
+
+        // インターフェースをチェック
+        for (CtTypeReference<?> iface : typeRef.getSuperInterfaces()) {
+            if (iface.getQualifiedName().equals(superTypeName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Spoonモデル全体からフィールドを検索する。
      * getFieldDeclaration()がnullを返す場合のフォールバック。
      * 
@@ -1329,11 +1360,47 @@ public class ResponseAnalyzer {
     private void extractExplicitModelAttributes(CtMethod<?> method, ControllerMethodInfo info) {
         List<CtInvocation<?>> invocations = method.getElements(new TypeFilter<>(CtInvocation.class));
 
+        // モデル関連の型名セット（addAttribute, addObject, put メソッドを持つ型）
+        Set<String> modelRelatedTypes = new HashSet<>(Arrays.asList(
+                "Model", "ModelMap", "ModelAndView",
+                "org.springframework.ui.Model", "org.springframework.ui.ModelMap",
+                "org.springframework.web.servlet.ModelAndView"));
+
         for (CtInvocation<?> invocation : invocations) {
             String methodName = invocation.getExecutable().getSimpleName();
 
             // addAttribute, addObject, put のいずれかをチェック
             if (!methodName.equals("addAttribute") && !methodName.equals("addObject") && !methodName.equals("put")) {
+                continue;
+            }
+
+            // 呼び出し対象の型をチェック（モデル関連の型であることを確認）
+            CtExpression<?> target = invocation.getTarget();
+            if (target == null) {
+                continue;
+            }
+            CtTypeReference<?> targetType = target.getType();
+            if (targetType == null) {
+                continue;
+            }
+
+            // 型名またはQualifiedNameがモデル関連の型に一致するかチェック
+            String simpleTypeName = targetType.getSimpleName();
+            String qualifiedTypeName = targetType.getQualifiedName();
+            boolean isModelRelatedType = modelRelatedTypes.contains(simpleTypeName)
+                    || modelRelatedTypes.contains(qualifiedTypeName);
+
+            // サブタイプかどうかもチェック
+            if (!isModelRelatedType) {
+                for (String modelType : modelRelatedTypes) {
+                    if (isSubtypeOf(targetType, modelType)) {
+                        isModelRelatedType = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!isModelRelatedType) {
                 continue;
             }
 
