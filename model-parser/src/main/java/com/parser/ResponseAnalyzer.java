@@ -142,6 +142,12 @@ public class ResponseAnalyzer {
                     "<c:forEach[^>]+var\\s*=\\s*[\"']([^\"']+)[\"'][^>]*items\\s*=\\s*[\"']\\$\\{([^}]+)\\}[\"'][^>]*>",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
+    /** c:setパターン（var属性とvalue属性を抽出） */
+    private static final Pattern C_SET_PATTERN = Pattern.compile(
+            "<c:set[^>]+var\\s*=\\s*[\"']([^\"']+)[\"'][^>]*value\\s*=\\s*[\"']\\$\\{([^}]+)\\}[\"'][^>]*/?>|" +
+                    "<c:set[^>]+value\\s*=\\s*[\"']\\$\\{([^}]+)\\}[\"'][^>]*var\\s*=\\s*[\"']([^\"']+)[\"'][^>]*/?>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
     // ==========================================================================
     // フォーム解析用定数
     // ==========================================================================
@@ -256,6 +262,11 @@ public class ResponseAnalyzer {
         // c:forEachで定義された変数名から元のコレクション属性へのマッピング
         // 例: "user" -> "users" (c:forEach items="${users}" var="user")
         final Map<String, String> forEachVarToItems = new HashMap<>();
+
+        // c:setで定義された変数名から元のEL式へのマッピング
+        // 例: "userInfo" -> "userDto.profile" (c:set var="userInfo"
+        // value="${userDto.profile}")
+        final Map<String, String> cSetVarToValue = new HashMap<>();
 
         JspAnalysisResult(String jspPath) {
             this.jspPath = jspPath;
@@ -730,10 +741,25 @@ public class ResponseAnalyzer {
                 // JSPにのみ存在する項目（属性にもスコープ参照にも該当しないEL式）を追加
                 for (String el : jspResult.elExpressions) {
                     if (!handledEls.contains(el)) {
-                        // ${foo.bar} -> foo
+                        // ${foo.bar} -> foo, ${fn:length(items)} -> items
                         String elContent = el.substring(2, el.length() - 1).trim();
-                        String attributeName = elContent.contains(".") ? elContent.substring(0, elContent.indexOf('.'))
-                                : elContent;
+
+                        // 改善されたextractAttributeRefsFromElを使用して正しく変数を抽出
+                        List<String> refs = extractAttributeRefsFromEl(elContent);
+
+                        // 抽出された参照から属性名を特定（最初の要素のルート名）
+                        String attributeName = "";
+                        if (!refs.isEmpty()) {
+                            String firstRef = refs.get(0);
+                            attributeName = firstRef.contains(".")
+                                    ? firstRef.substring(0, firstRef.indexOf('.'))
+                                    : firstRef;
+                        } else {
+                            // 抽出できなかった場合は元のロジックにフォールバック
+                            attributeName = elContent.contains(".")
+                                    ? elContent.substring(0, elContent.indexOf('.'))
+                                    : elContent;
+                        }
 
                         results.add(new ResponseAnalysisResult(
                                 methodInfo.controllerName,
@@ -789,7 +815,7 @@ public class ResponseAnalyzer {
                             String fieldPart = elContent.substring(varName.length() + 1); // .name -> name
 
                             String origin = isKnownAttr ? "c:forEach経由" : "JSPのみ(c:forEach)";
-                            String fullRef = el + " (via c:forEach items=\"${" + itemsExpr + "}\" var=\"" + varName
+                            String fullRef = el + "    (via c:forEach items=\"${" + itemsExpr + "}\" var=\"" + varName
                                     + "\")";
 
                             results.add(new ResponseAnalysisResult(
@@ -1554,6 +1580,8 @@ public class ResponseAnalyzer {
                         }
                         // c:forEachマッピングをマージ
                         result.forEachVarToItems.putAll(includedResult.forEachVarToItems);
+                        // c:setマッピングをマージ
+                        result.cSetVarToValue.putAll(includedResult.cSetVarToValue);
                     }
                 }
             }
@@ -1566,6 +1594,17 @@ public class ResponseAnalyzer {
                 if (items != null && var != null) {
                     // items="${users}" var="user" -> "user" -> "users"
                     result.forEachVarToItems.put(var, items);
+                }
+            }
+
+            // c:setのvar変数とvalue属性のマッピングを抽出
+            Matcher cSetMatcher = C_SET_PATTERN.matcher(content);
+            while (cSetMatcher.find()) {
+                String var = cSetMatcher.group(1) != null ? cSetMatcher.group(1) : cSetMatcher.group(4);
+                String value = cSetMatcher.group(2) != null ? cSetMatcher.group(2) : cSetMatcher.group(3);
+                if (var != null && value != null) {
+                    // var="userInfo" value="${userDto.profile}" -> "userInfo" -> "userDto.profile"
+                    result.cSetVarToValue.put(var, value);
                 }
             }
 
@@ -2044,14 +2083,17 @@ public class ResponseAnalyzer {
         List<ResponseAnalysisResult> results = new ArrayList<>();
 
         // この属性に関連するEL式をすべて処理済みとしてマーク
-        String prefix1 = "${" + attr.attributeName + ".";
-        String prefix2 = "${" + attr.attributeName + "}";
-        String prefix3 = "${" + attr.attributeName + "[";
-
+        // extractAttributeRefsFromElを使用してタグライブラリ関数やempty/not empty内の参照も対象とする
         for (String el : jspResult.elExpressions) {
-            String elTrimmed = el.trim();
-            if (elTrimmed.startsWith(prefix1) || elTrimmed.equals(prefix2) || elTrimmed.startsWith(prefix3)) {
-                handledEls.add(el);
+            String elContent = el.substring(2, el.length() - 1).trim();
+            List<String> refs = extractAttributeRefsFromEl(elContent);
+            for (String ref : refs) {
+                // 属性名と一致、または属性名.xxxの形式
+                if (ref.equals(attr.attributeName) || ref.startsWith(attr.attributeName + ".") ||
+                        ref.startsWith(attr.attributeName + "[")) {
+                    handledEls.add(el);
+                    break;
+                }
             }
         }
 
@@ -2078,6 +2120,35 @@ public class ResponseAnalyzer {
             }
         }
 
+        // c:setで定義されたvar変数にマッピングされている場合も処理済みとしてマーク
+        for (Map.Entry<String, String> entry : jspResult.cSetVarToValue.entrySet()) {
+            String varName = entry.getKey();
+            String valueExpr = entry.getValue();
+            // value="${userDto.profile}" で userDto が attr.attributeName と一致する場合
+            // または value="${attrName.field}" で attrName が attr.attributeName と一致する場合
+            if (valueExpr.equals(attr.attributeName) || valueExpr.startsWith(attr.attributeName + ".")
+                    || valueExpr.startsWith(attr.attributeName + "[")) {
+
+                // varを使ったEL式を検索してマークする
+                for (String el : jspResult.elExpressions) {
+                    // EL式の中身を取得 (${...}の...部分)
+                    String elContent = el.substring(2, el.length() - 1).trim();
+
+                    // EL式内の変数参照を抽出
+                    List<String> attrRefs = extractAttributeRefsFromEl(elContent);
+
+                    // var変数に関連する参照があるかチェック
+                    for (String ref : attrRefs) {
+                        if (ref.equals(varName) || ref.startsWith(varName + ".") ||
+                                ref.startsWith(varName + "[")) {
+                            handledEls.add(el);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // c:forEach経由で使用されているEL式の結果を生成
         for (Map.Entry<String, String> entry : jspResult.forEachVarToItems.entrySet()) {
             String varName = entry.getKey();
@@ -2085,39 +2156,88 @@ public class ResponseAnalyzer {
             // items="${attrName}" で attrName が attr.attributeName と一致する場合
             if (itemsExpr.equals(attr.attributeName)) {
                 // varを使ったEL式を検索して結果を生成
-                String varPrefix = "${" + varName + ".";
-                String varExact = "${" + varName + "}";
-
                 for (String el : jspResult.elExpressions) {
-                    String elTrimmed = el.trim();
-                    if (elTrimmed.startsWith(varPrefix) || elTrimmed.equals(varExact)) {
-                        // EL式の中身を取得 (${...}の...部分)
-                        String elContent = el.substring(2, el.length() - 1).trim();
+                    // EL式の中身を取得 (${...}の...部分)
+                    String elContent = el.substring(2, el.length() - 1).trim();
 
-                        // EL式内の変数参照を抽出
-                        List<String> attrRefs = extractAttributeRefsFromEl(elContent);
+                    // EL式内の変数参照を抽出
+                    List<String> attrRefs = extractAttributeRefsFromEl(elContent);
 
-                        // var変数に関連する参照があるかチェック
-                        for (String ref : attrRefs) {
-                            if (ref.equals(varName) || ref.startsWith(varName + ".")) {
-                                // フィールド部分を特定 (user.role -> role)
-                                String fieldPart = ref.equals(varName) ? "" : ref.substring(varName.length() + 1);
+                    // var変数に関連する参照があるかチェック
+                    for (String ref : attrRefs) {
+                        if (ref.equals(varName) || ref.startsWith(varName + ".")) {
+                            // フィールド部分を特定 (user.role -> role)
+                            String fieldPart = ref.equals(varName) ? "" : ref.substring(varName.length() + 1);
 
-                                String fullRef = el + " (via c:forEach items=\"${" + itemsExpr + "}\" var=\"" + varName
-                                        + "\")";
+                            String fullRef = el + "    (via c:forEach items=\"${" + itemsExpr + "}\" var=\""
+                                    + varName
+                                    + "\")";
 
-                                results.add(new ResponseAnalysisResult(
-                                        methodInfo.controllerName,
-                                        methodInfo.methodName,
-                                        viewPath,
-                                        attr.attributeName + "[]",
-                                        fullRef,
-                                        attr.javaClassName,
-                                        fieldPart,
-                                        USED,
-                                        "c:forEach経由",
-                                        baseWarning));
-                            }
+                            results.add(new ResponseAnalysisResult(
+                                    methodInfo.controllerName,
+                                    methodInfo.methodName,
+                                    viewPath,
+                                    attr.attributeName + "[]",
+                                    fullRef,
+                                    attr.javaClassName,
+                                    fieldPart,
+                                    USED,
+                                    "c:forEach経由",
+                                    baseWarning));
+
+                            // 1つのEL式で複数回カウントしない
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // c:set経由で使用されているEL式の結果を生成
+        for (Map.Entry<String, String> entry : jspResult.cSetVarToValue.entrySet()) {
+            String varName = entry.getKey();
+            String valueExpr = entry.getValue();
+            // value="${attrName}" または value="${attrName.field}" の場合
+            if (valueExpr.equals(attr.attributeName) || valueExpr.startsWith(attr.attributeName + ".")) {
+                // valueExprから元のフィールドパスを取得（attrName.field -> field）
+                String baseFieldPath = valueExpr.equals(attr.attributeName) ? ""
+                        : valueExpr.substring(attr.attributeName.length() + 1);
+
+                // varを使ったEL式を検索して結果を生成
+                for (String el : jspResult.elExpressions) {
+                    // EL式の中身を取得 (${...}の...部分)
+                    String elContent = el.substring(2, el.length() - 1).trim();
+
+                    // EL式内の変数参照を抽出
+                    List<String> attrRefs = extractAttributeRefsFromEl(elContent);
+
+                    // var変数に関連する参照があるかチェック
+                    for (String ref : attrRefs) {
+                        if (ref.equals(varName) || ref.startsWith(varName + ".") ||
+                                ref.startsWith(varName + "[")) {
+                            // フィールド部分を特定 (userInfo.name -> name)
+                            String varFieldPart = ref.equals(varName) ? "" : ref.substring(varName.length() + 1);
+                            // 完全なフィールドパスを構築（baseFieldPath + varFieldPart）
+                            String fullFieldPath = baseFieldPath.isEmpty() ? varFieldPart
+                                    : (varFieldPart.isEmpty() ? baseFieldPath : baseFieldPath + "." + varFieldPart);
+
+                            String fullRef = el + "    (via c:set var=\"" + varName + "\" value=\"${" + valueExpr
+                                    + "}\")";
+
+                            results.add(new ResponseAnalysisResult(
+                                    methodInfo.controllerName,
+                                    methodInfo.methodName,
+                                    viewPath,
+                                    attr.attributeName,
+                                    fullRef,
+                                    attr.javaClassName,
+                                    fullFieldPath,
+                                    USED,
+                                    "c:set経由",
+                                    baseWarning));
+
+                            // 1つのEL式で複数回カウントしない
+                            break;
                         }
                     }
                 }
@@ -2204,7 +2324,7 @@ public class ResponseAnalyzer {
 
                             if (elContent.equals(varFieldPattern) || elContent.startsWith(varFieldPattern + ".") ||
                                     elContent.startsWith(varFieldPattern + "[") || elContent.equals(varName)) {
-                                matchedEl = el + " (via c:forEach var=\"" + varName + "\" items=\"${" + itemsExpr
+                                matchedEl = el + "    (via c:forEach var=\"" + varName + "\" items=\"${" + itemsExpr
                                         + "}\")";
                                 handledEls.add(el);
                                 break;
@@ -2214,7 +2334,7 @@ public class ResponseAnalyzer {
                             for (String ref : attrRefs) {
                                 if (ref.equals(varFieldPattern) || ref.startsWith(varFieldPattern + ".") ||
                                         ref.equals(varName)) {
-                                    matchedEl = el + " (via c:forEach var=\"" + varName + "\" items=\"${" + itemsExpr
+                                    matchedEl = el + "    (via c:forEach var=\"" + varName + "\" items=\"${" + itemsExpr
                                             + "}\")";
                                     handledEls.add(el);
                                     break;
@@ -2266,6 +2386,7 @@ public class ResponseAnalyzer {
     /**
      * EL式からモデル属性参照を抽出する。
      * タグライブラリ関数（fn:length, hoge:format等）内の参照も考慮。
+     * 文字列リテラルやタグライブラリ関数名は除外される。
      * 
      * @param elContent EL式の内容（${...}の...部分）
      * @return 抽出された属性参照のリスト
@@ -2273,13 +2394,23 @@ public class ResponseAnalyzer {
     private List<String> extractAttributeRefsFromEl(String elContent) {
         List<String> refs = new ArrayList<>();
 
-        // 変数参照パターン（word.word... または word[...]）
-        Pattern varPattern = Pattern.compile("([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*|\\[[^\\]]+\\])*)");
-        Matcher m = varPattern.matcher(elContent);
+        // 1. 文字列リテラルを除外（'...' または "..."）
+        String contentWithoutStrings = elContent.replaceAll("'[^']*'", " ")
+                .replaceAll("\"[^\"]*\"", " ");
+
+        // 2. タグライブラリ関数呼び出し（prefix:function）のプレフィックスと関数名を除外
+        // fn:length, hoge:format 等のパターンをスペースに置換
+        String contentWithoutTagLib = contentWithoutStrings.replaceAll(
+                "[a-zA-Z_][a-zA-Z0-9_]*:[a-zA-Z_][a-zA-Z0-9_]*", " ");
+
+        // 3. 変数参照パターン（word.word... または word[...]）
+        Pattern varPattern = Pattern.compile(
+                "([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*|\\[[^\\]]+\\])*)");
+        Matcher m = varPattern.matcher(contentWithoutTagLib);
         while (m.find()) {
             String ref = m.group(1);
-            // タグライブラリ名（hoge:等）は除外、予約語も除外
-            if (!ref.contains(":") && !isReservedElKeyword(ref)) {
+            // 予約語を除外
+            if (!isReservedElKeyword(ref)) {
                 refs.add(ref);
             }
         }
