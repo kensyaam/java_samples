@@ -439,3 +439,25 @@ Excelファイルに「RequestAnalysis」シートが追加され、以下のカ
   }
 }
 ```
+
+## 内部処理概要
+
+### analyzeJsp() メソッドの処理内容
+JSPファイルを解析し、EL式、スコープ参照、JSTL変数定義、フォーム使用状況などを抽出してJspAnalysisResultにまとめます。
+
+#### 抽出処理
+
+| 処理 | 使用パターン | 抽出先 (JspAnalysisResult) |
+| :--- | :--- | :--- |
+| EL式抽出 | EL_PATTERN | elExpressions |
+| スクリプトレット検出 | SCRIPTLET_PATTERN | hasScriptlets |
+| インクルード処理 | JSP_INCLUDE_PATTERN | includedJsps + 再帰解析 |
+| c:forEachマッピング | C_FOREACH_PATTERN | forEachVarToItems |
+| c:setマッピング | C_SET_PATTERN | cSetVarToValue |
+| ELスコープ参照 | EL_SCOPE_PATTERN | scopeReferenceDetails |
+| スクリプトレットスコープ参照 | SCRIPTLET_SCOPE_PATTERN | scopeReferenceDetails |
+| チェーン呼び出し参照 | CHAIN_SCOPE_PATTERN | scopeReferenceDetails |
+| フォーム解析 | analyzeJspForms() | formUsages |
+
+### matchAttributeToJsp() メソッドの処理内容
+ControllerのModel属性とJSP内のEL式・フォームパスを突き合わせ、各フィールドの使用状況（USED/UNUSED）を判定します。
