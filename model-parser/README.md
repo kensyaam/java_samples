@@ -18,9 +18,9 @@
   - [ビルド方法](#ビルド方法-1)
   - [使用方法](#使用方法-1)
   - [使用例](#使用例-1)
-  - [出力フォーマット](#出力フォーマット-1)
-  - [検出パターン](#検出パターン)
+  - [レスポンス解析（ResponseAnalysisシート）](#レスポンス解析responseanalysisシート)
   - [リクエスト解析（RequestAnalysisシート）](#リクエスト解析requestanalysisシート)
+  - [内部処理概要](#内部処理概要)
 
 <!-- /code_chunk_output -->
 
@@ -253,7 +253,9 @@ java -jar response-analyzer.jar \
   -o response-analysis.xlsx
 ```
 
-## 出力フォーマット
+## レスポンス解析（ResponseAnalysisシート）
+
+### 出力フォーマット
 
 Excelファイルに「ResponseAnalysis」シートが作成され、以下のカラムが出力されます。
 
@@ -270,9 +272,9 @@ Excelファイルに「ResponseAnalysis」シートが作成され、以下の�
 | I | 属性の由来 | addAttribute / put / Argument 等 |
 | J | 警告/備考 | インクルード情報、スクリプトレット警告等 |
 
-## 検出パターン
+### 検出パターン
 
-### Model属性の追加
+#### Model属性の追加
 
 以下のパターンが検出されます。
 
@@ -290,7 +292,7 @@ mav.addObject("itemDto", itemDto);
 public String edit(@ModelAttribute("userForm") UserDto userDto) { ... }
 ```
 
-### フレームワーク型の除外
+#### フレームワーク型の除外
 
 メソッド引数から暗黙的にModel属性を抽出する際、以下の型は除外されます。
 
@@ -300,7 +302,7 @@ public String edit(@ModelAttribute("userForm") UserDto userDto) { ... }
 - `Principal`, `Authentication`, `Locale`
 - プリミティブ型（`String`, `int`, `Integer` 等）
 
-### View名の定数解決
+#### View名の定数解決
 
 ```java
 private static final String VIEW_USER_DETAIL = "user/detail";
@@ -311,7 +313,7 @@ public String showDetail(Model model) {
 }
 ```
 
-### View名の複数return対応
+#### View名の複数return対応
 
 ```java
 @GetMapping("/conditional")
@@ -325,7 +327,7 @@ public String showConditional(Model model, boolean isVip) {
 }
 ```
 
-### View名の変数追跡
+#### View名の変数追跡
 
 ```java
 @GetMapping("/variable-return")
@@ -339,11 +341,11 @@ public String showVariableReturn(Model model, int userType) {
 }
 ```
 
-### スコープ参照の検出
+#### スコープ参照の検出
 
 JSP内でのスコープ参照を検出し、「属性の由来」列に情報を付加します。
 
-#### 検出対象パターン
+##### 検出対象パターン
 
 **EL式でのスコープ参照**:
 
@@ -369,14 +371,10 @@ ${pageScope.tempData}
 <% request.getSession().getAttribute("user") %>
 ```
 
-#### 出力例
+##### 出力例
 
 スコープ参照が検出されると、「属性の由来」列にスコープ情報が追記されます。
 
-| 属性の由来 |
-| :--- |
-| addAttribute (requestScope) |
-| Argument (sessionScope/requestScope) |
 
 ## リクエスト解析（RequestAnalysisシート）
 
@@ -406,8 +404,8 @@ Excelファイルに「RequestAnalysis」シートが追加され、以下のカ
 | C | Form Method | HTTPメソッド（GET/POST） |
 | D | Root Model | `modelAttribute`または`commandName`の値 |
 | E | Input Tag | 使用されているタグ名 |
-| F | Parameter Name | `name`/`path`/`property`属性の値 |
-| G | Input Type | `type`属性の値または推定タイプ |
+| F | Input Type | `type`属性の値または推定タイプ |
+| G | Parameter Name | `name`/`path`/`property`属性の値 |
 | H | Max Length | `maxlength`属性の値 |
 | I | Required | 必須属性の有無（true/空白） |
 | J | イベント | イベントハンドラ（`on*`属性） |

@@ -2958,7 +2958,7 @@ public class ResponseAnalyzer {
         // ヘッダー
         String[] headers = {
                 "JSPファイルパス", "Form Action", "Form Method", "Root Model",
-                "Input Tag", "Parameter Name", "Input Type", "Max Length",
+                "Input Tag", "Input Type", "Parameter Name", "Max Length",
                 "Required", "イベント", "備考", "JSONキー", "JSONキー(ネスト)"
         };
 
@@ -3006,8 +3006,8 @@ public class ResponseAnalyzer {
                     createCell(row, col++, form.method, dataStyle);
                     createCell(row, col++, form.rootModel, dataStyle);
                     createCell(row, col++, input.inputTag, dataStyle);
-                    createCell(row, col++, input.parameterName, dataStyle);
                     createCell(row, col++, input.inputType, dataStyle);
+                    createCell(row, col++, input.parameterName, dataStyle);
                     createCell(row, col++, input.maxLength, dataStyle);
                     createCell(row, col++, input.required ? "true" : "", dataStyle);
                     createCell(row, col++, input.events, dataStyle);
@@ -3062,8 +3062,8 @@ public class ResponseAnalyzer {
             sheetCF.addConditionalFormatting(regionForm, ruleActionChange);
 
             // 3. Input Typeが空の場合、背景色をグレー (B列〜M列)
-            // AND($G2="")
-            ConditionalFormattingRule ruleNoInput = sheetCF.createConditionalFormattingRule("AND($G2=\"\")");
+            // AND($F2="")
+            ConditionalFormattingRule ruleNoInput = sheetCF.createConditionalFormattingRule("AND($F2=\"\")");
             PatternFormatting fillNoInput = ruleNoInput.createPatternFormatting();
             fillNoInput.setFillBackgroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
             fillNoInput.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
