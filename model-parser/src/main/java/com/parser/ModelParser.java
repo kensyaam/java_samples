@@ -157,6 +157,12 @@ public class ModelParser {
         }
     }
 
+    private static final String JSON_TYPE_OBJECT = "Object";
+    private static final String JSON_TYPE_ARRAY = "Array";
+    private static final String JSON_TYPE_STRING = "String";
+    private static final String JSON_TYPE_NUMBER = "Number";
+    private static final String JSON_TYPE_BOOLEAN = "Boolean";
+
     /**
      * フィールドメタデータを保持するレコード。
      */
@@ -618,7 +624,7 @@ public class ModelParser {
                 CtTypeReference<?> typeRef = field.getType();
 
                 // コレクションの場合は要素型を取得
-                if (metadata.jsonType.equals("array")) {
+                if (metadata.jsonType.equals(JSON_TYPE_ARRAY)) {
                     if (typeRef.isArray()) {
                         innerType = ((CtArrayTypeReference<?>) typeRef).getComponentType().getTypeDeclaration();
                     } else if (isCollectionType(typeRef.getSimpleName())
@@ -633,7 +639,7 @@ public class ModelParser {
                 }
 
                 if (innerType != null && !isPrimitiveOrStandard(innerType)) {
-                    String nextPrefix = jsonKey + (metadata.jsonType.equals("array") ? "[]." : ".");
+                    String nextPrefix = jsonKey + (metadata.jsonType.equals(JSON_TYPE_ARRAY) ? "[]." : ".");
                     String innerClassName = innerType.getSimpleName();
                     visitedTypes.add(metadata.innerRef);
 
@@ -898,7 +904,7 @@ public class ModelParser {
      */
     private String[] convertType(CtTypeReference<?> typeRef) {
         if (typeRef == null) {
-            return new String[] { "object", "" };
+            return new String[] { JSON_TYPE_OBJECT, "" };
         }
 
         String typeName = typeRef.getSimpleName();
@@ -909,7 +915,7 @@ public class ModelParser {
             CtArrayTypeReference<?> arrayRef = (CtArrayTypeReference<?>) typeRef;
             CtTypeReference<?> componentType = arrayRef.getComponentType();
             String innerType = componentType != null ? componentType.getQualifiedName() : "unknown";
-            return new String[] { "array", innerType };
+            return new String[] { JSON_TYPE_ARRAY, innerType };
         }
 
         // コレクション型の場合
@@ -919,23 +925,23 @@ public class ModelParser {
             if (typeArgs != null && !typeArgs.isEmpty()) {
                 innerType = typeArgs.get(0).getQualifiedName();
             }
-            return new String[] { "array", innerType };
+            return new String[] { JSON_TYPE_ARRAY, innerType };
         }
 
         // 文字列型の場合
         if (STRING_TYPES.contains(typeName) || STRING_TYPES.contains(qualifiedName)) {
-            return new String[] { "string", "" };
+            return new String[] { JSON_TYPE_STRING, "" };
         }
 
         // 数値型の場合
         if (NUMBER_TYPES.contains(typeName) || NUMBER_TYPES.contains(qualifiedName)) {
-            return new String[] { "number", "" };
+            return new String[] { JSON_TYPE_NUMBER, "" };
         }
 
         // Boolean型の場合
         if ("boolean".equals(typeName) || "Boolean".equals(typeName) ||
                 "java.lang.Boolean".equals(qualifiedName)) {
-            return new String[] { "boolean", "" };
+            return new String[] { JSON_TYPE_BOOLEAN, "" };
         }
 
         // Map型の場合
@@ -943,11 +949,11 @@ public class ModelParser {
                 qualifiedName.equals("java.util.HashMap") ||
                 qualifiedName.equals("java.util.LinkedHashMap") ||
                 qualifiedName.equals("java.util.TreeMap")) {
-            return new String[] { "object", "Map" };
+            return new String[] { JSON_TYPE_OBJECT, "Map" };
         }
 
         // その他のクラスはobjectとして扱う
-        return new String[] { "object", qualifiedName };
+        return new String[] { JSON_TYPE_OBJECT, qualifiedName };
     }
 
     /**
@@ -977,13 +983,13 @@ public class ModelParser {
      */
     private String generateSampleValue(String jsonType, String innerRef) {
         switch (jsonType) {
-            case "string":
+            case JSON_TYPE_STRING:
                 return "\"text\"";
-            case "number":
+            case JSON_TYPE_NUMBER:
                 return "123";
-            case "boolean":
+            case JSON_TYPE_BOOLEAN:
                 return "true";
-            case "array":
+            case JSON_TYPE_ARRAY:
                 if (!innerRef.isEmpty()) {
                     // 内部要素の型に応じてサンプル値を調整
                     if (STRING_TYPES.contains(innerRef)) {
@@ -995,7 +1001,10 @@ public class ModelParser {
                     }
                 }
                 return "[]";
-            case "object":
+            case JSON_TYPE_OBJECT:
+                if (innerRef.equals("Map")) {
+                    return "{\"xxx\": \"xxx\", \"xxx\": \"xxx\"}";
+                }
                 return "{...}";
             default:
                 return "";
@@ -1403,7 +1412,7 @@ public class ModelParser {
         }
 
         switch (jsonType) {
-            case "number":
+            case JSON_TYPE_NUMBER:
                 try {
                     if (cleanValue.contains(".")) {
                         return Double.parseDouble(cleanValue);
@@ -1413,13 +1422,13 @@ public class ModelParser {
                 } catch (NumberFormatException e) {
                     return 0;
                 }
-            case "boolean":
+            case JSON_TYPE_BOOLEAN:
                 return Boolean.parseBoolean(cleanValue);
-            case "string":
+            case JSON_TYPE_STRING:
                 return cleanValue;
-            case "array":
+            case JSON_TYPE_ARRAY:
                 return new ArrayList<>();
-            case "object":
+            case JSON_TYPE_OBJECT:
                 return new HashMap<>();
             default:
                 return cleanValue;
@@ -1723,7 +1732,7 @@ public class ModelParser {
             for (FieldMetadata fieldMeta : classMeta.fields) {
                 try {
                     Field field = getFieldRecursive(instance.getClass(), fieldMeta.javaFieldName);
-                    if (field == null) {
+                    if (field == null || !instance.getClass().getSimpleName().equals(fieldMeta.sourceClass)) {
                         continue;
                     }
                     field.setAccessible(true);
@@ -1737,7 +1746,7 @@ public class ModelParser {
 
                     // 配列/コレクションの場合
                     // 配列/コレクションの場合
-                    if ("array".equals(fieldMeta.jsonType)) {
+                    if (JSON_TYPE_ARRAY.equals(fieldMeta.jsonType)) {
                         if (Collection.class.isAssignableFrom(field.getType())) {
                             Collection<Object> collection = createCollectionInstance(field.getType());
 
@@ -1775,7 +1784,7 @@ public class ModelParser {
                         }
                     }
                     // オブジェクト（ネスト）の場合
-                    else if ("object".equals(fieldMeta.jsonType) && fieldMeta.innerRef != null
+                    else if (JSON_TYPE_OBJECT.equals(fieldMeta.jsonType) && fieldMeta.innerRef != null
                             && !fieldMeta.innerRef.isEmpty() && !"Map".equals(fieldMeta.innerRef)) {
                         ClassMetadata nestedMeta = classMetadataMap.get(fieldMeta.innerRef);
                         if (nestedMeta != null) {
@@ -1841,6 +1850,9 @@ public class ModelParser {
         if (value instanceof Map) {
             if (type == java.util.TreeMap.class || type == java.util.SortedMap.class) {
                 return new java.util.TreeMap<>((Map<?, ?>) value);
+            }
+            if (type == java.util.LinkedHashMap.class) {
+                return new java.util.LinkedHashMap<>((Map<?, ?>) value);
             }
         }
 
