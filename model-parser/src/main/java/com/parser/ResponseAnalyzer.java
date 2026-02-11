@@ -128,7 +128,7 @@ public class ResponseAnalyzer {
 
     /** EL式でのスコープ参照パターン（requestScope, sessionScope, applicationScope, pageScope） */
     private static final Pattern EL_SCOPE_PATTERN = Pattern.compile(
-            "\\$\\{(requestScope|sessionScope|applicationScope|pageScope)\\.([^}]+)\\}");
+            "\\$\\{(?:not empty |empty |not )?(requestScope|sessionScope|applicationScope|pageScope)\\.([^}]+)\\}");
 
     /** スクリプトレット内でのスコープ参照パターン（request.getAttribute, session.getAttribute等） */
     private static final Pattern SCRIPTLET_SCOPE_PATTERN = Pattern.compile(
@@ -177,21 +177,32 @@ public class ResponseAnalyzer {
 
     /** 入力要素パターン（HTML標準） */
     private static final Pattern HTML_INPUT_PATTERN = Pattern.compile(
-            "<(input|select|textarea|button)\\b(" + ATTRS_WITH_NESTED_TAGS + ")(?:>(.*?)</\\1>|/?>) ",
+            "<(input|select|textarea|button)\\b([^>]*)(?:>(.*?)</\\1>|/?>)",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // "<(input|select|textarea|button)\\b(" + ATTRS_WITH_NESTED_TAGS +
+    // ")(?:>(.*?)</\\1>|/?>) ",
+    // Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** 入力要素パターン（Spring Form Tag） */
     private static final Pattern SPRING_INPUT_PATTERN = Pattern.compile(
             "<form:(input|password|hidden|checkbox|checkboxes|radiobutton|radiobuttons|"
-                    + "select|option|options|textarea|errors|button)\\b(" + ATTRS_WITH_NESTED_TAGS
-                    + ")(?:>(.*?)</form:\\1>|/?>) ",
+                    + "select|option|options|textarea|errors|button)\\b([^>]*)(?:>(.*?)</form:\\1>|/?>)",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // "<form:(input|password|hidden|checkbox|checkboxes|radiobutton|radiobuttons|"
+    // + "select|option|options|textarea|errors|button)\\b(" +
+    // ATTRS_WITH_NESTED_TAGS
+    // + ")(?:>(.*?)</form:\\1>|/?>) ",
+    // Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** 入力要素パターン（Struts HTML Tag） */
     private static final Pattern STRUTS_INPUT_PATTERN = Pattern.compile(
             "<html:(text|password|hidden|checkbox|multibox|radio|select|submit|cancel|image|button"
-                    + "|textarea|file)\\b(" + ATTRS_WITH_NESTED_TAGS + ")(?:>(.*?)</html:\\1>|/?>) ",
+                    + "|textarea|file)\\b([^>]*)(?:>(.*?)</html:\\1>|/?>)",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // "<html:(text|password|hidden|checkbox|multibox|radio|select|submit|cancel|image|button"
+    // + "|textarea|file)\\b(" + ATTRS_WITH_NESTED_TAGS +
+    // ")(?:>(.*?)</html:\\1>|/?>) ",
+    // Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** 属性抽出用パターン（ネストしたタグを含む属性値に対応） */
     private static final Pattern ATTR_PATTERN = Pattern.compile(
@@ -207,8 +218,11 @@ public class ResponseAnalyzer {
 
     /** リンクタグパターン */
     private static final Pattern LINK_PATTERN = Pattern.compile(
-            "<(a|html:link)\\b(" + ATTRS_WITH_NESTED_TAGS + ")(?:>(.*?)</(?:a|html:link)>|/?>) ",
+            "<(a|html:link)\\b([^>]*)(?:>(.*?)</(?:a|html:link)>|/?>)",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // "<(a|html:link)\\b(" + ATTRS_WITH_NESTED_TAGS +
+    // ")(?:>(.*?)</(?:a|html:link)>|/?>) ",
+    // Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /** BODYタグパターン（onload取得用） */
     private static final Pattern BODY_PATTERN = Pattern.compile(
@@ -883,6 +897,9 @@ public class ResponseAnalyzer {
                     boolean isKnownAttr = methodInfo.attributes.stream()
                             .anyMatch(a -> valueExpr.equals(a.attributeName)
                                     || valueExpr.startsWith(a.attributeName + ".")
+                                    || valueExpr.startsWith("empty " + a.attributeName + ".")
+                                    || valueExpr.startsWith("not empty " + a.attributeName + ".")
+                                    || valueExpr.startsWith("not " + a.attributeName + ".")
                                     || rootAttrName.equals(a.attributeName));
 
                     // var変数を使ったEL式を検索
@@ -1910,9 +1927,10 @@ public class ResponseAnalyzer {
                     formEvents.put(entry.getKey(), entry.getValue());
                 }
             }
-            if (!formEvents.isEmpty()) {
-                formInfo.inputs.add(new InputElementInfo(formTagDisplay, "", "form", "", false, formEvents));
-            }
+            // if (!formEvents.isEmpty()) {
+            formInfo.inputs
+                    .add(new InputElementInfo(formTagDisplay, "", "form (開始)", "", false, formEvents, ">>>> form開始"));
+            // }
 
             // フォーム終了位置を探す
             int formEnd = content.toLowerCase().indexOf(endTag.toLowerCase(), formStart);
@@ -1927,6 +1945,10 @@ public class ResponseAnalyzer {
 
             // 入力要素を抽出
             extractInputElements(formContent, formInfo, tagType);
+
+            // formの終了も出力
+            formInfo.inputs
+                    .add(new InputElementInfo(formTagDisplay, "", "form (終了)", "", false, formEvents, "<<<< form終了"));
 
             forms.add(formInfo);
 
@@ -2548,7 +2570,10 @@ public class ResponseAnalyzer {
                     String varName = entry.getKey();
                     String valueExpr = entry.getValue();
                     // value="${attrName}" または value="${attrName.field}" の場合
-                    if (valueExpr.equals(attr.attributeName) || valueExpr.startsWith(attr.attributeName + ".")) {
+                    if (valueExpr.equals(attr.attributeName) || valueExpr.startsWith(attr.attributeName + ".")
+                            || valueExpr.startsWith("empty " + attr.attributeName + ".")
+                            || valueExpr.startsWith("not empty " + attr.attributeName + ".")
+                            || valueExpr.startsWith("not " + attr.attributeName)) {
                         // valueExprから元のフィールドパスを取得（attrName.field -> field）
                         String baseFieldPath = valueExpr.equals(attr.attributeName) ? ""
                                 : valueExpr.substring(attr.attributeName.length() + 1);
