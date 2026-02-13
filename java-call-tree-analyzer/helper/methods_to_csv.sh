@@ -145,4 +145,3 @@ iconv -f UTF-8 -t cp932 "$OUTPUT_TSV" > "${OUTPUT_TSV}.tmp" && mv "${OUTPUT_TSV}
 echo "完了!"
 echo "  CSV: $OUTPUT_CSV"
 echo "  TSV: $OUTPUT_TSV"
-

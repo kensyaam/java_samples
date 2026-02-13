@@ -23,17 +23,17 @@ repositories {
 dependencies {
     // Spoon 11.2.1
     implementation 'fr.inria.gforge.spoon:spoon-core:11.2.1'
-    
+
     // ログ出力
     implementation 'org.slf4j:slf4j-api:2.0.9'
     implementation 'ch.qos.logback:logback-classic:1.4.11'
-    
+
     // コマンドラインパーサー
     implementation 'commons-cli:commons-cli:1.5.0'
-    
+
     // JSON出力用（オプション）
     implementation 'com.google.code.gson:gson:2.10.1'
-    
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
 }
@@ -76,11 +76,55 @@ shadowJar {
     // jarファイルの出力場所をプロジェクトルート直下に変更
     destinationDirectory.set(file("$rootDir"))
 
+    // 依存ライブラリの署名ファイルを除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
 }
 
 // デフォルトのbuildタスクでshadowJarを実行
 build {
     dependsOn shadowJar
+}
+
+// StubGenerator用のJAR生成タスク
+task stubGeneratorJar(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    archiveBaseName.set("stub-generator")
+    archiveClassifier.set("")
+    destinationDirectory.set(file("$rootDir"))
+
+    // 依存ライブラリの署名ファイルを除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+
+    configurations = [project.configurations.runtimeClasspath]
+    from sourceSets.main.output
+
+    manifest {
+        attributes 'Main-Class': 'com.analyzer.StubGenerator'
+    }
+}
+
+// 生成されたスタブをコンパイル・JAR化するための設定
+def stubsDir = layout.buildDirectory.dir("generated/stubs")
+def stubsClassesDir = layout.buildDirectory.dir("classes/stubs")
+
+// スタブコンパイルタスク
+task compileStubs(type: JavaCompile) {
+    source = fileTree(dir: stubsDir, include: '**/*.java')
+    destinationDirectory.set(stubsClassesDir)
+    classpath = sourceSets.main.compileClasspath
+    options.encoding = 'UTF-8'
+}
+
+// スタブJAR生成タスク
+task stubJar(type: Jar) {
+    dependsOn compileStubs
+    archiveBaseName.set("generated-stubs")
+    archiveClassifier.set("")
+    destinationDirectory.set(file("$rootDir"))
+    from stubsClassesDir
 }
 
 tasks.withType(Test) {
