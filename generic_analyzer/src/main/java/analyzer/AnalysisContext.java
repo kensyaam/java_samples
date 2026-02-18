@@ -29,6 +29,9 @@ public class AnalysisContext {
     // アノテーション名のリスト
     private List<String> targetAnnotations = new ArrayList<>();
 
+    // 戻り値追跡対象メソッド名のリスト
+    private List<String> trackReturnMethods = new ArrayList<>();
+
     // ソースディレクトリのリスト（相対パス計算用）
     private List<Path> sourceDirs = new ArrayList<>();
 
@@ -101,6 +104,52 @@ public class AnalysisContext {
                 }
             }
         }
+    }
+
+    /**
+     * 戻り値追跡対象メソッド名を追加する。
+     *
+     * @param methods 対象メソッド名（カンマ区切り）
+     */
+    public void addTrackReturnMethods(String methods) {
+        if (methods != null && !methods.isEmpty()) {
+            for (String method : methods.split(",")) {
+                String trimmed = method.trim();
+                if (!trimmed.isEmpty()) {
+                    trackReturnMethods.add(trimmed);
+                }
+            }
+        }
+    }
+
+    /**
+     * 追跡対象メソッド名リストを取得する。
+     */
+    public List<String> getTrackReturnMethods() {
+        return trackReturnMethods;
+    }
+
+    /**
+     * 追跡対象メソッド名にマッチするかを確認する。
+     * SimpleNameまたはQualifiedNameのいずれかでマッチすれば真。
+     *
+     * @param simpleName    単純名（例: getStatus）
+     * @param qualifiedName 完全修飾名（例: com.example.Service.getStatus）
+     * @return マッチした場合true
+     */
+    public boolean isTrackReturnMethod(String simpleName, String qualifiedName) {
+        for (String target : trackReturnMethods) {
+            if (target.contains(".")) {
+                if (qualifiedName.equals(target)) {
+                    return true;
+                }
+            } else {
+                if (simpleName.equals(target)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -280,7 +329,8 @@ public class AnalysisContext {
         return typePattern != null
                 || stringLiteralPattern != null
                 || !targetNames.isEmpty()
-                || !targetAnnotations.isEmpty();
+                || !targetAnnotations.isEmpty()
+                || !trackReturnMethods.isEmpty();
     }
 
     /**

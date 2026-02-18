@@ -19,6 +19,12 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
 4. **文字列リテラルの調査 (StringLiteralAnalyzer)**
    - 正規表現で指定された文字列リテラルが含まれている箇所を特定
 
+5. **戻り値比較の追跡 (ReturnValueComparisonAnalyzer)**
+   - 指定メソッドの戻り値を格納した変数を追跡し、`equals()` や `switch` で比較されている値を抽出
+   - `var.equals("literal")` / `"literal".equals(var)`（逆パターン）に対応
+   - 定数比較の場合、定義元の文字列リテラルまで解決
+   - `if-else` / `else-if` チェーン、`switch` 文（`default` 有無）に対応
+
 ## 必要環境
 
 - Java 17以上
@@ -58,6 +64,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-l, --literal-pattern <regex>` | 文字列リテラルパターン (正規表現) |
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
 | `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
+| `--track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -94,6 +101,12 @@ java -jar generic-analyzer.jar -s src -n executeQuery,executeUpdate
 java -jar generic-analyzer.jar -s src -t 'java\.sql\..*' -n executeQuery -l 'SELECT'
 ```
 
+#### メソッド戻り値の比較値を追跡
+
+```bash
+java -jar generic-analyzer.jar -s src --track-return getStatus,getRole
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -104,7 +117,7 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
@@ -144,11 +157,12 @@ analyzer/
 ├── AnalysisContext.java              # 解析コンテキスト（設定・結果）
 ├── AnalysisResult.java               # 検出結果データクラス
 ├── AnalysisOrchestrator.java         # CtScannerオーケストレータ
-└── impl/
-    ├── TypeUsageAnalyzer.java        # 型使用調査
-    ├── MethodOrFieldUsageAnalyzer.java # メソッド/フィールド調査
-    ├── AnnotationAnalyzer.java       # アノテーション調査
-    └── StringLiteralAnalyzer.java    # 文字列リテラル調査
+├── impl/
+│   ├── TypeUsageAnalyzer.java        # 型使用調査
+│   ├── MethodOrFieldUsageAnalyzer.java # メソッド/フィールド調査
+│   ├── AnnotationAnalyzer.java       # アノテーション調査
+│   ├── StringLiteralAnalyzer.java    # 文字列リテラル調査
+│   └── ReturnValueComparisonAnalyzer.java # 戻り値比較追跡
 ```
 
 ## ライセンス

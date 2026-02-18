@@ -2,6 +2,7 @@ package analyzer;
 
 import analyzer.impl.AnnotationAnalyzer;
 import analyzer.impl.MethodOrFieldUsageAnalyzer;
+import analyzer.impl.ReturnValueComparisonAnalyzer;
 import analyzer.impl.StringLiteralAnalyzer;
 import analyzer.impl.TypeUsageAnalyzer;
 import spoon.Launcher;
@@ -47,6 +48,7 @@ public class Main {
         String stringLiteralPattern = null;
         String targetNames = null;
         String targetAnnotations = null;
+        String trackReturnMethods = null;
 
         // 出力設定
         String outputFile = null;
@@ -121,6 +123,11 @@ public class Main {
                         format = args[++i].toLowerCase();
                     }
                     break;
+                case "--track-return":
+                    if (i + 1 < args.length) {
+                        trackReturnMethods = args[++i];
+                    }
+                    break;
                 default:
                     // 不明なオプションは無視
                     break;
@@ -140,6 +147,7 @@ public class Main {
         context.setStringLiteralPattern(stringLiteralPattern);
         context.addTargetNames(targetNames);
         context.addTargetAnnotations(targetAnnotations);
+        context.addTrackReturnMethods(trackReturnMethods);
 
         // ソースディレクトリを追加（相対パス計算用）
         for (String sourceDir : sourceDirs) {
@@ -157,6 +165,7 @@ public class Main {
             System.out.println("  -l: 文字列リテラルパターン (正規表現)");
             System.out.println("  -n: メソッド/フィールド名 (カンマ区切り)");
             System.out.println("  -a: アノテーション名 (カンマ区切り)");
+            System.out.println("  --track-return: 戻り値追跡対象メソッド名 (カンマ区切り)");
             System.out.println();
         }
 
@@ -204,6 +213,7 @@ public class Main {
         orchestrator.addAnalyzer(new MethodOrFieldUsageAnalyzer());
         orchestrator.addAnalyzer(new AnnotationAnalyzer());
         orchestrator.addAnalyzer(new StringLiteralAnalyzer());
+        orchestrator.addAnalyzer(new ReturnValueComparisonAnalyzer());
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -331,6 +341,8 @@ public class Main {
         System.out.println("                              例: 'executeQuery,executeUpdate'");
         System.out.println("  -a, --annotations <ann,...> アノテーション名 (カンマ区切り)");
         System.out.println("                              例: 'Deprecated,Override'");
+        System.out.println("  --track-return <method,...>  戻り値追跡対象メソッド名 (カンマ区切り)");
+        System.out.println("                              例: 'getStatus,getRole'");
         System.out.println();
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
@@ -355,5 +367,8 @@ public class Main {
         System.out.println();
         System.out.println("  # 複数の解析を同時実行");
         System.out.println("  java -jar analyzer.jar -s src -t 'java\\.sql\\..*' -n executeQuery -l 'SELECT'");
+        System.out.println();
+        System.out.println("  # メソッド戻り値の比較値を追跡");
+        System.out.println("  java -jar analyzer.jar -s src --track-return getStatus,getRole");
     }
 }
