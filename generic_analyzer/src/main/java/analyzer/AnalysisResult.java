@@ -163,7 +163,7 @@ public class AnalysisResult {
     /**
      * 型名を簡略化（Java標準ライブラリのパッケージ名を省略）
      */
-    private static String simplifyTypeName(String typeName) {
+    public static String simplifyTypeName(String typeName) {
         if (typeName == null)
             return "";
 
@@ -209,7 +209,10 @@ public class AnalysisResult {
     /**
      * 実行可能参照からシグネチャを取得
      */
-    private static String getExecutableSignature(CtExecutableReference<?> executable) {
+    public static String getExecutableSignature(CtExecutableReference<?> executable) {
+        if (executable == null) {
+            return "Unknown";
+        }
         CtExecutable<?> declaration = executable.getExecutableDeclaration();
 
         // 宣言が取得でき、かつCtMethodの場合
@@ -218,8 +221,13 @@ public class AnalysisResult {
         }
 
         // CtMethodでない場合(コンストラクタなど)や取得できない場合のフォールバック
-        String className = executable.getDeclaringType().getQualifiedName();
+        String className = executable.getDeclaringType() != null ? executable.getDeclaringType().getQualifiedName()
+                : "Unknown";
         String methodName = executable.getSimpleName();
+        if ("<init>".equals(methodName)) {
+            methodName = executable.getDeclaringType() != null ? executable.getDeclaringType().getSimpleName()
+                    : "Constructor";
+        }
 
         List<String> params = executable.getParameters().stream()
                 .map(p -> simplifyTypeName(p.getQualifiedName()))

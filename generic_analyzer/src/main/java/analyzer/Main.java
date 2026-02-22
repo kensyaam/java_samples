@@ -5,6 +5,7 @@ import analyzer.impl.MethodOrFieldUsageAnalyzer;
 import analyzer.impl.ReturnValueComparisonAnalyzer;
 import analyzer.impl.StringLiteralAnalyzer;
 import analyzer.impl.TypeUsageAnalyzer;
+import analyzer.impl.CallTrackingAnalyzer;
 import analyzer.impl.LocalVariableTrackingAnalyzer;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
@@ -51,6 +52,7 @@ public class Main {
         String targetAnnotations = null;
         String trackReturnMethods = null;
         String trackLocalVariables = null;
+        String trackCallPattern = null;
 
         // 出力設定
         String outputFile = null;
@@ -136,6 +138,12 @@ public class Main {
                         trackLocalVariables = args[++i];
                     }
                     break;
+                case "-tc":
+                case "--track-call":
+                    if (i + 1 < args.length) {
+                        trackCallPattern = args[++i];
+                    }
+                    break;
                 default:
                     // 不明なオプションは無視
                     break;
@@ -157,6 +165,7 @@ public class Main {
         context.addTargetAnnotations(targetAnnotations);
         context.addTrackReturnMethods(trackReturnMethods);
         context.addTrackLocalVariables(trackLocalVariables);
+        context.setTrackCallPattern(trackCallPattern);
 
         // ソースディレクトリを追加（相対パス計算用）
         for (String sourceDir : sourceDirs) {
@@ -176,6 +185,7 @@ public class Main {
             System.out.println("  -a: アノテーション名 (カンマ区切り)");
             System.out.println("  --track-return: 戻り値追跡対象メソッド名 (カンマ区切り)");
             System.out.println("  -v, --track-local-var: ローカル変数追跡対象変数名 (カンマ区切り)");
+            System.out.println("  -tc, --track-call: 呼び出しルート追跡対象パターン (正規表現)");
             System.out.println();
         }
 
@@ -225,6 +235,7 @@ public class Main {
         orchestrator.addAnalyzer(new StringLiteralAnalyzer());
         orchestrator.addAnalyzer(new ReturnValueComparisonAnalyzer());
         orchestrator.addAnalyzer(new LocalVariableTrackingAnalyzer());
+        orchestrator.addAnalyzer(new CallTrackingAnalyzer());
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -356,6 +367,8 @@ public class Main {
         System.out.println("                              例: 'getStatus,getRole'");
         System.out.println("  -v, --track-local-var <var,...> ローカル変数追跡対象変数名 (カンマ区切り)");
         System.out.println("                              例: 'status,role'");
+        System.out.println("  -tc, --track-call <regex>   呼び出しルート追跡対象パターン (正規表現)");
+        System.out.println("                              例: 'executeQuery'");
         System.out.println();
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
@@ -383,5 +396,11 @@ public class Main {
         System.out.println();
         System.out.println("  # メソッド戻り値の比較値を追跡");
         System.out.println("  java -jar analyzer.jar -s src --track-return getStatus,getRole");
+        System.out.println();
+        System.out.println("  # ローカル変数の設定値と設定ルートを追跡");
+        System.out.println("  java -jar analyzer.jar -s src -v status,role -f csv -o local_variables.csv");
+        System.out.println();
+        System.out.println("  # 呼び出しルートと分岐条件を追跡");
+        System.out.println("  java -jar analyzer.jar -s src -tc 'executeQuery' -f csv -o call_routes.csv");
     }
 }

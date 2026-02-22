@@ -31,6 +31,11 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
    - `if`, `switch`, `for`, `while` などの制御構文から設定ルートの条件式を抽出
    - CSV出力時には「変数名」「設定値」「設定ルート」のカラムが追加で出力されます
 
+7. **呼び出しルート追跡 (CallTrackingAnalyzer)**
+   - 正規表現で指定したクラスやメソッドの呼び出し（コンストラクタ呼び出し含む）を基点として、呼び出し元のメソッドを再帰的に遡って特定
+   - 各呼び出し経路・層における分岐条件(`if`, `switch`, `for`等)を抽出して構造出力
+   - CSV出力時には「呼び出しルートと分岐条件」および「到達エントリーポイント」のカラムが追加で出力されます
+
 ## 必要環境
 
 - Java 17以上
@@ -72,6 +77,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
 | `--track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
 | `-v, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
+| `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -120,6 +126,12 @@ java -jar generic-analyzer.jar -s src --track-return getStatus,getRole
 java -jar generic-analyzer.jar -s src -v status,role,result -f csv -o local_variables.csv
 ```
 
+#### 呼び出しルートと分岐条件を追跡
+
+```bash
+java -jar generic-analyzer.jar -s src -tc 'executeQuery' -f csv -o call_routes.csv
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -130,7 +142,7 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
@@ -176,7 +188,8 @@ analyzer/
 │   ├── AnnotationAnalyzer.java       # アノテーション調査
 │   ├── StringLiteralAnalyzer.java    # 文字列リテラル調査
 │   ├── ReturnValueComparisonAnalyzer.java # 戻り値比較追跡
-│   └── LocalVariableTrackingAnalyzer.java # ローカル変数追跡
+│   ├── LocalVariableTrackingAnalyzer.java # ローカル変数追跡
+│   └── CallTrackingAnalyzer.java          # 呼び出しルート追跡
 ```
 
 ## ライセンス

@@ -23,6 +23,9 @@ public class AnalysisContext {
     // 文字列リテラル調査用のパターン
     private Pattern stringLiteralPattern;
 
+    // 呼び出しルート追跡用のパターン
+    private Pattern trackCallPattern;
+
     // メソッド名・フィールド名のリスト
     private List<String> targetNames = new ArrayList<>();
 
@@ -70,6 +73,17 @@ public class AnalysisContext {
     public void setStringLiteralPattern(String pattern) {
         if (pattern != null && !pattern.isEmpty()) {
             this.stringLiteralPattern = Pattern.compile(pattern);
+        }
+    }
+
+    /**
+     * 呼び出しルート追跡用のパターンを設定する。
+     *
+     * @param pattern 正規表現パターン
+     */
+    public void setTrackCallPattern(String pattern) {
+        if (pattern != null && !pattern.isEmpty()) {
+            this.trackCallPattern = Pattern.compile(pattern);
         }
     }
 
@@ -304,6 +318,10 @@ public class AnalysisContext {
         return stringLiteralPattern;
     }
 
+    public Pattern getTrackCallPattern() {
+        return trackCallPattern;
+    }
+
     public List<String> getTargetNames() {
         return targetNames;
     }
@@ -358,6 +376,8 @@ public class AnalysisContext {
         if (typePattern != null)
             count++;
         if (stringLiteralPattern != null)
+            count++;
+        if (trackCallPattern != null)
             count++;
         if (!targetNames.isEmpty())
             count++;
