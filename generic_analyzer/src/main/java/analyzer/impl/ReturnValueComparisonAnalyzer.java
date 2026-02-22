@@ -4,6 +4,7 @@ import analyzer.Analyzer;
 import analyzer.AnalysisContext;
 import analyzer.AnalysisResult;
 import spoon.reflect.code.CtAssignment;
+import spoon.reflect.code.CtBlock;
 import spoon.reflect.code.CtCase;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtFieldRead;
@@ -184,8 +185,8 @@ public class ReturnValueComparisonAnalyzer implements Analyzer {
             // 比較値を解決
             String resolvedValue = resolveComparedValue(comparedValue);
 
-            // else分岐の有無を判定
-            boolean hasElse = hasElseBranch(invocation);
+            // else分岐の種類を判定（else if / else / なし）
+            String elseBranchType = getElseBranchType(invocation);
 
             // 検出結果を生成
             CtInvocation<?> originalInvocation = trackedVariables.get(matchedVarName);
@@ -195,7 +196,7 @@ public class ReturnValueComparisonAnalyzer implements Analyzer {
                     matchedVarName,
                     methodCallStr,
                     resolvedValue,
-                    hasElse ? "else分岐あり" : "else分岐なし");
+                    elseBranchType);
 
             AnalysisResult result = AnalysisResult.fromElement(
                     invocation, CATEGORY, matchedElement, context);
@@ -330,16 +331,28 @@ public class ReturnValueComparisonAnalyzer implements Analyzer {
     }
 
     /**
-     * equals()呼び出しの親にif文があり、else分岐があるかを判定する。
+     * equals()呼び出しの親にif文があり、else分岐の種類を判定する。
+     * Spoonでは else if の場合、getElseStatement() が返す CtBlock の
+     * isImplicit() が true になる。
+     *
+     * @return "else if分岐あり" / "else分岐あり" / "else分岐なし"
      */
-    private boolean hasElseBranch(CtElement element) {
+    private String getElseBranchType(CtElement element) {
         // 直近のCtIfを探す
         CtElement current = element.getParent();
         while (current != null) {
             if (current instanceof CtIf) {
                 CtIf ifStmt = (CtIf) current;
                 CtStatement elseStmt = ifStmt.getElseStatement();
-                return elseStmt != null;
+                if (elseStmt == null) {
+                    return "else分岐なし";
+                }
+                // else if の場合: elseStatement が implicit な CtBlock に包まれている
+                if (elseStmt instanceof CtBlock<?> && ((CtBlock<?>) elseStmt).isImplicit()) {
+                    return "else if分岐あり";
+                }
+                // 純粋な else ブロック
+                return "else分岐あり";
             }
             // CtMethod に到達したら探索終了
             if (current instanceof CtMethod) {
@@ -347,7 +360,7 @@ public class ReturnValueComparisonAnalyzer implements Analyzer {
             }
             current = current.getParent();
         }
-        return false;
+        return "else分岐なし";
     }
 
     /**
