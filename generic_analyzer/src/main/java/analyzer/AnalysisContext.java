@@ -349,15 +349,32 @@ public class AnalysisContext {
     }
 
     /**
+     * 有効な設定（オプション）の数を取得する。
+     *
+     * @return 有効な設定の数
+     */
+    public int getActiveOptionCount() {
+        int count = 0;
+        if (typePattern != null)
+            count++;
+        if (stringLiteralPattern != null)
+            count++;
+        if (!targetNames.isEmpty())
+            count++;
+        if (!targetAnnotations.isEmpty())
+            count++;
+        if (!trackReturnMethods.isEmpty())
+            count++;
+        if (!trackLocalVariables.isEmpty())
+            count++;
+        return count;
+    }
+
+    /**
      * 解析が有効か（少なくとも1つの設定があるか）を確認する。
      */
     public boolean hasAnyConfiguration() {
-        return typePattern != null
-                || stringLiteralPattern != null
-                || !targetNames.isEmpty()
-                || !targetAnnotations.isEmpty()
-                || !trackReturnMethods.isEmpty()
-                || !trackLocalVariables.isEmpty();
+        return getActiveOptionCount() > 0;
     }
 
     /**
@@ -401,8 +418,8 @@ public class AnalysisContext {
      */
     public void printResultsCsv(PrintWriter writer) {
         // ヘッダー出力
-        if (!trackLocalVariables.isEmpty()) {
-            writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット,変数名,設定値,設定ルート");
+        if (getActiveOptionCount() == 1 && !results.isEmpty()) {
+            writer.println(results.get(0).getCsvHeader());
         } else {
             writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット");
         }

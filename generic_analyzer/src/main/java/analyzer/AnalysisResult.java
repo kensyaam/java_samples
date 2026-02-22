@@ -341,6 +341,15 @@ public class AnalysisResult {
     }
 
     /**
+     * CSV形式のヘッダーを返す。
+     *
+     * @return CSV形式のヘッダー文字列
+     */
+    public String getCsvHeader() {
+        return "ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット";
+    }
+
+    /**
      * CSV形式の1行を返す。
      * ダブルクォートとカンマをエスケープする。
      *

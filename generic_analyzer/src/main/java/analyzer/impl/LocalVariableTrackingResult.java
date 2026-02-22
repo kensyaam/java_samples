@@ -61,6 +61,11 @@ public class LocalVariableTrackingResult extends AnalysisResult {
     }
 
     @Override
+    public String getCsvHeader() {
+        return "ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット,変数名,設定値,設定ルート";
+    }
+
+    @Override
     public String toCsvLine() {
         return String.format("%s,%d,%s,%s,%s,%s,%s,%s,%s",
                 escapeCsv(getFileName()),
