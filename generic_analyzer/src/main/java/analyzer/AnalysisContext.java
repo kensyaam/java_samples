@@ -353,7 +353,7 @@ public class AnalysisContext {
      *
      * @return 有効な設定の数
      */
-    public int getActiveOptionCount() {
+    public int getActiveConfigurationCount() {
         int count = 0;
         if (typePattern != null)
             count++;
@@ -374,7 +374,7 @@ public class AnalysisContext {
      * 解析が有効か（少なくとも1つの設定があるか）を確認する。
      */
     public boolean hasAnyConfiguration() {
-        return getActiveOptionCount() > 0;
+        return getActiveConfigurationCount() > 0;
     }
 
     /**
@@ -418,7 +418,7 @@ public class AnalysisContext {
      */
     public void printResultsCsv(PrintWriter writer) {
         // ヘッダー出力
-        if (getActiveOptionCount() == 1 && !results.isEmpty()) {
+        if (getActiveConfigurationCount() == 1 && !results.isEmpty()) {
             writer.println(results.get(0).getCsvHeader());
         } else {
             writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット");
