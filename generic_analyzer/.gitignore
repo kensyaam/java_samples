@@ -5,6 +5,8 @@
 build
 bin/
 
+.gemini
+
 dist/
 generic-analyzer*.jar
 *.csv

@@ -25,6 +25,12 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
    - 定数比較の場合、定義元の文字列リテラルまで解決
    - `if-else` / `else-if` チェーン、`switch` 文（`default` 有無）に対応
 
+6. **ローカル変数追跡 (LocalVariableTrackingAnalyzer)**
+   - 指定した変数名のローカル変数を追跡し、その変数に設定されている値と、設定ルートの分岐条件を抽出
+   - 設定値が定数の場合は定義元の文字列リテラルまで追跡して解決
+   - `if`, `switch`, `for`, `while` などの制御構文から設定ルートの条件式を抽出
+   - CSV出力時には「変数名」「設定値」「設定ルート」のカラムが追加で出力されます
+
 ## 必要環境
 
 - Java 17以上
@@ -65,6 +71,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
 | `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
 | `--track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
+| `-v, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -107,6 +114,12 @@ java -jar generic-analyzer.jar -s src -t 'java\.sql\..*' -n executeQuery -l 'SEL
 java -jar generic-analyzer.jar -s src --track-return getStatus,getRole
 ```
 
+#### ローカル変数の設定値と設定ルートを追跡
+
+```bash
+java -jar generic-analyzer.jar -s src -v status,role,result -f csv -o local_variables.csv
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -117,7 +130,7 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
@@ -162,7 +175,8 @@ analyzer/
 │   ├── MethodOrFieldUsageAnalyzer.java # メソッド/フィールド調査
 │   ├── AnnotationAnalyzer.java       # アノテーション調査
 │   ├── StringLiteralAnalyzer.java    # 文字列リテラル調査
-│   └── ReturnValueComparisonAnalyzer.java # 戻り値比較追跡
+│   ├── ReturnValueComparisonAnalyzer.java # 戻り値比較追跡
+│   └── LocalVariableTrackingAnalyzer.java # ローカル変数追跡
 ```
 
 ## ライセンス

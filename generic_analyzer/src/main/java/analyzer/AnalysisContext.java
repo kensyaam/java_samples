@@ -32,6 +32,9 @@ public class AnalysisContext {
     // 戻り値追跡対象メソッド名のリスト
     private List<String> trackReturnMethods = new ArrayList<>();
 
+    // ローカル変数追跡対象変数名のリスト
+    private List<String> trackLocalVariables = new ArrayList<>();
+
     // ソースディレクトリのリスト（相対パス計算用）
     private List<Path> sourceDirs = new ArrayList<>();
 
@@ -127,6 +130,29 @@ public class AnalysisContext {
      */
     public List<String> getTrackReturnMethods() {
         return trackReturnMethods;
+    }
+
+    /**
+     * ローカル変数追跡対象変数名を追加する。
+     *
+     * @param variables 対象変数名（カンマ区切り）
+     */
+    public void addTrackLocalVariables(String variables) {
+        if (variables != null && !variables.isEmpty()) {
+            for (String variable : variables.split(",")) {
+                String trimmed = variable.trim();
+                if (!trimmed.isEmpty()) {
+                    trackLocalVariables.add(trimmed);
+                }
+            }
+        }
+    }
+
+    /**
+     * ローカル変数追跡対象変数名リストを取得する。
+     */
+    public List<String> getTrackLocalVariables() {
+        return trackLocalVariables;
     }
 
     /**
@@ -330,7 +356,8 @@ public class AnalysisContext {
                 || stringLiteralPattern != null
                 || !targetNames.isEmpty()
                 || !targetAnnotations.isEmpty()
-                || !trackReturnMethods.isEmpty();
+                || !trackReturnMethods.isEmpty()
+                || !trackLocalVariables.isEmpty();
     }
 
     /**
@@ -374,7 +401,11 @@ public class AnalysisContext {
      */
     public void printResultsCsv(PrintWriter writer) {
         // ヘッダー出力
-        writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット");
+        if (!trackLocalVariables.isEmpty()) {
+            writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット,変数名,設定値,設定ルート");
+        } else {
+            writer.println("ファイル名,行番号,スコープ,カテゴリ,検出内容,コードスニペット");
+        }
 
         for (AnalysisResult result : results) {
             writer.println(result.toCsvLine());

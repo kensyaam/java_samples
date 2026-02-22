@@ -5,6 +5,7 @@ import analyzer.impl.MethodOrFieldUsageAnalyzer;
 import analyzer.impl.ReturnValueComparisonAnalyzer;
 import analyzer.impl.StringLiteralAnalyzer;
 import analyzer.impl.TypeUsageAnalyzer;
+import analyzer.impl.LocalVariableTrackingAnalyzer;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
 
@@ -49,6 +50,7 @@ public class Main {
         String targetNames = null;
         String targetAnnotations = null;
         String trackReturnMethods = null;
+        String trackLocalVariables = null;
 
         // 出力設定
         String outputFile = null;
@@ -128,6 +130,12 @@ public class Main {
                         trackReturnMethods = args[++i];
                     }
                     break;
+                case "-v":
+                case "--track-local-var":
+                    if (i + 1 < args.length) {
+                        trackLocalVariables = args[++i];
+                    }
+                    break;
                 default:
                     // 不明なオプションは無視
                     break;
@@ -148,6 +156,7 @@ public class Main {
         context.addTargetNames(targetNames);
         context.addTargetAnnotations(targetAnnotations);
         context.addTrackReturnMethods(trackReturnMethods);
+        context.addTrackLocalVariables(trackLocalVariables);
 
         // ソースディレクトリを追加（相対パス計算用）
         for (String sourceDir : sourceDirs) {
@@ -166,6 +175,7 @@ public class Main {
             System.out.println("  -n: メソッド/フィールド名 (カンマ区切り)");
             System.out.println("  -a: アノテーション名 (カンマ区切り)");
             System.out.println("  --track-return: 戻り値追跡対象メソッド名 (カンマ区切り)");
+            System.out.println("  -v, --track-local-var: ローカル変数追跡対象変数名 (カンマ区切り)");
             System.out.println();
         }
 
@@ -214,6 +224,7 @@ public class Main {
         orchestrator.addAnalyzer(new AnnotationAnalyzer());
         orchestrator.addAnalyzer(new StringLiteralAnalyzer());
         orchestrator.addAnalyzer(new ReturnValueComparisonAnalyzer());
+        orchestrator.addAnalyzer(new LocalVariableTrackingAnalyzer());
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -343,6 +354,8 @@ public class Main {
         System.out.println("                              例: 'Deprecated,Override'");
         System.out.println("  --track-return <method,...>  戻り値追跡対象メソッド名 (カンマ区切り)");
         System.out.println("                              例: 'getStatus,getRole'");
+        System.out.println("  -v, --track-local-var <var,...> ローカル変数追跡対象変数名 (カンマ区切り)");
+        System.out.println("                              例: 'status,role'");
         System.out.println();
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");

@@ -347,7 +347,7 @@ public class AnalysisResult {
      * @return CSV形式の文字列
      */
     public String toCsvLine() {
-        return String.format("%s,%d,%s,%s,%s,%s",
+        return String.format("%s,%d,%s,%s,%s,%s,,,",
                 escapeCsv(fileName),
                 lineNumber,
                 escapeCsv(scope),
@@ -359,7 +359,7 @@ public class AnalysisResult {
     /**
      * CSV用にフィールドをエスケープする。
      */
-    private static String escapeCsv(String value) {
+    protected static String escapeCsv(String value) {
         if (value == null) {
             return "";
         }
