@@ -26,6 +26,10 @@ public class AnalysisContext {
     // 呼び出しルート追跡用のパターン
     private Pattern trackCallPattern;
 
+    // 定数抽出用のクラスパターンとフィールドパターン
+    private Pattern constantClassPattern;
+    private Pattern constantFieldPattern;
+
     // メソッド名・フィールド名のリスト
     private List<String> targetNames = new ArrayList<>();
 
@@ -84,6 +88,21 @@ public class AnalysisContext {
     public void setTrackCallPattern(String pattern) {
         if (pattern != null && !pattern.isEmpty()) {
             this.trackCallPattern = Pattern.compile(pattern);
+        }
+    }
+
+    /**
+     * 定数抽出用のパターンを設定する。
+     *
+     * @param classPattern クラス名の正規表現パターン
+     * @param fieldPattern フィールド名の正規表現パターン
+     */
+    public void setConstantPatterns(String classPattern, String fieldPattern) {
+        if (classPattern != null && !classPattern.isEmpty()) {
+            this.constantClassPattern = Pattern.compile(classPattern);
+        }
+        if (fieldPattern != null && !fieldPattern.isEmpty()) {
+            this.constantFieldPattern = Pattern.compile(fieldPattern);
         }
     }
 
@@ -322,6 +341,14 @@ public class AnalysisContext {
         return trackCallPattern;
     }
 
+    public Pattern getConstantClassPattern() {
+        return constantClassPattern;
+    }
+
+    public Pattern getConstantFieldPattern() {
+        return constantFieldPattern;
+    }
+
     public List<String> getTargetNames() {
         return targetNames;
     }
@@ -378,6 +405,8 @@ public class AnalysisContext {
         if (stringLiteralPattern != null)
             count++;
         if (trackCallPattern != null)
+            count++;
+        if (constantClassPattern != null || constantFieldPattern != null)
             count++;
         if (!targetNames.isEmpty())
             count++;

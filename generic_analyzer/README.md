@@ -36,6 +36,12 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
    - 各呼び出し経路・層における分岐条件(`if`, `switch`, `for`等)を抽出して構造出力
    - CSV出力時には「呼び出しルートと分岐条件」および「到達エントリーポイント」のカラムが追加で出力されます
 
+8. **定数抽出 (ConstantExtractionAnalyzer)**
+   - 正規表現で指定したクラスや定数名に合致する「定数 (`static final` フィールド)」を抽出し、その代入値（リテラル）を出力
+   - 文字列のダブルクォートなどは自動で除去して実際の値を出力
+   - Javadocコメント（`/** ... */`）が記述されている場合はそれも抽出
+   - CSV出力時には「定数名」、「値」、および「javadoc」のカラムが追加で分割出力されます
+
 ## 必要環境
 
 - Java 17以上
@@ -78,6 +84,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `--track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
 | `-v, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
 | `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
+| `--extract-constant <classRegex>:<fieldRegex>` | 定数抽出対象パターン (クラス名と定数名をコロンで区切る) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -132,6 +139,12 @@ java -jar generic-analyzer.jar -s src -v status,role,result -f csv -o local_vari
 java -jar generic-analyzer.jar -s src -tc 'executeQuery' -f csv -o call_routes.csv
 ```
 
+#### 定数の抽出とCSV出力（クラス・フィールド指定）
+
+```bash
+java -jar generic-analyzer.jar -s src --extract-constant '.*Constants.*:MAX_.*' -f csv -o constants.csv
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -142,7 +155,7 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
@@ -189,7 +202,11 @@ analyzer/
 │   ├── StringLiteralAnalyzer.java    # 文字列リテラル調査
 │   ├── ReturnValueComparisonAnalyzer.java # 戻り値比較追跡
 │   ├── LocalVariableTrackingAnalyzer.java # ローカル変数追跡
-│   └── CallTrackingAnalyzer.java          # 呼び出しルート追跡
+│   ├── LocalVariableTrackingResult.java   # ローカル変数追跡出力フォーマット
+│   ├── CallTrackingAnalyzer.java          # 呼び出しルート追跡
+│   ├── CallTrackingResult.java            # 呼び出しルート追跡出力フォーマット
+│   ├── ConstantExtractionAnalyzer.java    # 定数抽出
+│   └── ConstantExtractionResult.java      # 定数抽出出力フォーマット
 ```
 
 ## ライセンス
