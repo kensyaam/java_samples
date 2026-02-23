@@ -129,12 +129,13 @@ public class Main {
                         format = args[++i].toLowerCase();
                     }
                     break;
+                case "-tr":
                 case "--track-return":
                     if (i + 1 < args.length) {
                         trackReturnMethods = args[++i];
                     }
                     break;
-                case "-v":
+                case "-tl":
                 case "--track-local-var":
                     if (i + 1 < args.length) {
                         trackLocalVariables = args[++i];
@@ -197,8 +198,8 @@ public class Main {
             System.out.println("  -l: 文字列リテラルパターン (正規表現)");
             System.out.println("  -n: メソッド/フィールド名 (カンマ区切り)");
             System.out.println("  -a: アノテーション名 (カンマ区切り)");
-            System.out.println("  --track-return: 戻り値追跡対象メソッド名 (カンマ区切り)");
-            System.out.println("  -v, --track-local-var: ローカル変数追跡対象変数名 (カンマ区切り)");
+            System.out.println("  -tr, --track-return: 戻り値追跡対象メソッド名 (カンマ区切り)");
+            System.out.println("  -tl, --track-local-var: ローカル変数追跡対象変数名 (カンマ区切り)");
             System.out.println("  -tc, --track-call: 呼び出しルート追跡対象パターン (正規表現)");
             System.out.println("  --extract-constant: 定数抽出対象パターン (<クラス正規表現>:<定数名正規表現>)");
             System.out.println();
@@ -379,9 +380,9 @@ public class Main {
         System.out.println("                              例: 'executeQuery,executeUpdate'");
         System.out.println("  -a, --annotations <ann,...> アノテーション名 (カンマ区切り)");
         System.out.println("                              例: 'Deprecated,Override'");
-        System.out.println("  --track-return <method,...>  戻り値追跡対象メソッド名 (カンマ区切り)");
+        System.out.println("  -tr, --track-return <method,...>  戻り値追跡対象メソッド名 (カンマ区切り)");
         System.out.println("                              例: 'getStatus,getRole'");
-        System.out.println("  -v, --track-local-var <var,...> ローカル変数追跡対象変数名 (カンマ区切り)");
+        System.out.println("  -tl, --track-local-var <var,...> ローカル変数追跡対象変数名 (カンマ区切り)");
         System.out.println("                              例: 'status,role'");
         System.out.println("  -tc, --track-call <regex>   呼び出しルート追跡対象パターン (正規表現)");
         System.out.println("                              例: 'executeQuery'");
@@ -414,10 +415,10 @@ public class Main {
         System.out.println("  java -jar analyzer.jar -s src -t 'java\\.sql\\..*' -n executeQuery -l 'SELECT'");
         System.out.println();
         System.out.println("  # メソッド戻り値の比較値を追跡");
-        System.out.println("  java -jar analyzer.jar -s src --track-return getStatus,getRole");
+        System.out.println("  java -jar analyzer.jar -s src -tr getStatus,getRole");
         System.out.println();
         System.out.println("  # ローカル変数の設定値と設定ルートを追跡");
-        System.out.println("  java -jar analyzer.jar -s src -v status,role -f csv -o local_variables.csv");
+        System.out.println("  java -jar analyzer.jar -s src -tl status,role -f csv -o local_variables.csv");
         System.out.println();
         System.out.println("  # 呼び出しルートと分岐条件を追跡");
         System.out.println("  java -jar analyzer.jar -s src -tc 'executeQuery' -f csv -o call_routes.csv");

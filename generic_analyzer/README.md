@@ -81,8 +81,8 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-l, --literal-pattern <regex>` | 文字列リテラルパターン (正規表現) |
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
 | `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
-| `--track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
-| `-v, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
+| `-tr, --track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
+| `-tl, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
 | `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
 | `--extract-constant <classRegex>:<fieldRegex>` | 定数抽出対象パターン (クラス名と定数名をコロンで区切る) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
@@ -124,13 +124,13 @@ java -jar generic-analyzer.jar -s src -t 'java\.sql\..*' -n executeQuery -l 'SEL
 #### メソッド戻り値の比較値を追跡
 
 ```bash
-java -jar generic-analyzer.jar -s src --track-return getStatus,getRole
+java -jar generic-analyzer.jar -s src -tr getStatus,getRole
 ```
 
 #### ローカル変数の設定値と設定ルートを追跡
 
 ```bash
-java -jar generic-analyzer.jar -s src -v status,role,result -f csv -o local_variables.csv
+java -jar generic-analyzer.jar -s src -tl status,role,result -f csv -o local_variables.csv
 ```
 
 #### 呼び出しルートと分岐条件を追跡
