@@ -83,6 +83,9 @@ public class ModelParser {
     /** Excelシート名(索引) */
     private static final String INDEX_SHEET_NAME = "Index";
 
+    /** Excelシート名(フィルター) */
+    private static final String FILTER_SHEET_NAME = "モデルデータフィルター";
+
     /** 必須を表すマーク */
     private static final String REQUIRED_MARK = "●";
     /** 必須でないことを表すマーク */
@@ -1269,10 +1272,116 @@ public class ModelParser {
                 sheet.setColumnWidth(i, 3000);
             }
 
+            // フィルターシートを作成
+            generateFilterSheet(workbook, headers, headerStyle);
+
             // ファイルに書き出し
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
                 workbook.write(fos);
             }
+        }
+    }
+
+    /**
+     * モデルデータフィルターシートを生成する。
+     */
+    private void generateFilterSheet(Workbook workbook, String[] headers, CellStyle baseHeaderStyle) {
+        Sheet filterSheet = workbook.createSheet(FILTER_SHEET_NAME);
+        filterSheet.protectSheet("");
+
+        // アンロック用スタイル
+        CellStyle unlockedStyle = workbook.createCellStyle();
+        unlockedStyle.setLocked(false);
+        unlockedStyle.setBorderTop(BorderStyle.THIN);
+        unlockedStyle.setBorderBottom(BorderStyle.THIN);
+        unlockedStyle.setBorderLeft(BorderStyle.THIN);
+        unlockedStyle.setBorderRight(BorderStyle.THIN);
+
+        // ラベル用スタイル
+        CellStyle labelStyle = workbook.createCellStyle();
+        Font boldFont = workbook.createFont();
+        boldFont.setBold(true);
+        boldFont.setFontName("Meiryo");
+        labelStyle.setFont(boldFont);
+
+        // 出力背景用スタイル（データ部分のみ黄色）
+        CellStyle outputStyle = workbook.createCellStyle();
+        outputStyle.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
+        outputStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        outputStyle.setBorderTop(BorderStyle.THIN);
+        outputStyle.setBorderBottom(BorderStyle.THIN);
+        outputStyle.setBorderLeft(BorderStyle.THIN);
+        outputStyle.setBorderRight(BorderStyle.THIN);
+        outputStyle.setLocked(true); // 出力部は編集不可
+
+        // A2: 対象クラス名ラベル
+        Row row2ForLabel = filterSheet.createRow(1);
+        createCell(row2ForLabel, 0, "対象クラス(完全修飾名):", labelStyle);
+        // B2: 入力セル
+        Cell b2 = row2ForLabel.createCell(1);
+        b2.setCellStyle(unlockedStyle);
+
+        // A5: キーラベル
+        Row row5ForLabel = filterSheet.createRow(4);
+        createCell(row5ForLabel, 0, "抽出対象JSONキー:", labelStyle);
+
+        // ヘッダー作成 (D4〜)
+        Row row4ForHeader = filterSheet.createRow(3);
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = row4ForHeader.createCell(3 + i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(baseHeaderStyle);
+        }
+
+        // B5:B204 の入力エリア
+        for (int r = 4; r < 204; r++) {
+            Row row = filterSheet.getRow(r);
+            if (row == null) {
+                row = filterSheet.createRow(r);
+            }
+            Cell inputCell = row.createCell(1);
+            inputCell.setCellStyle(unlockedStyle);
+        }
+
+        // 出力エリア D5:S504 に黄色背景等の書式を適用
+        for (int r = 4; r < 504; r++) {
+            Row row = filterSheet.getRow(r);
+            if (row == null) {
+                row = filterSheet.createRow(r);
+            }
+            for (int c = 0; c < headers.length; c++) {
+                Cell dataCell = row.createCell(3 + c);
+                dataCell.setCellStyle(outputStyle);
+            }
+        }
+
+        // D5にFILTER式をセット
+        Row row5 = filterSheet.getRow(4);
+        Cell d5 = row5.getCell(3);
+        String formula = "FILTER('" + SHEET_NAME + "'!A:P, ('" + SHEET_NAME + "'!M:M=$B$2)*" +
+                "((COUNTIF($B$5:$B$204, '" + SHEET_NAME + "'!G:G)>0)+" +
+                "(COUNTIF($B$5:$B$204, '" + SHEET_NAME + "'!G:G&\".*\")>0)), \"該当キーなし\")";
+
+        try {
+            d5.setCellFormula(formula);
+        } catch (Exception e) {
+            System.err.println("Warning: POI could not parse FILTER formula. Attempting fallback: " + e.getMessage());
+            try {
+                // POIがFILTER関数を解釈できない場合のフォールバック (_xlfn_プレフィックス)
+                d5.setCellFormula("_xlfn.FILTER('" + SHEET_NAME + "'!A:P, ('" + SHEET_NAME + "'!M:M=$B$2)*" +
+                        "((COUNTIF($B$5:$B$204, '" + SHEET_NAME + "'!G:G)>0)+" +
+                        "(COUNTIF($B$5:$B$204, '" + SHEET_NAME + "'!G:G&\".*\")>0)), \"該当キーなし\")");
+            } catch (Exception ex2) {
+                System.err.println("Fallback failed: " + ex2.getMessage());
+            }
+        }
+
+        // 列幅の調整
+        filterSheet.setColumnWidth(0, 6000); // A列
+        filterSheet.setColumnWidth(1, 10000); // B列
+        filterSheet.setColumnWidth(2, 2000); // C列
+        for (int i = 0; i < headers.length; i++) {
+            filterSheet.setColumnWidth(3 + i, 4000); // D列〜
         }
     }
 
