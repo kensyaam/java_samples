@@ -1098,11 +1098,11 @@ public class ModelParser {
             // ヘッダー定義
             // 列0-4: 論理名（ネスト対応、5列）
             // 列5-9: JSONデータ列
-            // 則10-14: Java実装関連列（クラス名含む）
+            // 則10-15: Java実装関連列（クラス名含む）
             String[] headers = {
                     "論理名", "", "", "", "",
                     "JSONキー", "JSONキー(パス表記)", "JSON型", "内部要素/参照",
-                    "必須", "サンプル値", "クラス名", "Javaフィールド名", "Java型", "定義元クラス"
+                    "必須", "サンプル値", "クラス名", "完全修飾クラス名", "Javaフィールド名", "Java型", "定義元クラス"
             };
 
             int rowNum = 0;
@@ -1130,7 +1130,7 @@ public class ModelParser {
                 Cell titleCell = classTitleRow.createCell(0);
                 titleCell.setCellValue(classTitle);
                 titleCell.setCellStyle(classTitleStyle);
-                Cell titleSummaryCell = classTitleRow.createCell(1);
+                Cell titleSummaryCell = classTitleRow.createCell(5);
                 titleSummaryCell.setCellValue(classSummary);
                 titleSummaryCell.setCellStyle(classTitleStyle);
 
@@ -1161,7 +1161,7 @@ public class ModelParser {
                     } else if (i == 4) {
                         cell.setCellStyle(logicalNameHeaderStyleLast);
                     } else if (i >= 11) {
-                        // Java実装関連の列（インデックス11, 12, 13, 14）には別のスタイルを適用
+                        // Java実装関連の列（インデックス11〜15）には別のスタイルを適用
                         cell.setCellStyle(javaHeaderStyle);
                     } else {
                         cell.setCellStyle(headerStyle);
@@ -1182,11 +1182,11 @@ public class ModelParser {
                     int logicalNameCol = Math.min(nestLevel, 4);
                     for (int col = 0; col < 5; col++) {
                         Cell logicalCell = row.createCell(col);
-                        // 値を設定（該当列に論理名、それ以外は空文字列）
-                        if (col == logicalNameCol) {
-                            logicalCell.setCellValue(metadata.logicalName != null ? metadata.logicalName : "");
+                        // 値を設定（該当列に論理名をセット。それ以外は空(Blank)にして値がはみ出せるようにする）
+                        if (col == logicalNameCol && metadata.logicalName != null && !metadata.logicalName.isEmpty()) {
+                            logicalCell.setCellValue(metadata.logicalName);
                         } else {
-                            logicalCell.setCellValue("");
+                            logicalCell.setBlank();
                         }
                         // 内部縦罫線なしのスタイルを適用
                         if (col == 0) {
@@ -1234,16 +1234,18 @@ public class ModelParser {
 
                     // 列9: 必須
                     createCell(row, 9, metadata.required, dataStyle);
-                    // 則10: サンプル値
+                    // 列10: サンプル値
                     createCell(row, 10, metadata.sampleValue, dataStyle);
-                    // 則11: クラス名（ルックアップ用）
+                    // 列11: クラス名（ルックアップ用）
                     createCell(row, 11, classMeta.className, dataStyle);
-                    // 則12: Javaフィールド名
-                    createCell(row, 12, metadata.javaFieldName, dataStyle);
-                    // 則13: Java型
-                    createCell(row, 13, metadata.javaType, dataStyle);
-                    // 則14: 定義元クラス
-                    createCell(row, 14, metadata.sourceClass, dataStyle);
+                    // 列12: 完全修飾クラス名
+                    createCell(row, 12, classMeta.qualifiedName, dataStyle);
+                    // 列13: Javaフィールド名
+                    createCell(row, 13, metadata.javaFieldName, dataStyle);
+                    // 列14: Java型
+                    createCell(row, 14, metadata.javaType, dataStyle);
+                    // 列15: 定義元クラス
+                    createCell(row, 15, metadata.sourceClass, dataStyle);
                 }
 
                 // JSONイメージを出力
@@ -1314,8 +1316,8 @@ public class ModelParser {
 
             for (int i = startRowNum; i <= endRowNum; i++) {
                 Row row = sheet.createRow(i);
-                // 結合セルの各セルにもスタイルを適用（境界線のため）
-                for (int j = 0; j <= 9; j++) {
+                // 結合セルの各セルにもスタイルを適用（A～E列）
+                for (int j = 0; j <= 4; j++) {
                     Cell cell = row.createCell(j);
                     cell.setCellStyle(jsonStyle);
                     // 最初のセルの左上にのみ値を設定
@@ -1327,9 +1329,9 @@ public class ModelParser {
                 row.setHeightInPoints(15f);
             }
 
-            // セル結合（A～J列、縦10行）
+            // セル結合（A～E列、縦10行）
             sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(
-                    startRowNum, endRowNum, 0, 9));
+                    startRowNum, endRowNum, 0, 4));
 
             return endRowNum + 1;
         } catch (Exception e) {
