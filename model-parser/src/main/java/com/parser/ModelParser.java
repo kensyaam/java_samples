@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,7 +34,6 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
@@ -1454,7 +1454,7 @@ public class ModelParser {
      * フィールドメタデータからJSONイメージを生成する。
      */
     private String generateJsonImage(List<FieldMetadata> fields) throws Exception {
-        Map<String, Object> root = new HashMap<>();
+        Map<String, Object> root = new LinkedHashMap<>();
         ObjectMapper mapper = new ObjectMapper();
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
 
@@ -1495,14 +1495,15 @@ public class ModelParser {
                         k -> new ArrayList<>());
                 Map<String, Object> childMap;
                 if (list.isEmpty()) {
-                    childMap = new HashMap<>();
+                    childMap = new LinkedHashMap<>();
                     list.add(childMap);
                 } else {
                     childMap = list.get(0);
                 }
                 putValueByPath(childMap, parts[1], value);
             } else {
-                Map<String, Object> childMap = (Map<String, Object>) map.computeIfAbsent(key, k -> new HashMap<>());
+                Map<String, Object> childMap = (Map<String, Object>) map.computeIfAbsent(key,
+                        k -> new LinkedHashMap<>());
                 putValueByPath(childMap, parts[1], value);
             }
         }
@@ -1540,7 +1541,7 @@ public class ModelParser {
             case JSON_TYPE_ARRAY:
                 return new ArrayList<>();
             case JSON_TYPE_OBJECT:
-                return new HashMap<>();
+                return new LinkedHashMap<>();
             default:
                 return cleanValue;
         }
