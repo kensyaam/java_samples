@@ -131,10 +131,16 @@ public class AnalysisResult {
      * 要素が属するスコープ（クラス#メソッド(引数型)）を取得する。
      */
     private static String getScope(CtElement element) {
+        // 要素自身がCtMethodの場合（メソッドアノテーション等）
+        // getParent(CtMethod.class)は自分自身を含まないため、先にチェックする
+        if (element instanceof CtMethod<?>) {
+            return getMethodSignature((CtMethod<?>) element);
+        }
+
         // 親メソッドを探す
         CtMethod<?> parentMethod = element.getParent(CtMethod.class);
         if (parentMethod != null) {
-            // メソッドの場合は完全修飾名シグネチャを返す
+            // メソッド内の要素の場合は完全修飾名シグネチャを返す
             return getMethodSignature(parentMethod);
         }
 
