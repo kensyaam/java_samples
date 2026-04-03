@@ -43,6 +43,11 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
    - Javadocコメント（`/** ... */`）が記述されている場合はそれも抽出
    - CSV出力時には「定数名」、「値」、および「javadoc」のカラムが追加で分割出力されます
 
+9. **循環参照検出 (CircularDependencyAnalyzer)**
+   - クラス間のコンストラクタ、フィールド、セッターメソッド等の依存関係を静的に走査し、DI（依存性の注入）における依存関係グラフを構築します
+   - グラフ内を探索して循環参照サイクル（閉路）を検出し、そのサイクルパス（例: `A -> B -> C -> A`）を出力します
+   - レガシーシステム等も考慮し、`@Autowired` などの特定アノテーションの有無に関わらず関連し合うインジェクションポイント（特に `@Lazy` アノテーションによる解消候補となるセッター等）をすべて抽出・報告します
+
 ## 必要環境
 
 - Java 17以上
@@ -86,6 +91,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-tl, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
 | `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
 | `--extract-constant <classRegex>:<fieldRegex>` | 定数抽出対象パターン (クラス名と定数名をコロンで区切る) |
+| `-cd, --circular-dependency` | セッターインジェクション等による循環参照をチェックして抽出するフラグ |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -146,6 +152,12 @@ java -jar generic-analyzer.jar -s src -tc 'executeQuery' -f csv -o call_routes.c
 java -jar generic-analyzer.jar -s src --extract-constant '.*Constants.*:MAX_.*' -f csv -o constants.csv
 ```
 
+#### 循環参照の検出
+
+```bash
+java -jar generic-analyzer.jar -s src -cd
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -156,10 +168,11 @@ java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義, Circular Reference
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
+- **検出内容 (matchedElement)**: 循環参照が検出された場合など、具体的なサイクル経路 (`Cycle: ClassA -> ClassB -> ClassA`) や要素情報が含まれます
 
 ### 出力例
 
@@ -207,7 +220,8 @@ analyzer/
 │   ├── CallTrackingAnalyzer.java          # 呼び出しルート追跡
 │   ├── CallTrackingResult.java            # 呼び出しルート追跡出力フォーマット
 │   ├── ConstantExtractionAnalyzer.java    # 定数抽出
-│   └── ConstantExtractionResult.java      # 定数抽出出力フォーマット
+│   ├── ConstantExtractionResult.java      # 定数抽出出力フォーマット
+│   └── CircularDependencyAnalyzer.java    # 循環参照解析
 ```
 
 ## ライセンス

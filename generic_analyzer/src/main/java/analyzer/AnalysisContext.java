@@ -30,6 +30,9 @@ public class AnalysisContext {
     private Pattern constantClassPattern;
     private Pattern constantFieldPattern;
 
+    // 循環参照チェックを有効にするかどうかのフラグ
+    private boolean checkCircularDependency = false;
+
     // メソッド名・フィールド名のリスト
     private List<String> targetNames = new ArrayList<>();
 
@@ -104,6 +107,22 @@ public class AnalysisContext {
         if (fieldPattern != null && !fieldPattern.isEmpty()) {
             this.constantFieldPattern = Pattern.compile(fieldPattern);
         }
+    }
+
+    /**
+     * 循環参照チェックを有効にする。
+     *
+     * @param checkCircularDependency 有効にする場合はtrue
+     */
+    public void setCheckCircularDependency(boolean checkCircularDependency) {
+        this.checkCircularDependency = checkCircularDependency;
+    }
+
+    /**
+     * 循環参照チェックが有効かどうかを取得する。
+     */
+    public boolean isCheckCircularDependency() {
+        return checkCircularDependency;
     }
 
     /**
@@ -415,6 +434,8 @@ public class AnalysisContext {
         if (!trackReturnMethods.isEmpty())
             count++;
         if (!trackLocalVariables.isEmpty())
+            count++;
+        if (checkCircularDependency)
             count++;
         return count;
     }

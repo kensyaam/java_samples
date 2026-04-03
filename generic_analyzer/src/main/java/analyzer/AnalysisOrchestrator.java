@@ -69,4 +69,13 @@ public class AnalysisOrchestrator extends CtScanner {
     public AnalysisContext getContext() {
         return context;
     }
+
+    /**
+     * 全てのAST要素走査後、登録された全Analyzerの後処理フックを実行する。
+     */
+    public void postProcess() {
+        for (Analyzer analyzer : analyzers) {
+            analyzer.postProcess(context);
+        }
+    }
 }

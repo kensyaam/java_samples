@@ -22,4 +22,14 @@ public interface Analyzer {
      * @return カテゴリ名（例: "Type Usage", "Method Call"）
      */
     String getCategory();
+
+    /**
+     * 全ての要素のAST走査が完了した後に呼ばれる後処理フック。
+     * 収集した情報を元に依存グラフの解析などを実行する際に使用する。
+     *
+     * @param context 解析コンテキスト
+     */
+    default void postProcess(AnalysisContext context) {
+        // デフォルトでは何もしない
+    }
 }
