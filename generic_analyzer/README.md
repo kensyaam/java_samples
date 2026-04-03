@@ -52,6 +52,12 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
     - import文を使用せず、ソースコード内で直接クラスの完全修飾名（例: `java.util.List`）を指定して参照している箇所を検出します
     - 変数宣言やキャスト、`instanceof`、`new`、引数・戻り値など様々な記述に対応しています
 
+11. **クラス間依存関係の抽出・図式化 (ClassDependencyAnalyzer)**
+    - クラス間の依存関係（継承、インターフェース実装、フィールド保持）を静的に解析し、クラスレベルの依存関係グラフを生成します
+    - 出力フォーマットとして **Mermaid** (`-f mermaid`) と **PlantUML** (`-f plantuml`) に対応しており、VS Code拡張機能等で直接描画・プレビューできます
+    - `--exclude-dependency` オプションで除外するパッケージ/クラスを正規表現で指定可能（例: `com\.example\..*` で指定パッケージ以下を除外）
+    - `txt` / `csv` 形式でも依存関係の一覧を従来フォーマットで確認できます
+
 ## 必要環境
 
 - Java 17以上
@@ -97,8 +103,10 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `--extract-constant <classRegex>:<fieldRegex>` | 定数抽出対象パターン (クラス名と定数名をコロンで区切る) |
 | `-cd, --circular-dependency` | セッターインジェクション等による循環参照をチェックして抽出するフラグ |
 | `-fq, --fully-qualified` | フルパスでのクラス参照（完全修飾名指定）箇所を検出するフラグ |
+| `-cld, --class-dependency` | クラス間の依存関係（継承、実装、フィールド）を抽出するフラグ |
+| `--exclude-dependency <regex>` | 依存関係図から除外するパッケージ/クラスパターン (正規表現) |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
-| `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
+| `-f, --format <format>` | 出力フォーマット: txt, csv, mermaid, plantuml (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
 
 ### 使用例
@@ -169,6 +177,18 @@ java -jar generic-analyzer.jar -s src -cd
 java -jar generic-analyzer.jar -s src -fq
 ```
 
+#### クラス間依存関係の抽出（Mermaid形式）
+
+```bash
+java -jar generic-analyzer.jar -s src -cld -f mermaid -o dependency.md
+```
+
+#### クラス間依存関係の抽出（PlantUML形式、標準APIを除外）
+
+```bash
+java -jar generic-analyzer.jar -s src -cld --exclude-dependency 'com\.example\..*' -f plantuml -o dependency.puml
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -233,7 +253,8 @@ analyzer/
 │   ├── ConstantExtractionAnalyzer.java    # 定数抽出
 │   ├── ConstantExtractionResult.java      # 定数抽出出力フォーマット
 │   ├── CircularDependencyAnalyzer.java    # 循環参照解析
-│   └── FullyQualifiedNameUsageAnalyzer.java # フルパス（完全修飾名）参照検出
+│   ├── FullyQualifiedNameUsageAnalyzer.java # フルパス（完全修飾名）参照検出
+│   └── ClassDependencyAnalyzer.java       # クラス間依存関係抽出
 ```
 
 ## ライセンス

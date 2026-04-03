@@ -36,6 +36,18 @@ public class AnalysisContext {
     // 循環参照チェックを有効にするかどうかのフラグ
     private boolean checkCircularDependency = false;
 
+    // クラスレベルの依存関係グラフ出力（Mermaid/PlantUML）を有効にするかどうかのフラグ
+    private boolean checkClassDependency = false;
+
+    // クラスレベル依存関係図から除外するパッケージ/クラスの正規表現パターン
+    private Pattern excludeDependencyPattern;
+
+    // クラスの役割（INTERFACE, ABSTRACT, CLASS）を保持するマップ
+    private final java.util.Map<String, String> classRoles = new java.util.HashMap<>();
+
+    // クラス依存関係エッジのリスト
+    private final List<DependencyEdge> classDependencies = new ArrayList<>();
+
     // メソッド名・フィールド名のリスト
     private List<String> targetNames = new ArrayList<>();
 
@@ -142,6 +154,84 @@ public class AnalysisContext {
      */
     public boolean isCheckCircularDependency() {
         return checkCircularDependency;
+    }
+
+    /**
+     * クラス依存関係チェックを有効にする。
+     *
+     * @param checkClassDependency 有効にする場合はtrue
+     */
+    public void setCheckClassDependency(boolean checkClassDependency) {
+        this.checkClassDependency = checkClassDependency;
+    }
+
+    /**
+     * クラス依存関係チェックが有効かどうかを取得する。
+     */
+    public boolean isCheckClassDependency() {
+        return checkClassDependency;
+    }
+
+    /**
+     * クラス依存関係から除外するパターンを設定する。
+     *
+     * @param pattern 正規表現パターン
+     */
+    public void setExcludeDependencyPattern(String pattern) {
+        if (pattern != null && !pattern.isEmpty()) {
+            this.excludeDependencyPattern = Pattern.compile(pattern);
+        }
+    }
+
+    /**
+     * 除外するクラスパターンかどうかを判定する。
+     */
+    public boolean isExcludedDependency(String className) {
+        return excludeDependencyPattern != null && excludeDependencyPattern.matcher(className).find();
+    }
+
+    /**
+     * クラス依存関係を追加する。
+     */
+    public void addClassDependency(String fromClass, String toClass, String type) {
+        DependencyEdge edge = new DependencyEdge(fromClass, toClass, type);
+        // 重複チェック
+        if (!classDependencies.contains(edge)) {
+            classDependencies.add(edge);
+        }
+    }
+
+    /**
+     * クラス依存関係のリストを取得する。
+     */
+    public List<DependencyEdge> getClassDependencies() {
+        return classDependencies;
+    }
+
+    /**
+     * クラスの役割を追加する。
+     *
+     * @param className クラス名（完全修飾名推奨）
+     * @param role 役割 (INTERFACE, ABSTRACT, CLASS)
+     */
+    public void addClassRole(String className, String role) {
+        classRoles.put(className, role);
+    }
+
+    /**
+     * クラスの役割を取得する。
+     */
+    public String getClassRole(String className) {
+        return classRoles.getOrDefault(className, "CLASS");
+    }
+
+    /**
+     * 完全修飾名から単純名を取得する。
+     */
+    public String getSimpleClassName(String fqcn) {
+        if (fqcn == null) return "Unknown";
+        int lastDot = fqcn.lastIndexOf('.');
+        return lastDot == -1 ? fqcn : fqcn.substring(lastDot + 1);
     }
 
     /**
@@ -458,6 +548,8 @@ public class AnalysisContext {
             count++;
         if (checkFullyQualifiedName)
             count++;
+        if (checkClassDependency)
+            count++;
         return count;
     }
 
@@ -519,5 +611,144 @@ public class AnalysisContext {
             writer.println(result.toCsvLine());
         }
         writer.flush();
+    }
+
+    /**
+     * クラス依存関係をMermaid形式で出力する。
+     *
+     * @param writer 出力先
+     */
+    public void printResultsMermaid(PrintWriter writer) {
+        writer.println("```mermaid");
+        writer.println("classDiagram");
+
+        // クラス定義（ステレオタイプ）を出力
+        java.util.Set<String> allClasses = new java.util.HashSet<>();
+        for (DependencyEdge edge : classDependencies) {
+            allClasses.add(edge.fromClass);
+            allClasses.add(edge.toClass);
+        }
+
+        for (String className : allClasses) {
+            String role = getClassRole(className);
+            if ("INTERFACE".equals(role)) {
+                writer.println("    class " + className + " {");
+                writer.println("        <<interface>>");
+                writer.println("    }");
+            } else if ("ABSTRACT".equals(role)) {
+                writer.println("    class " + className + " {");
+                writer.println("        <<abstract>>");
+                writer.println("    }");
+            }
+        }
+
+        // 依存関係（矢印）を出力
+        for (DependencyEdge edge : classDependencies) {
+            String from = edge.fromClass;
+            String to = edge.toClass;
+            String link = "-->"; // デフォルト: 関連
+            String label = "";
+            switch (edge.type) {
+                case "EXTENDS":
+                    link = "--|>";
+                    break;
+                case "IMPLEMENTS":
+                    link = "..|>";
+                    break;
+                case "FIELD":
+                    link = "-->";
+                    label = " : field";
+                    break;
+            }
+            writer.println("    " + from + " " + link + " " + to + label);
+        }
+        writer.println("```");
+        writer.flush();
+    }
+
+    /**
+     * クラス依存関係をPlantUML形式で出力する。
+     *
+     * @param writer 出力先
+     */
+    public void printResultsPlantUML(PrintWriter writer) {
+        writer.println("@startuml");
+
+        // クラス定義を出力
+        java.util.Set<String> allClasses = new java.util.HashSet<>();
+        for (DependencyEdge edge : classDependencies) {
+            allClasses.add(edge.fromClass);
+            allClasses.add(edge.toClass);
+        }
+
+        for (String className : allClasses) {
+            String role = getClassRole(className);
+            if ("INTERFACE".equals(role)) {
+                writer.println("interface " + className);
+            } else if ("ABSTRACT".equals(role)) {
+                writer.println("abstract class " + className);
+            } else {
+                writer.println("class " + className);
+            }
+        }
+
+        // 依存関係（矢印）を出力
+        for (DependencyEdge edge : classDependencies) {
+            String from = edge.fromClass;
+            String to = edge.toClass;
+            String link = "-->"; // デフォルト: 関連
+            String label = "";
+            switch (edge.type) {
+                case "EXTENDS":
+                    link = "--|>";
+                    break;
+                case "IMPLEMENTS":
+                    link = "..|>";
+                    break;
+                case "FIELD":
+                    link = "-->";
+                    label = " : field";
+                    break;
+            }
+            if (label.isEmpty()) {
+                writer.println(from + " " + link + " " + to);
+            } else {
+                writer.println(from + " " + link + " " + to + label);
+            }
+        }
+        writer.println("@enduml");
+        writer.flush();
+    }
+
+    /**
+     * クラス依存関係エッジ
+     */
+    public static class DependencyEdge {
+        public final String fromClass;
+        public final String toClass;
+        public final String type;
+
+        public DependencyEdge(String fromClass, String toClass, String type) {
+            this.fromClass = fromClass;
+            this.toClass = toClass;
+            this.type = type;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+            if (o == null || getClass() != o.getClass())
+                return false;
+            DependencyEdge that = (DependencyEdge) o;
+            return fromClass.equals(that.fromClass) &&
+                    toClass.equals(that.toClass) &&
+                    type.equals(that.type);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(fromClass, toClass, type);
+        }
     }
 }

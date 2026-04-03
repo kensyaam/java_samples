@@ -10,6 +10,7 @@ import analyzer.impl.ConstantExtractionAnalyzer;
 import analyzer.impl.LocalVariableTrackingAnalyzer;
 import analyzer.impl.CircularDependencyAnalyzer;
 import analyzer.impl.FullyQualifiedNameUsageAnalyzer;
+import analyzer.impl.ClassDependencyAnalyzer;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
 
@@ -65,6 +66,8 @@ public class Main {
 
         boolean checkCircularDependency = false;
         boolean checkFullyQualifiedName = false;
+        boolean checkClassDependency = false;
+        String excludeDependencyPattern = null;
 
         // オプション解析
         for (int i = 0; i < args.length; i++) {
@@ -165,6 +168,15 @@ public class Main {
                 case "--fully-qualified":
                     checkFullyQualifiedName = true;
                     break;
+                case "-cld":
+                case "--class-dependency":
+                    checkClassDependency = true;
+                    break;
+                case "--exclude-dependency":
+                    if (i + 1 < args.length) {
+                        excludeDependencyPattern = args[++i];
+                    }
+                    break;
                 default:
                     // 不明なオプションは無視
                     break;
@@ -189,6 +201,8 @@ public class Main {
         context.setTrackCallPattern(trackCallPattern);
         context.setCheckCircularDependency(checkCircularDependency);
         context.setCheckFullyQualifiedName(checkFullyQualifiedName);
+        context.setCheckClassDependency(checkClassDependency);
+        context.setExcludeDependencyPattern(excludeDependencyPattern);
 
         if (extractConstantPattern != null) {
             String[] parts = extractConstantPattern.split(":", 2);
@@ -219,6 +233,8 @@ public class Main {
             System.out.println("  --extract-constant: 定数抽出対象パターン (<クラス正規表現>:<定数名正規表現>)");
             System.out.println("  -cd, --circular-dependency: 循環参照チェックを有効にする");
             System.out.println("  -fq, --fully-qualified: フルパスでのクラス参照箇所検出を有効にする");
+            System.out.println("  -cld, --class-dependency: クラスレベルの依存関係グラフ抽出を有効にする");
+            System.out.println("  --exclude-dependency: 依存関係グラフ抽出で除外するパッケージ/クラスパターン (正規表現)");
             System.out.println();
         }
 
@@ -272,6 +288,7 @@ public class Main {
         orchestrator.addAnalyzer(new ConstantExtractionAnalyzer());
         orchestrator.addAnalyzer(new CircularDependencyAnalyzer());
         orchestrator.addAnalyzer(new FullyQualifiedNameUsageAnalyzer());
+        orchestrator.addAnalyzer(new ClassDependencyAnalyzer());
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -301,7 +318,11 @@ public class Main {
             }
 
             // 結果出力
-            if ("csv".equals(format)) {
+            if ("mermaid".equals(format)) {
+                context.printResultsMermaid(writer);
+            } else if ("plantuml".equals(format)) {
+                context.printResultsPlantUML(writer);
+            } else if ("csv".equals(format)) {
                 context.printResultsCsv(writer);
             } else {
                 context.printResults(writer);
@@ -414,6 +435,8 @@ public class Main {
         System.out.println("                              例: 'com\\.example\\..*:[A-Z_]+'");
         System.out.println("  -cd, --circular-dependency  セッターインジェクション等による循環参照をチェックして抽出する");
         System.out.println("  -fq, --fully-qualified      フルパスでのクラス参照（完全修飾名指定）箇所を検出する");
+        System.out.println("  -cld, --class-dependency    クラス間の依存関係（継承、実装、フィールド）を抽出する");
+        System.out.println("  --exclude-dependency <regex> 依存関係図から除外するパッケージ/クラスパターンの正規表現");
         System.out.println();
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
@@ -423,7 +446,7 @@ public class Main {
         System.out.println();
         System.out.println("出力オプション:");
         System.out.println("  -o, --output <file>         出力ファイル名 (省略時は標準出力)");
-        System.out.println("  -f, --format <format>       出力フォーマット: txt, csv (デフォルト: txt)");
+        System.out.println("  -f, --format <format>       出力フォーマット: txt, csv, mermaid, plantuml (デフォルト: txt)");
         System.out.println("  --output-csv-encoding <enc> CSV出力のエンコーディング (デフォルト: windows-31j)");
         System.out.println();
         System.out.println("例:");
