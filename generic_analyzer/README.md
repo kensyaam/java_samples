@@ -48,6 +48,10 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
    - グラフ内を探索して循環参照サイクル（閉路）を検出し、そのサイクルパス（例: `A -> B -> C -> A`）を出力します
    - レガシーシステム等も考慮し、`@Autowired` などの特定アノテーションの有無に関わらず関連し合うインジェクションポイント（特に `@Lazy` アノテーションによる解消候補となるセッター等）をすべて抽出・報告します
 
+10. **完全修飾名 (フルパス) の参照検出 (FullyQualifiedNameUsageAnalyzer)**
+    - import文を使用せず、ソースコード内で直接クラスの完全修飾名（例: `java.util.List`）を指定して参照している箇所を検出します
+    - 変数宣言やキャスト、`instanceof`、`new`、引数・戻り値など様々な記述に対応しています
+
 ## 必要環境
 
 - Java 17以上
@@ -92,6 +96,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
 | `--extract-constant <classRegex>:<fieldRegex>` | 定数抽出対象パターン (クラス名と定数名をコロンで区切る) |
 | `-cd, --circular-dependency` | セッターインジェクション等による循環参照をチェックして抽出するフラグ |
+| `-fq, --fully-qualified` | フルパスでのクラス参照（完全修飾名指定）箇所を検出するフラグ |
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
@@ -158,6 +163,12 @@ java -jar generic-analyzer.jar -s src --extract-constant '.*Constants.*:MAX_.*' 
 java -jar generic-analyzer.jar -s src -cd
 ```
 
+#### 完全修飾名 (フルパス) の検出
+
+```bash
+java -jar generic-analyzer.jar -s src -fq
+```
+
 #### CSV形式でファイル出力
 
 ```bash
@@ -221,7 +232,8 @@ analyzer/
 │   ├── CallTrackingResult.java            # 呼び出しルート追跡出力フォーマット
 │   ├── ConstantExtractionAnalyzer.java    # 定数抽出
 │   ├── ConstantExtractionResult.java      # 定数抽出出力フォーマット
-│   └── CircularDependencyAnalyzer.java    # 循環参照解析
+│   ├── CircularDependencyAnalyzer.java    # 循環参照解析
+│   └── FullyQualifiedNameUsageAnalyzer.java # フルパス（完全修飾名）参照検出
 ```
 
 ## ライセンス

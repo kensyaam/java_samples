@@ -30,6 +30,9 @@ public class AnalysisContext {
     private Pattern constantClassPattern;
     private Pattern constantFieldPattern;
 
+    // フルパス（FQCN）直接参照チェックを有効にするかどうかのフラグ
+    private boolean checkFullyQualifiedName = false;
+
     // 循環参照チェックを有効にするかどうかのフラグ
     private boolean checkCircularDependency = false;
 
@@ -107,6 +110,22 @@ public class AnalysisContext {
         if (fieldPattern != null && !fieldPattern.isEmpty()) {
             this.constantFieldPattern = Pattern.compile(fieldPattern);
         }
+    }
+
+    /**
+     * フルパス参照チェックを有効にする。
+     *
+     * @param checkFullyQualifiedName 有効にする場合はtrue
+     */
+    public void setCheckFullyQualifiedName(boolean checkFullyQualifiedName) {
+        this.checkFullyQualifiedName = checkFullyQualifiedName;
+    }
+
+    /**
+     * フルパス参照チェックが有効かどうかを取得する。
+     */
+    public boolean isCheckFullyQualifiedName() {
+        return checkFullyQualifiedName;
     }
 
     /**
@@ -436,6 +455,8 @@ public class AnalysisContext {
         if (!trackLocalVariables.isEmpty())
             count++;
         if (checkCircularDependency)
+            count++;
+        if (checkFullyQualifiedName)
             count++;
         return count;
     }

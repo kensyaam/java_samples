@@ -9,6 +9,7 @@ import analyzer.impl.CallTrackingAnalyzer;
 import analyzer.impl.ConstantExtractionAnalyzer;
 import analyzer.impl.LocalVariableTrackingAnalyzer;
 import analyzer.impl.CircularDependencyAnalyzer;
+import analyzer.impl.FullyQualifiedNameUsageAnalyzer;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
 
@@ -63,6 +64,7 @@ public class Main {
         String format = DEFAULT_FORMAT;
 
         boolean checkCircularDependency = false;
+        boolean checkFullyQualifiedName = false;
 
         // オプション解析
         for (int i = 0; i < args.length; i++) {
@@ -159,6 +161,10 @@ public class Main {
                 case "--circular-dependency":
                     checkCircularDependency = true;
                     break;
+                case "-fq":
+                case "--fully-qualified":
+                    checkFullyQualifiedName = true;
+                    break;
                 default:
                     // 不明なオプションは無視
                     break;
@@ -182,6 +188,7 @@ public class Main {
         context.addTrackLocalVariables(trackLocalVariables);
         context.setTrackCallPattern(trackCallPattern);
         context.setCheckCircularDependency(checkCircularDependency);
+        context.setCheckFullyQualifiedName(checkFullyQualifiedName);
 
         if (extractConstantPattern != null) {
             String[] parts = extractConstantPattern.split(":", 2);
@@ -211,6 +218,7 @@ public class Main {
             System.out.println("  -tc, --track-call: 呼び出しルート追跡対象パターン (正規表現)");
             System.out.println("  --extract-constant: 定数抽出対象パターン (<クラス正規表現>:<定数名正規表現>)");
             System.out.println("  -cd, --circular-dependency: 循環参照チェックを有効にする");
+            System.out.println("  -fq, --fully-qualified: フルパスでのクラス参照箇所検出を有効にする");
             System.out.println();
         }
 
@@ -263,6 +271,7 @@ public class Main {
         orchestrator.addAnalyzer(new CallTrackingAnalyzer());
         orchestrator.addAnalyzer(new ConstantExtractionAnalyzer());
         orchestrator.addAnalyzer(new CircularDependencyAnalyzer());
+        orchestrator.addAnalyzer(new FullyQualifiedNameUsageAnalyzer());
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -404,6 +413,7 @@ public class Main {
         System.out.println("                              定数抽出対象パターン (クラス名と定数名をコロンで区切る)");
         System.out.println("                              例: 'com\\.example\\..*:[A-Z_]+'");
         System.out.println("  -cd, --circular-dependency  セッターインジェクション等による循環参照をチェックして抽出する");
+        System.out.println("  -fq, --fully-qualified      フルパスでのクラス参照（完全修飾名指定）箇所を検出する");
         System.out.println();
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
