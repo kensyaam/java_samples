@@ -1,0 +1,44 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.0.0-beta4'
+}
+
+group = 'modifier'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'fr.inria.gforge.spoon:spoon-core:11.2.1'
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+    implementation 'com.google.googlejavaformat:google-java-format:1.24.0'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    destinationDirectory = file('.')
+    manifest {
+        attributes(
+                'Main-Class': 'modifier.Main'
+        )
+    }
+}
+
+shadowJar {
+    archiveBaseName.set('java_modifier')
+    archiveVersion.set('')
+    archiveClassifier.set('')
+
+    // 出力先をプロジェクト直下に変更
+    destinationDirectory = file('.')
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
