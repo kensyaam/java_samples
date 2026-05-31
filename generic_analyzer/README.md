@@ -94,12 +94,20 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 
 ### オプション一覧
 
+#### 共通・環境オプション
 | オプション | 説明 |
 |-----------|------|
 | `-s, --source <dir,...>` | 解析対象のソースディレクトリ (カンマ区切りで複数指定可) |
 | `-cp, --classpath <path,...>` | クラスパス/JAR (カンマ区切りで複数指定可) |
 | `-cl, --compliance <level>` | Javaコンプライアンスレベル (デフォルト: 21) |
 | `-e, --encoding <enc>` | ソースエンコーディング (デフォルト: UTF-8) |
+| `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
+| `-f, --format <format>` | 出力フォーマット: txt, csv, mermaid, plantuml (デフォルト: txt) |
+| `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
+
+#### 個別解析オプション
+| オプション | 説明 |
+|-----------|------|
 | `-t, --type-pattern <regex>` | 型使用パターン (正規表現) |
 | `-l, --literal-pattern <regex>` | 文字列リテラルパターン (正規表現) |
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
@@ -112,9 +120,6 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-fq, --fully-qualified` | フルパスでのクラス参照（完全修飾名指定）箇所を検出するフラグ |
 | `-cld, --class-dependency` | クラス間の依存関係（継承、実装、フィールド）を抽出するフラグ |
 | `--exclude-dependency <regex>` | 依存関係図から除外するパッケージ/クラスパターン (正規表現) |
-| `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
-| `-f, --format <format>` | 出力フォーマット: txt, csv, mermaid, plantuml (デフォルト: txt) |
-| `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
 | `-sc, --string-concat` | 文字列結合（+演算子やStringBuilder）をチェックして抽出するフラグ |
 | `--exclude-partial-constants` | どちらか一方が定数の文字列結合箇所を除外するフラグ（-sc併用時のみ有効） |
 
