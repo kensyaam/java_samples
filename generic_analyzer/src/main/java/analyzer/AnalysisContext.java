@@ -39,6 +39,14 @@ public class AnalysisContext {
     // クラスレベルの依存関係グラフ出力（Mermaid/PlantUML）を有効にするかどうかのフラグ
     private boolean checkClassDependency = false;
 
+    // 文字列結合（+演算子やStringBuilder）をチェックするかどうかのフラグ
+    private boolean checkStringConcat = false;
+
+    // どちらか一方が定数の文字列結合箇所を除外するかどうかのフラグ
+    private boolean excludePartialConstants = false;
+
+
+
     // クラスレベル依存関係図から除外するパッケージ/クラスの正規表現パターン
     private Pattern excludeDependencyPattern;
 
@@ -171,6 +179,40 @@ public class AnalysisContext {
     public boolean isCheckClassDependency() {
         return checkClassDependency;
     }
+
+    /**
+     * 文字列結合チェックを有効にする。
+     *
+     * @param checkStringConcat 有効にする場合はtrue
+     */
+    public void setCheckStringConcat(boolean checkStringConcat) {
+        this.checkStringConcat = checkStringConcat;
+    }
+
+    /**
+     * 文字列結合チェックが有効かどうかを取得する。
+     */
+    public boolean isCheckStringConcat() {
+        return checkStringConcat;
+    }
+
+    /**
+     * どちらか一方が定数の文字列結合箇所を除外するかどうかを設定する。
+     *
+     * @param excludePartialConstants 除外する場合はtrue
+     */
+    public void setExcludePartialConstants(boolean excludePartialConstants) {
+        this.excludePartialConstants = excludePartialConstants;
+    }
+
+    /**
+     * どちらか一方が定数の文字列結合箇所を除外するかどうかを取得する。
+     */
+    public boolean isExcludePartialConstants() {
+        return excludePartialConstants;
+    }
+
+
 
     /**
      * クラス依存関係から除外するパターンを設定する。
@@ -366,11 +408,13 @@ public class AnalysisContext {
             if (filePath.startsWith(sourceDir)) {
                 // ソースディレクトリからの相対パスを計算
                 Path relativePath = sourceDir.relativize(filePath);
-                // Windowsのセパレータを/に統一
-                return relativePath.toString().replace('\\', '/');
+                String relStr = relativePath.toString().replace('\\', '/');
+                if (!relStr.isEmpty()) {
+                    return relStr;
+                }
             }
         }
-        // マッチしない場合はファイル名のみ
+        // マッチしない場合、または相対パスが空の場合はファイル名のみ
         return file.getName();
     }
 
@@ -550,7 +594,10 @@ public class AnalysisContext {
             count++;
         if (checkClassDependency)
             count++;
+        if (checkStringConcat)
+            count++;
         return count;
+
     }
 
     /**

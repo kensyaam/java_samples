@@ -11,7 +11,9 @@ import analyzer.impl.LocalVariableTrackingAnalyzer;
 import analyzer.impl.CircularDependencyAnalyzer;
 import analyzer.impl.FullyQualifiedNameUsageAnalyzer;
 import analyzer.impl.ClassDependencyAnalyzer;
+import analyzer.impl.StringConcatAnalyzer;
 import spoon.Launcher;
+
 import spoon.reflect.CtModel;
 
 import java.io.File;
@@ -67,7 +69,11 @@ public class Main {
         boolean checkCircularDependency = false;
         boolean checkFullyQualifiedName = false;
         boolean checkClassDependency = false;
+        boolean checkStringConcat = false;
+        boolean excludePartialConstants = false;
         String excludeDependencyPattern = null;
+
+
 
         // オプション解析
         for (int i = 0; i < args.length; i++) {
@@ -177,6 +183,15 @@ public class Main {
                         excludeDependencyPattern = args[++i];
                     }
                     break;
+                case "-sc":
+                case "--string-concat":
+                    checkStringConcat = true;
+                    break;
+                case "--exclude-partial-constants":
+                    excludePartialConstants = true;
+                    break;
+
+
                 default:
                     // 不明なオプションは無視
                     break;
@@ -202,7 +217,11 @@ public class Main {
         context.setCheckCircularDependency(checkCircularDependency);
         context.setCheckFullyQualifiedName(checkFullyQualifiedName);
         context.setCheckClassDependency(checkClassDependency);
+        context.setCheckStringConcat(checkStringConcat);
+        context.setExcludePartialConstants(excludePartialConstants);
         context.setExcludeDependencyPattern(excludeDependencyPattern);
+
+
 
         if (extractConstantPattern != null) {
             String[] parts = extractConstantPattern.split(":", 2);
@@ -235,7 +254,11 @@ public class Main {
             System.out.println("  -fq, --fully-qualified: フルパスでのクラス参照箇所検出を有効にする");
             System.out.println("  -cld, --class-dependency: クラスレベルの依存関係グラフ抽出を有効にする");
             System.out.println("  --exclude-dependency: 依存関係グラフ抽出で除外するパッケージ/クラスパターン (正規表現)");
+            System.out.println("  -sc, --string-concat: 文字列結合をチェックして抽出するフラグ");
+            System.out.println("  --exclude-partial-constants: どちらか一方が定数の結合箇所を除外するフラグ（-sc併用時のみ有効）");
             System.out.println();
+
+
         }
 
         // Spoon Launcherの設定
@@ -289,6 +312,8 @@ public class Main {
         orchestrator.addAnalyzer(new CircularDependencyAnalyzer());
         orchestrator.addAnalyzer(new FullyQualifiedNameUsageAnalyzer());
         orchestrator.addAnalyzer(new ClassDependencyAnalyzer());
+        orchestrator.addAnalyzer(new StringConcatAnalyzer());
+
 
         // 解析実行
         System.out.println("解析を実行中...");
@@ -437,7 +462,11 @@ public class Main {
         System.out.println("  -fq, --fully-qualified      フルパスでのクラス参照（完全修飾名指定）箇所を検出する");
         System.out.println("  -cld, --class-dependency    クラス間の依存関係（継承、実装、フィールド）を抽出する");
         System.out.println("  --exclude-dependency <regex> 依存関係図から除外するパッケージ/クラスパターンの正規表現");
+        System.out.println("  -sc, --string-concat        文字列結合（+演算子やStringBuilder）をチェックして抽出する");
+        System.out.println("  --exclude-partial-constants どちらか一方が定数の結合箇所を除外するフラグ（-sc併用時のみ有効）");
         System.out.println();
+
+
         System.out.println("環境オプション:");
         System.out.println("  -cp, --classpath <path,...> クラスパス (カンマ区切りで複数指定可)");
         System.out.println("                              ディレクトリを指定すると直下のJARも追加");

@@ -58,6 +58,13 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
     - `--exclude-dependency` オプションで除外するパッケージ/クラスを正規表現で指定可能（例: `com\.example\..*` で指定パッケージ以下を除外）
     - `txt` / `csv` 形式でも依存関係の一覧を従来フォーマットで確認できます
 
+12. **文字列結合の調査 (StringConcatAnalyzer)**
+    - 文字列の `+` 演算子による結合および `StringBuilder`/`StringBuffer` の `append` において、`null` 値が暗黙的に `"null"` 文字列として結合されてしまう危険な箇所を特定
+    - プリミティブ型変数、定数、例外構築メッセージ（`throw`文や例外クラスのコンストラクタ引数）、例外オブジェクト自身（例: `e` の結合）や例外メッセージ取得メソッド（例: `e.getMessage()` など）、および `null` 安全な三項演算子は自動的に除外
+    - `--exclude-partial-constants` オプションを併用することで、結合部分に定数（リテラルや static final 定数）が1つでも含まれる結合箇所を除外することが可能
+
+
+
 ## 必要環境
 
 - Java 17以上
@@ -108,6 +115,10 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-o, --output <file>` | 出力ファイル名 (省略時は標準出力) |
 | `-f, --format <format>` | 出力フォーマット: txt, csv, mermaid, plantuml (デフォルト: txt) |
 | `--output-csv-encoding <enc>` | CSV出力のエンコーディング (デフォルト: windows-31j) |
+| `-sc, --string-concat` | 文字列結合（+演算子やStringBuilder）をチェックして抽出するフラグ |
+| `--exclude-partial-constants` | どちらか一方が定数の文字列結合箇所を除外するフラグ（-sc併用時のみ有効） |
+
+
 
 ### 使用例
 
@@ -195,11 +206,26 @@ java -jar generic-analyzer.jar -s src -cld --exclude-dependency 'com\.example\..
 java -jar generic-analyzer.jar -s src -a Deprecated -f csv -o result.csv
 ```
 
+#### 危険な null 文字列結合箇所を検索
+
+```bash
+java -jar generic-analyzer.jar -s src -sc
+```
+
+#### 危険な null 文字列結合箇所を検索（部分的な定数結合を除外）
+
+```bash
+java -jar generic-analyzer.jar -s src -sc --exclude-partial-constants
+```
+
+
+
 ## 出力形式
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義, Circular Reference
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義, Circular Reference, String Concatenation
+
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか
 - **コードスニペット**: 検出した要素を含む親のステートメント全体
@@ -254,7 +280,9 @@ analyzer/
 │   ├── ConstantExtractionResult.java      # 定数抽出出力フォーマット
 │   ├── CircularDependencyAnalyzer.java    # 循環参照解析
 │   ├── FullyQualifiedNameUsageAnalyzer.java # フルパス（完全修飾名）参照検出
-│   └── ClassDependencyAnalyzer.java       # クラス間依存関係抽出
+│   ├── ClassDependencyAnalyzer.java       # クラス間依存関係抽出
+│   └── StringConcatAnalyzer.java          # 文字列結合調査
+
 ```
 
 ## ライセンス
