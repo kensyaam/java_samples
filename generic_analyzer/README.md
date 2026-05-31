@@ -63,7 +63,8 @@ Spoonライブラリを使用したJava静的解析CLIツールです。
     - プリミティブ型変数、定数、例外構築メッセージ（`throw`文や例外クラスのコンストラクタ引数）、例外オブジェクト自身（例: `e` の結合）や例外メッセージ取得メソッド（例: `e.getMessage()` など）、および `null` 安全な三項演算子は自動的に除外
     - `--exclude-partial-constants` オプションを併用することで、結合部分に定数（リテラルや static final 定数）が1つでも含まれる結合箇所を除外することが可能
 
-
+13. **非推奨要素(削除予定)の調査 (DeprecatedForRemovalAnalyzer)**
+    - `@Deprecated(forRemoval=true)` が付与されたクラス、インターフェース、メソッド、コンストラクタ、フィールドを使用（参照）している箇所を特定
 
 ## 必要環境
 
@@ -122,6 +123,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `--exclude-dependency <regex>` | 依存関係図から除外するパッケージ/クラスパターン (正規表現) |
 | `-sc, --string-concat` | 文字列結合（+演算子やStringBuilder）をチェックして抽出するフラグ |
 | `--exclude-partial-constants` | どちらか一方が定数の文字列結合箇所を除外するフラグ（-sc併用時のみ有効） |
+| `-dfr, --deprecated-for-removal` | `@Deprecated(forRemoval=true)` が付与された要素の使用箇所を抽出するフラグ |
 
 
 
@@ -235,13 +237,17 @@ java -jar generic-analyzer.jar -s src -sc
 java -jar generic-analyzer.jar -s src -sc --exclude-partial-constants
 ```
 
+#### @Deprecated(forRemoval=true) が付与された要素の使用箇所を検索
 
+```bash
+java -jar generic-analyzer.jar -s src -dfr
+```
 
 ## 出力形式
 
 検出結果には以下の情報が含まれます：
 
-- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義, Circular Reference, String Concatenation
+- **検出カテゴリ**: Type Usage, Method Call, Constructor Call, Field Access, Annotation, String Literal, Return Value Comparison, Local Variable Tracking, Call Route Tracking, 定数定義, Circular Reference, String Concatenation, Deprecated for Removal
 
 - **ファイル名と行番号**: 検出箇所のファイル名（解析対象ソースディレクトリからの相対パス）と行番号
 - **スコープ**: どのクラスのどのメソッド内で検出されたか

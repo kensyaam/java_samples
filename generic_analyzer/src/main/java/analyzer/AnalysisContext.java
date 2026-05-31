@@ -45,8 +45,8 @@ public class AnalysisContext {
     // どちらか一方が定数の文字列結合箇所を除外するかどうかのフラグ
     private boolean excludePartialConstants = false;
 
-
-
+    // @Deprecated(forRemoval=true) の使用チェックを有効にするかどうかのフラグ
+    private boolean checkDeprecatedForRemoval = false;
     // クラスレベル依存関係図から除外するパッケージ/クラスの正規表現パターン
     private Pattern excludeDependencyPattern;
 
@@ -212,7 +212,21 @@ public class AnalysisContext {
         return excludePartialConstants;
     }
 
+    /**
+     * @Deprecated(forRemoval=true) の使用チェックを有効にする。
+     *
+     * @param checkDeprecatedForRemoval 有効にする場合はtrue
+     */
+    public void setCheckDeprecatedForRemoval(boolean checkDeprecatedForRemoval) {
+        this.checkDeprecatedForRemoval = checkDeprecatedForRemoval;
+    }
 
+    /**
+     * @Deprecated(forRemoval=true) の使用チェックが有効かどうかを取得する。
+     */
+    public boolean isCheckDeprecatedForRemoval() {
+        return checkDeprecatedForRemoval;
+    }
 
     /**
      * クラス依存関係から除外するパターンを設定する。
@@ -632,6 +646,8 @@ public class AnalysisContext {
         if (checkClassDependency)
             count++;
         if (checkStringConcat)
+            count++;
+        if (checkDeprecatedForRemoval)
             count++;
         return count;
 

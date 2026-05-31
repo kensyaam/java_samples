@@ -12,6 +12,7 @@ import analyzer.impl.CircularDependencyAnalyzer;
 import analyzer.impl.FullyQualifiedNameUsageAnalyzer;
 import analyzer.impl.ClassDependencyAnalyzer;
 import analyzer.impl.StringConcatAnalyzer;
+import analyzer.impl.DeprecatedForRemovalAnalyzer;
 import spoon.Launcher;
 
 import spoon.reflect.CtModel;
@@ -71,6 +72,7 @@ public class Main {
         boolean checkClassDependency = false;
         boolean checkStringConcat = false;
         boolean excludePartialConstants = false;
+        boolean checkDeprecatedForRemoval = false;
         String excludeDependencyPattern = null;
 
 
@@ -190,6 +192,10 @@ public class Main {
                 case "--exclude-partial-constants":
                     excludePartialConstants = true;
                     break;
+                case "-dfr":
+                case "--deprecated-for-removal":
+                    checkDeprecatedForRemoval = true;
+                    break;
 
 
                 default:
@@ -219,6 +225,7 @@ public class Main {
         context.setCheckClassDependency(checkClassDependency);
         context.setCheckStringConcat(checkStringConcat);
         context.setExcludePartialConstants(excludePartialConstants);
+        context.setCheckDeprecatedForRemoval(checkDeprecatedForRemoval);
         context.setExcludeDependencyPattern(excludeDependencyPattern);
 
 
@@ -256,6 +263,7 @@ public class Main {
             System.out.println("  --exclude-dependency: 依存関係グラフ抽出で除外するパッケージ/クラスパターン (正規表現)");
             System.out.println("  -sc, --string-concat: 文字列結合をチェックして抽出するフラグ");
             System.out.println("  --exclude-partial-constants: どちらか一方が定数の結合箇所を除外するフラグ（-sc併用時のみ有効）");
+            System.out.println("  -dfr, --deprecated-for-removal: @Deprecated(forRemoval=true)が付与された要素の使用箇所を抽出するフラグ");
             System.out.println();
 
 
@@ -313,6 +321,7 @@ public class Main {
         orchestrator.addAnalyzer(new FullyQualifiedNameUsageAnalyzer());
         orchestrator.addAnalyzer(new ClassDependencyAnalyzer());
         orchestrator.addAnalyzer(new StringConcatAnalyzer());
+        orchestrator.addAnalyzer(new DeprecatedForRemovalAnalyzer());
 
 
         // 解析実行
@@ -464,6 +473,7 @@ public class Main {
         System.out.println("  --exclude-dependency <regex> 依存関係図から除外するパッケージ/クラスパターンの正規表現");
         System.out.println("  -sc, --string-concat        文字列結合（+演算子やStringBuilder）をチェックして抽出する");
         System.out.println("  --exclude-partial-constants どちらか一方が定数の結合箇所を除外するフラグ（-sc併用時のみ有効）");
+        System.out.println("  -dfr, --deprecated-for-removal @Deprecated(forRemoval=true)が付与された要素の使用箇所を抽出する");
         System.out.println();
 
 
@@ -487,6 +497,9 @@ public class Main {
         System.out.println();
         System.out.println("  # @Deprecatedアノテーションの使用箇所を検索");
         System.out.println("  java -jar analyzer.jar -s src -a Deprecated");
+        System.out.println();
+        System.out.println("  # @Deprecated(forRemoval=true)が付与された要素の使用箇所を検索");
+        System.out.println("  java -jar analyzer.jar -s src -dfr");
         System.out.println();
         System.out.println("  # 複数の解析を同時実行");
         System.out.println("  java -jar analyzer.jar -s src -t 'java\\.sql\\..*' -n executeQuery -l 'SELECT'");
