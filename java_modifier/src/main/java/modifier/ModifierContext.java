@@ -33,6 +33,8 @@ public class ModifierContext {
     private String addAnnotationTypeRegex;
     private String addAnnotationTypeFqcn;
 
+    private final List<AnnotationRule> addAnnotationTypeFileRules = new ArrayList<>();
+
     private String replaceAnnotationOldRegex;
     private String replaceAnnotationNewFqcn;
 
@@ -40,6 +42,24 @@ public class ModifierContext {
 
     private String addAnnotationByAnnotationTargetRegex;
     private String addAnnotationByAnnotationFqcn;
+
+    public static class AnnotationRule {
+        private final String regex;
+        private final String annFqcn;
+
+        public AnnotationRule(String regex, String annFqcn) {
+            this.regex = regex;
+            this.annFqcn = annFqcn;
+        }
+
+        public String getRegex() {
+            return regex;
+        }
+
+        public String getAnnFqcn() {
+            return annFqcn;
+        }
+    }
 
     public void addSourceDir(String dir) {
         this.sourceDirs.add(dir);
@@ -161,6 +181,14 @@ public class ModifierContext {
         return addAnnotationTypeFqcn;
     }
 
+    public void addAnnotationTypeFileRule(String regex, String fqcn) {
+        this.addAnnotationTypeFileRules.add(new AnnotationRule(regex, fqcn));
+    }
+
+    public List<AnnotationRule> getAddAnnotationTypeFileRules() {
+        return addAnnotationTypeFileRules;
+    }
+
     public void setReplaceAnnotation(String oldRegex, String newFqcn) {
         this.replaceAnnotationOldRegex = oldRegex;
         this.replaceAnnotationNewFqcn = newFqcn;
@@ -205,6 +233,7 @@ public class ModifierContext {
                 fqcnToImportRegex != null ||
                 addAnnotationFieldRegex != null ||
                 addAnnotationTypeRegex != null ||
+                !addAnnotationTypeFileRules.isEmpty() ||
                 replaceAnnotationOldRegex != null ||
                 removeAnnotationRegex != null ||
                 addAnnotationByAnnotationTargetRegex != null;

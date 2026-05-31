@@ -114,8 +114,8 @@ public class OutputManager {
             sniperPrinter.calculate(cu, java.util.Collections.singletonList(type));
             String printedCode = sniperPrinter.getResult();
 
-            // 生成コードの構文チェック
-            if (!isValidSyntax(printedCode)) {
+            // 生成コードの構文チェックおよびアノテーション配置チェック
+            if (!isValidSyntax(printedCode) || hasBadAnnotationPlacement(printedCode)) {
                 return false;
             }
 
@@ -124,8 +124,17 @@ public class OutputManager {
             return true;
         } catch (Exception e) {
             // 例外発生時は破損とみなす
+            System.err.println("Sniper print failed with exception: " + e.getMessage());
+            e.printStackTrace();
             return false;
         }
+    }
+
+    private boolean hasBadAnnotationPlacement(String code) {
+        // アノテーションの直後に Javadocコメント (/**) が来ている不正な配置を検出
+        // 例: @java.lang.Deprecated/**
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("@[a-zA-Z0-9_.]+(?:\\([^)]*\\))?\\s*/\\*\\*");
+        return p.matcher(code).find();
     }
 
     private void recoverAndPrint(CompilationUnit cu, CtType<?> type, File targetFile) {
@@ -145,12 +154,56 @@ public class OutputManager {
                 formattedCode = printedCode;
             }
 
+            // 完全修飾名（FQCN）を展開された箇所を、インポート情報に基づき簡易名へ事後置換する
+            formattedCode = simplifyFullyQualifiedNames(formattedCode);
+
             // 出力
             writeCode(formattedCode, targetFile);
         } catch (Exception e) {
             System.err.println("ERROR: リカバリ出力にも失敗しました: " + type.getQualifiedName());
             e.printStackTrace();
         }
+    }
+
+    private String simplifyFullyQualifiedNames(String code) {
+        // 1. インポート文を解析して、インポートされているFQCNのリストを取得
+        java.util.List<String> imports = new java.util.ArrayList<>();
+        java.util.regex.Pattern importPattern = java.util.regex.Pattern.compile("^\\s*import\\s+([a-zA-Z0-9_.]+)\\s*;");
+        String[] lines = code.split("\\r?\\n");
+        for (String line : lines) {
+            java.util.regex.Matcher m = importPattern.matcher(line);
+            if (m.find()) {
+                imports.add(m.group(1));
+            }
+        }
+
+        // java.lang の基本クラスも暗黙的インポートとして追加
+        imports.add("java.lang.Deprecated");
+        imports.add("java.lang.String");
+        imports.add("java.lang.Object");
+        imports.add("java.lang.System");
+        imports.add("java.lang.SuppressWarnings");
+        imports.add("java.lang.Override");
+
+        // 2. 行ごとに置換処理 (import行やpackage行はスキップ)
+        java.util.List<String> resultLines = new java.util.ArrayList<>();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("import ") || trimmed.startsWith("package ")) {
+                resultLines.add(line);
+                continue;
+            }
+
+            String processedLine = line;
+            for (String fqcn : imports) {
+                String simpleName = fqcn.substring(fqcn.lastIndexOf('.') + 1);
+                String escapedFqcn = java.util.regex.Pattern.quote(fqcn);
+                processedLine = processedLine.replaceAll("\\b" + escapedFqcn + "\\b", simpleName);
+            }
+            resultLines.add(processedLine);
+        }
+
+        return String.join(context.getNewline(), resultLines);
     }
 
     private boolean isValidSyntax(String sourceCode) {

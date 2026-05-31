@@ -110,6 +110,35 @@ public class Main {
                         }
                     }
                     break;
+                case "--add-annotation-type-file":
+                    if (i + 1 < args.length) {
+                        String[] parts = args[++i].split(":");
+                        if (parts.length == 2) {
+                            String filePath = parts[0];
+                            String annFqcn = parts[1];
+                            File file = new File(filePath);
+                            if (!file.exists()) {
+                                System.err.println("エラー: 指定されたファイルが存在しません: " + filePath);
+                                return;
+                            }
+                            try {
+                                List<String> lines = java.nio.file.Files.readAllLines(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+                                for (String line : lines) {
+                                    String trimmed = line.trim();
+                                    if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                                        context.addAnnotationTypeFileRule(trimmed, annFqcn);
+                                    }
+                                }
+                            } catch (java.io.IOException e) {
+                                System.err.println("エラー: ファイルの読み込みに失敗しました: " + filePath + " (" + e.getMessage() + ")");
+                                return;
+                            }
+                        } else {
+                            System.err.println("エラー: --add-annotation-type-file オプションの形式が不正です。 <filePath>:<annFqcn> の形式で指定してください。");
+                            return;
+                        }
+                    }
+                    break;
                 case "--replace-annotation":
                     if (i + 1 < args.length) {
                         String[] parts = args[++i].split(":");
@@ -240,6 +269,7 @@ public class Main {
         System.out.println("  --fqcn-to-import <regex>");
         System.out.println("  --add-annotation-field <typeRegex:annFqcn>");
         System.out.println("  --add-annotation-type <regex:annFqcn>");
+        System.out.println("  --add-annotation-type-file <file:annFqcn>");
         System.out.println("  --replace-annotation <regex:annFqcn>");
         System.out.println("  --remove-annotation <regex>");
         System.out.println("  --add-annotation-by-annotation <targetRegex:annFqcn>");

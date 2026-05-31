@@ -71,6 +71,8 @@ java -jar java_modifier.jar [オプション]
   指定された型の正規表現にマッチするフィールドに対してアノテーションを付与します。
 - `--add-annotation-type <classOrMethodRegex>:<annFqcn>`
   指定された正規表現の名前を持つクラス・インタフェース・メソッドに対してアノテーションを付与します。
+- `--add-annotation-type-file <filePath>:<annFqcn>`
+  改行区切りで正規表現パターンが記載されたテキストファイル `<filePath>` を読み込み、それらに一致するクラス・インタフェース・メソッドに対してアノテーションを付与します。
 - `--replace-annotation <oldAnnRegex>:<newAnnFqcn>`
   既存のアノテーションのうち、正規表現に完全一致するものを新しいアノテーション（FQCN）に置換します。
 - `--remove-annotation <annRegex>`
