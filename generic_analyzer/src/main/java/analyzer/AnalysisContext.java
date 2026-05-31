@@ -453,6 +453,43 @@ public class AnalysisContext {
     }
 
     /**
+     * 対象アノテーションリストに含まれるか確認する。
+     * 従来通りのアノテーション名（完全修飾名または単純名）による完全一致か、
+     * またはアノテーション全体の文字列表現（引数含む）に対する正規表現マッチングで判定する。
+     */
+    public boolean isTargetAnnotation(spoon.reflect.declaration.CtAnnotation<?> annotation) {
+        if (annotation == null || annotation.getAnnotationType() == null) {
+            return false;
+        }
+        String annotationName = annotation.getAnnotationType().getQualifiedName();
+        String annotationStr = annotation.toString();
+
+        for (String target : targetAnnotations) {
+            // 1. 従来通りの完全一致（完全修飾名または末尾の単純名一致）
+            if (annotationName.equals(target) || annotationName.endsWith("." + target)) {
+                return true;
+            }
+
+            // 2. 正規表現によるマッチング
+            try {
+                Pattern p = Pattern.compile(target);
+                // アノテーション全体の文字列表現（例: @java.lang.SuppressWarnings("all")）に対してマッチ
+                if (p.matcher(annotationStr).find()) {
+                    return true;
+                }
+                // @プレフィックスを除去した文字列に対してもマッチ（ユーザーが@を省略して正規表現を指定した場合のため）
+                String rawAnnotationStr = annotationStr.startsWith("@") ? annotationStr.substring(1) : annotationStr;
+                if (p.matcher(rawAnnotationStr).find()) {
+                    return true;
+                }
+            } catch (java.util.regex.PatternSyntaxException e) {
+                // 正規表現として無効な場合は無視して次のパターンへ
+            }
+        }
+        return false;
+    }
+
+    /**
      * 解析結果を追加する。
      * 重複（カテゴリ+ファイル名+行番号+検出内容が同一）は除外する。
      */

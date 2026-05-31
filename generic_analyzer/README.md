@@ -111,7 +111,7 @@ java -jar generic-analyzer.jar -s <ソースディレクトリ> [解析オプシ
 | `-t, --type-pattern <regex>` | 型使用パターン (正規表現) |
 | `-l, --literal-pattern <regex>` | 文字列リテラルパターン (正規表現) |
 | `-n, --names <name,...>` | メソッド/フィールド名 (カンマ区切り) |
-| `-a, --annotations <ann,...>` | アノテーション名 (カンマ区切り) |
+| `-a, --annotations <ann,...>` | アノテーション名（カンマ区切り、引数を含む正規表現指定も可能） |
 | `-tr, --track-return <method,...>` | 戻り値追跡対象メソッド名 (カンマ区切り) |
 | `-tl, --track-local-var <var,...>` | ローカル変数追跡対象変数名 (カンマ区切り) |
 | `-tc, --track-call <regex>` | 呼び出しルート追跡対象パターン (正規表現) |
@@ -143,6 +143,18 @@ java -jar generic-analyzer.jar -s src -l 'SELECT.*FROM'
 
 ```bash
 java -jar generic-analyzer.jar -s src -a Deprecated
+```
+
+#### 引数を含めたアノテーションの正規表現検索（例: @SuppressWarnings("all") のみ検出）
+
+```bash
+java -jar generic-analyzer.jar -s src -a "SuppressWarnings\(.*all.*\)"
+```
+
+#### 引数を含めたアノテーションの正規表現検索（例: @Deprecated(forRemoval=true) のみ検出）
+
+```bash
+java -jar generic-analyzer.jar -s src -a "Deprecated\(forRemoval\s*=\s*true\)"
 ```
 
 #### 特定のメソッド呼び出しを検索

@@ -33,9 +33,7 @@ public class AnnotationAnalyzer implements Analyzer {
         // 1. 直接付与されているアノテーションの検出
         if (element instanceof CtAnnotation<?>) {
             CtAnnotation<? extends Annotation> annotation = (CtAnnotation<? extends Annotation>) element;
-            String annotationName = annotation.getAnnotationType().getQualifiedName();
-
-            if (context.isTargetAnnotation(annotationName)) {
+            if (context.isTargetAnnotation(annotation)) {
                 // アノテーションが付与されている対象を特定
                 CtElement annotatedElement = annotation.getAnnotatedElement();
                 String targetDescription = getTargetDescription(annotatedElement);
@@ -80,8 +78,7 @@ public class AnnotationAnalyzer implements Analyzer {
         if (originalType != currentType) {
             for (CtAnnotation<? extends Annotation> annotation : currentType.getAnnotations()) {
                 if (annotation.getAnnotationType() != null) {
-                    String annotationName = annotation.getAnnotationType().getQualifiedName();
-                    if (context.isTargetAnnotation(annotationName)) {
+                    if (context.isTargetAnnotation(annotation)) {
                         String targetDescription = getTargetDescription(originalType);
                         String inheritedFromName = currentType.getSimpleName();
 
@@ -142,8 +139,7 @@ public class AnnotationAnalyzer implements Analyzer {
                 if (originalMethod.getSignature().equals(inheritedMethod.getSignature())) {
                     for (CtAnnotation<? extends Annotation> annotation : inheritedMethod.getAnnotations()) {
                         if (annotation.getAnnotationType() != null) {
-                            String annotationName = annotation.getAnnotationType().getQualifiedName();
-                            if (context.isTargetAnnotation(annotationName)) {
+                            if (context.isTargetAnnotation(annotation)) {
                                 String targetDescription = getTargetDescription(originalMethod);
                                 String inheritedFromName = currentType.getSimpleName() + "."
                                         + inheritedMethod.getSimpleName() + "()";
